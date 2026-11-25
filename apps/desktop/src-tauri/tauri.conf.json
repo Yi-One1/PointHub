@@ -49,7 +49,12 @@
           "SimpChinese",
           "English"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "./windows/hooks.nsh",
+        "customLanguageFiles": {
+          "SimpChinese": "./windows/SimpChinese.nsh",
+          "English": "./windows/English.nsh"
+        }
       }
     }
   }

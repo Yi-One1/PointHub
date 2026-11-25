@@ -11,6 +11,8 @@ pub mod browser_login;
 pub mod lan;
 pub mod commands;
 pub mod login;
+#[cfg(all(desktop, windows))]
+pub mod purge;
 
 #[cfg_attr(mobile, allow(unused_imports))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,6 +66,13 @@ fn mobile_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[cfg_attr(mobile, allow(unused_variables))]
 pub fn run() {
+    // 卸载清理：安装包钩子会在删程序文件前带参数启动本 exe。
+    // 必须在 Engine::open 之前退出，否则打开引擎会重新创建数据目录。
+    #[cfg(all(desktop, windows))]
+    if let Some(mode) = purge_mode_arg() {
+        std::process::exit(purge::run(mode));
+    }
+
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -202,6 +211,19 @@ fn data_dir_arg() -> Option<std::path::PathBuf> {
             if !rest.trim().is_empty() {
                 return Some(std::path::PathBuf::from(rest));
             }
+        }
+    }
+    None
+}
+
+/// 解析卸载清理参数：`--purge-data` 删账号数据，`--purge-app` 只删应用痕迹。
+#[cfg(all(desktop, windows))]
+fn purge_mode_arg() -> Option<purge::Mode> {
+    for a in std::env::args().skip(1) {
+        match a.as_str() {
+            "--purge-data" => return Some(purge::Mode::Data),
+            "--purge-app" => return Some(purge::Mode::AppOnly),
+            _ => {}
         }
     }
     None

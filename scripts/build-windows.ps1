@@ -19,9 +19,14 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
+
+.EXAMPLE
+    # The portable exe for this version already exists in dist\; only build the setup.
+    powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -InstallerOnly
 #>
 param(
     [switch]$Installer,
+    [switch]$InstallerOnly,
     [switch]$SkipTests
 )
 
@@ -95,13 +100,16 @@ $srcExe = Join-Path $root "apps/desktop/src-tauri/target/release/pointhub.exe"
 if (-not (Test-Path $srcExe)) { throw "Build output not found: $srcExe" }
 
 $portable = Join-Path $distDir "$baseName.exe"
+if ($InstallerOnly) {
+    Write-Host "  portable: skipped (-InstallerOnly)" -ForegroundColor Yellow
+} else {
 # dist holds shipped history: never overwrite, never delete.
 if (Test-Path $portable) {
     throw @"
 Refusing to overwrite an existing artifact:
   $portable
 
-Files under dist\ are released history and must not be replaced.
+Files under dist\ are treated as released history and must not be replaced.
 Bump the version first (Cargo.toml -> [workspace.package] version), then rebuild:
   before 1.0.0: new feature = +MINOR, bug fix = +PATCH, breaking change = +MINOR
 "@
@@ -109,9 +117,10 @@ Bump the version first (Cargo.toml -> [workspace.package] version), then rebuild
 Copy-Item $srcExe $portable
 $sizeMb = [math]::Round((Get-Item $portable).Length / 1MB, 1)
 Write-Host "  portable: $portable ($sizeMb MB)" -ForegroundColor Green
+}
 
 # --- 4. optional installer --------------------------------------------------
-if ($Installer) {
+if ($Installer -or $InstallerOnly) {
     Write-Host "[4/4] Building installer..." -ForegroundColor Cyan
     Push-Location (Join-Path $root "apps/desktop/src-tauri")
     npx --yes @tauri-apps/cli build --bundles nsis

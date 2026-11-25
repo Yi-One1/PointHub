@@ -37,6 +37,10 @@ rand = "0.8"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
 
+# 卸载清理要读/删 HKCU Run 里的自启项
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

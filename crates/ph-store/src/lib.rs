@@ -16,7 +16,7 @@ pub mod locate {
     use super::*;
     use std::path::PathBuf;
 
-    const POINTER: &str = "location.json";
+    pub(crate) const POINTER: &str = "location.json";
 
     /// 系统默认数据目录（不含自定义）。
     pub fn default_dir() -> PathBuf {
@@ -49,7 +49,15 @@ pub mod locate {
 
     /// 读取指针文件里记录的自定义目录。
     pub fn read_pointer() -> Option<PathBuf> {
-        let raw = std::fs::read_to_string(pointer_path()).ok()?;
+        read_pointer_in(&default_dir())
+    }
+
+    /// 从指定的默认目录读取指针文件。
+    ///
+    /// 单独开一个带参数的版本：卸载清理时默认目录可能马上要被删掉，
+    /// 必须先把指针读出来；测试也不能依赖真实的 `%LOCALAPPDATA%`。
+    pub fn read_pointer_in(default: &Path) -> Option<PathBuf> {
+        let raw = std::fs::read_to_string(default.join(POINTER)).ok()?;
         let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
         v.get("data_dir")
             .and_then(|s| s.as_str())
@@ -100,6 +108,120 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     }
     std::fs::rename(&tmp, path).map_err(|e| Error::Io(e.to_string()))?;
     Ok(())
+}
+
+/// 卸载清理。
+///
+/// 安装包的 NSIS 钩子会在删除程序文件前调用 `pointhub.exe --purge-data`，
+/// 这里负责判断「要删哪些目录、目录里哪些文件属于账号数据」。
+///
+/// 为什么不把整个数据目录 `remove_dir_all`：安装包的默认安装目录是
+/// `%LOCALAPPDATA%\PointHub`，和默认数据目录是同一个路径。删整个目录会
+/// 把正在运行的 `pointhub.exe` 自己也删掉，`remove_dir_all` 中途失败，
+/// 后面的账号文件反而可能留下。只删白名单里的数据文件，程序文件留给卸载器，
+/// 顺序才是确定的。
+pub mod purge {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[derive(Debug, Default)]
+    pub struct Report {
+        /// 成功删掉的路径数（文件/子目录都算一个）。
+        pub removed: usize,
+        pub failed: Vec<(PathBuf, String)>,
+    }
+
+    /// 要清理的数据目录，顺序固定：先指针指向的自定义目录，再默认目录，最后额外目录。
+    ///
+    /// 必须在默认目录还在时读指针；把默认目录删了再读就找不到自定义位置了。
+    pub fn data_dirs(default_dir: &Path, extra: &[PathBuf]) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = Vec::new();
+        // 盘符根目录/空路径不能删：自定义目录可能被填成 `D:\`。
+        if let Some(custom) = super::locate::read_pointer_in(default_dir) {
+            push_unique(&mut out, custom);
+        }
+        push_unique(&mut out, default_dir.to_path_buf());
+        for e in extra {
+            push_unique(&mut out, e.clone());
+        }
+        out
+    }
+
+    fn push_unique(out: &mut Vec<PathBuf>, p: PathBuf) {
+        if !safe_target(&p) || out.contains(&p) {
+            return;
+        }
+        out.push(p);
+    }
+
+    fn safe_target(p: &Path) -> bool {
+        !p.as_os_str().is_empty() && p.parent().is_some()
+    }
+
+    /// 删除数据目录里的账号数据；未知文件一律保留。
+    ///
+    /// 幂等：目录/文件不存在时直接跳过，重复调用不会报错。
+    pub fn purge_data_dirs(dirs: &[PathBuf]) -> Report {
+        let mut r = Report::default();
+        for dir in dirs {
+            purge_one(dir, &mut r);
+        }
+        r
+    }
+
+    fn purge_one(dir: &Path, r: &mut Report) {
+        if !dir.exists() {
+            return;
+        }
+        for name in DATA_FILES {
+            let p = dir.join(name);
+            if !p.exists() {
+                continue;
+            }
+            match std::fs::remove_file(&p) {
+                Ok(()) => r.removed += 1,
+                Err(e) => r.failed.push((p, e.to_string())),
+            }
+        }
+        for name in DATA_DIRS {
+            let p = dir.join(name);
+            if !p.exists() {
+                continue;
+            }
+            match std::fs::remove_dir_all(&p) {
+                Ok(()) => r.removed += 1,
+                Err(e) => r.failed.push((p, e.to_string())),
+            }
+        }
+        // 只删空目录：默认目录同时也是安装目录时，exe 还在，这里会失败且不应算错。
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    /// 账号数据的文件名。新增数据文件时记得同步这里，否则卸载会留下它。
+    const DATA_FILES: &[&str] = &[
+        files::ACCOUNTS,
+        files::SETTINGS,
+        files::VAULT,
+        files::HISTORY,
+        files::EVENTS,
+        files::DEVICE,
+        files::DEVICES,
+        files::TOMBSTONES,
+        files::CLIENT,
+        locate::POINTER,
+        // 设置损坏时另存的文件，以及原子写的中间文件。
+        "settings.broken.json",
+        "settings.tmp",
+        "location.tmp",
+    ];
+
+    /// 账号数据的子目录。
+    const DATA_DIRS: &[&str] = &[
+        files::LOGS_DIR,
+        files::UPDATES_DIR,
+        // 浏览器登录用过的 profile（旧版本/手工创建），里面可能留登录态。
+        "browser-profile",
+    ];
 }
 
 /// 数据仓。
@@ -575,6 +697,62 @@ mod tests {
         assert_eq!(s.load_tombstones().unwrap().len(), 1);
         s.clear_tombstone("a1").unwrap();
         assert!(s.load_tombstones().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_removes_only_data_and_is_idempotent() {
+        let default = tmpdir("purge-default");
+        let custom = tmpdir("purge-custom");
+
+        // 模拟「安装目录 = 默认数据目录」：程序文件和数据文件混在一起。
+        std::fs::write(default.join("accounts.json"), "{}").unwrap();
+        std::fs::write(default.join("settings.broken.json"), "{}").unwrap();
+        std::fs::write(default.join("pointhub.exe"), "binary").unwrap();
+        std::fs::create_dir(default.join("logs")).unwrap();
+        std::fs::write(default.join("logs/a.log"), "x").unwrap();
+        let pointer = serde_json::json!({ "data_dir": custom }).to_string();
+        std::fs::write(default.join("location.json"), pointer).unwrap();
+
+        std::fs::write(custom.join("history.jsonl"), "x").unwrap();
+        std::fs::write(custom.join("notes.txt"), "用户的其它文件").unwrap();
+
+        let dirs = purge::data_dirs(&default, &[]);
+        assert_eq!(dirs.len(), 2, "默认目录与指针目录都要清");
+        assert_eq!(dirs[0], custom, "先清自定义目录，再清默认目录");
+
+        let r = purge::purge_data_dirs(&dirs);
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+        assert!(!default.join("accounts.json").exists());
+        assert!(!default.join("settings.broken.json").exists());
+        assert!(!default.join("location.json").exists());
+        assert!(!default.join("logs").exists());
+        // 程序文件不归这里删：卸载器还要用它清理，删了会删到正在运行的自己。
+        assert!(default.join("pointhub.exe").exists());
+
+        assert!(!custom.join("history.jsonl").exists());
+        // 未知文件保守保留，避免用户自定义目录里误删无关内容。
+        assert!(custom.join("notes.txt").exists());
+
+        // 幂等：第二次没有可删的东西，也不报错。
+        let again = purge::purge_data_dirs(&purge::data_dirs(&default, &[]));
+        assert!(again.failed.is_empty());
+        assert_eq!(again.removed, 0);
+
+        let _ = std::fs::remove_dir_all(&default);
+        let _ = std::fs::remove_dir_all(&custom);
+    }
+
+    #[test]
+    fn purge_refuses_drive_root_and_dedups() {
+        let root = std::path::Path::new(if cfg!(windows) { "C:\\" } else { "/" });
+        assert!(purge::data_dirs(root, &[]).is_empty(), "盘符根目录不能作为清理目标");
+
+        let dir = tmpdir("purge-dedup");
+        let extra = vec![dir.clone(), dir.clone()];
+        let dirs = purge::data_dirs(&dir, &extra);
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0], dir);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -30,6 +30,15 @@ pub struct WorkBuddyProvider {
     client: reqwest::Client,
 }
 
+/// 浏览器授权拿到的令牌与 UA 绑定：抓取时用的 UA 必须原样回放，
+/// 否则网关会把请求当成「换了个客户端」而拒绝。
+fn with_ua(rb: reqwest::RequestBuilder, cred: &Credential) -> reqwest::RequestBuilder {
+    match cred.user_agent.as_deref() {
+        Some(ua) if !ua.trim().is_empty() => rb.header(reqwest::header::USER_AGENT, ua.trim()),
+        _ => rb,
+    }
+}
+
 impl WorkBuddyProvider {
     pub fn new() -> Self {
         Self {
@@ -76,10 +85,7 @@ impl WorkBuddyProvider {
         let base = Self::signin_base(cred);
         let url = format!("{base}/v2/billing/meter/checkin-activity-status");
         let token = cred.access_token.clone().unwrap_or_default();
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(token)
+        let resp = with_ua(self.client.post(&url).bearer_auth(token), cred)
             .json(&json!({}))
             .send()
             .await?;
@@ -185,10 +191,7 @@ impl Provider for WorkBuddyProvider {
         let base = Self::signin_base(&cred);
         let url = format!("{base}/v2/billing/meter/daily-checkin");
         let token = cred.access_token.clone().unwrap_or_default();
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(token)
+        let resp = with_ua(self.client.post(&url).bearer_auth(token), &cred)
             .json(&json!({}))
             .send()
             .await?;
@@ -269,9 +272,8 @@ impl Provider for WorkBuddyProvider {
     ) -> Result<TravelSnapshot> {
         let mut cred = cred.clone();
         self.ensure_token(&mut cred).await?;
-        let token = cred.access_token.clone().unwrap_or_default();
 
-        let mut snap = self.travel_status(&token).await?;
+        let mut snap = self.travel_status(&cred).await?;
 
         if action == TravelAction::Status {
             return Ok(snap);
@@ -279,7 +281,7 @@ impl Provider for WorkBuddyProvider {
 
         // 已到达 -> 先领，不管动作是什么（不领会过期吗？不会，但领了才可能再派）。
         if snap.state == TravelState::Arrived {
-            match self.travel_claim(&token).await {
+            match self.travel_claim(&cred).await {
                 Ok(gain) => {
                     snap.note = Some(match gain {
                         Some(g) => format!("已补领旅行奖励 +{g} 分"),
@@ -301,7 +303,7 @@ impl Provider for WorkBuddyProvider {
         // 空闲且未达上限 -> 派出。
         if snap.state == TravelState::Idle && !snap.daily_limit_reached {
             let loc = location_id.unwrap_or_else(|| rand::thread_rng().gen_range(1..=4));
-            match self.travel_depart(&token, loc).await {
+            match self.travel_depart(&cred, loc).await {
                 Ok(Some(state)) => {
                     snap.state = state;
                     let extra = snap.note.clone().unwrap_or_default();
@@ -336,9 +338,10 @@ impl Provider for WorkBuddyProvider {
 }
 
 impl WorkBuddyProvider {
-    async fn travel_status(&self, token: &str) -> Result<TravelSnapshot> {
+    async fn travel_status(&self, cred: &Credential) -> Result<TravelSnapshot> {
+        let token = cred.access_token.clone().unwrap_or_default();
         let url = format!("{TRAVEL_BASE}/activity/growth/buddy/travel/status");
-        let resp = self.client.get(&url).bearer_auth(token).send().await?;
+        let resp = with_ua(self.client.get(&url).bearer_auth(token), cred).send().await?;
         let status = resp.status().as_u16();
         let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
         if let Some(e) = http::map_status(status, &body) {
@@ -365,9 +368,13 @@ impl WorkBuddyProvider {
         })
     }
 
-    async fn travel_claim(&self, token: &str) -> Result<Option<i64>> {
+    async fn travel_claim(&self, cred: &Credential) -> Result<Option<i64>> {
+        let token = cred.access_token.clone().unwrap_or_default();
         let url = format!("{TRAVEL_BASE}/activity/growth/buddy/travel/claim");
-        let resp = self.client.post(&url).bearer_auth(token).json(&json!({})).send().await?;
+        let resp = with_ua(self.client.post(&url).bearer_auth(token), cred)
+            .json(&json!({}))
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
         if let Some(e) = http::map_status(status, &body) {
@@ -386,12 +393,14 @@ impl WorkBuddyProvider {
     }
 
     /// 返回派出后的状态（若平台没给就返回 None）。
-    async fn travel_depart(&self, token: &str, location_id: u32) -> Result<Option<TravelState>> {
+    async fn travel_depart(
+        &self,
+        cred: &Credential,
+        location_id: u32,
+    ) -> Result<Option<TravelState>> {
+        let token = cred.access_token.clone().unwrap_or_default();
         let url = format!("{TRAVEL_BASE}/activity/growth/buddy/travel/depart");
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(token)
+        let resp = with_ua(self.client.post(&url).bearer_auth(token), cred)
             .json(&json!({ "location_id": location_id }))
             .send()
             .await?;

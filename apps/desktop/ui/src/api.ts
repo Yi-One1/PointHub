@@ -20,6 +20,8 @@ export const api = {
     cookie?: string;
   }) => invoke<string>("add_account", { payload }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+  /** 打开该平台官方登录页；登录成功后后端自动建账号并发 ph://login 事件 */
+  browserLogin: (vendor: string) => invoke<void>("browser_login", { vendor }),
   setAccountEnabled: (id: string, enabled: boolean) =>
     invoke<void>("set_account_enabled", { id, enabled }),
   saveSettings: (settings: Settings) => invoke<StateView>("save_settings", { settings }),

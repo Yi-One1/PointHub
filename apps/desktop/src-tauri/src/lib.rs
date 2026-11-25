@@ -8,6 +8,7 @@
 //! 显式分叉，而不是靠运行时判断——编不过就早点暴露，别等到用户手机上白屏。
 
 pub mod commands;
+pub mod login;
 
 #[cfg_attr(mobile, allow(unused_imports))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -56,6 +57,7 @@ pub fn run() {
             commands::checkin,
             commands::travel,
             commands::add_account,
+            commands::browser_login,
             commands::remove_account,
             commands::set_account_enabled,
             commands::save_settings,
@@ -79,6 +81,15 @@ pub fn run() {
                 }
                 sync_autostart(app.handle());
                 spawn_scheduler(app.handle().clone());
+
+                // 调试入口：`--login workbuddy` 启动即打开登录窗口。
+                // 界面自动化要按坐标点按钮，窗口位置一变就会点空；直接给个入口，
+                // 排查「登录窗到底加载了什么」时不必先跟坐标较劲。
+                if let Some(v) = login_arg() {
+                    if let Err(e) = login::start(app.handle(), v) {
+                        eprintln!("打开登录窗口失败：{e}");
+                    }
+                }
             }
             Ok(())
         });
@@ -122,6 +133,23 @@ fn data_dir_arg() -> Option<std::path::PathBuf> {
             if !rest.trim().is_empty() {
                 return Some(std::path::PathBuf::from(rest));
             }
+        }
+    }
+    None
+}
+
+/// 解析 `--login <平台>`：启动后立刻打开该平台的登录窗口。
+///
+/// 只在桌面端有意义（安卓没有多窗口），值不合法时静默忽略，
+/// 免得一个手误把启动流程带崩。
+fn login_arg() -> Option<ph_core::Vendor> {
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        if a == "--login" {
+            return it.next().and_then(|v| ph_core::Vendor::parse(v.trim()));
+        }
+        if let Some(rest) = a.strip_prefix("--login=") {
+            return ph_core::Vendor::parse(rest.trim());
         }
     }
     None

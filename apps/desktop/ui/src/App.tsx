@@ -36,6 +36,7 @@ export default function App() {
   // 后台调度或悬浮球改了东西时，后端会推一条事件；收到就重拉，不做轮询。
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let unlistenLogin: (() => void) | undefined;
     let alive = true;
     (async () => {
       try {
@@ -45,6 +46,14 @@ export default function App() {
         });
         if (alive) unlisten = un;
         else un();
+
+        // 浏览器登录导入的结果：后端已经建好账号，这里只负责把它说出来。
+        const unLogin = await listen<string>("ph://login", (e) => {
+          notify(e.payload ?? "浏览器登录完成", "ok");
+          api.bootstrap().then(setView).catch(() => undefined);
+        });
+        if (alive) unlistenLogin = unLogin;
+        else unLogin();
       } catch {
         /* 纯浏览器预览时没有 tauri 事件，忽略即可 */
       }
@@ -52,8 +61,9 @@ export default function App() {
     return () => {
       alive = false;
       unlisten?.();
+      unlistenLogin?.();
     };
-  }, []);
+  }, [notify]);
 
   // 主题：settings.theme 决定；system 时跟随系统并监听变化
   useTheme(view?.settings.theme);
@@ -518,14 +528,28 @@ function AccountsPage({
   onOpenSettings: () => void;
 }) {
   const [vendor, setVendor] = useState("workbuddy");
+  const [mode, setMode] = useState<"browser" | "token">("browser");
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
   const [kind, setKind] = useState<"refresh" | "access">("refresh");
   const [deviceId, setDeviceId] = useState("");
   const [domain, setDomain] = useState("");
   const [target, setTarget] = useState<AccountView | null>(null);
+  const [opening, setOpening] = useState(false);
 
   const cap = view.platforms.find((p) => p.vendor === vendor);
+
+  const startBrowserLogin = async () => {
+    setOpening(true);
+    try {
+      await api.browserLogin(vendor);
+      notify(`已打开 ${cap?.display ?? vendor} 登录页，登录完成后会自动导入`);
+    } catch (e) {
+      notify(String(e), "warn");
+    } finally {
+      setOpening(false);
+    }
+  };
 
   const submit = async () => {
     try {
@@ -632,59 +656,97 @@ function AccountsPage({
             </div>
 
             <div className="field">
-              <label>别名</label>
-              <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例如：主号" />
-            </div>
-
-            <div className="field">
-              <label>凭据类型</label>
+              <label>导入方式</label>
               <div className="seg">
-                <button className={`seg-item ${kind === "refresh" ? "active" : ""}`} onClick={() => setKind("refresh")}>
-                  长效令牌（推荐）
+                <button
+                  className={`seg-item ${mode === "browser" ? "active" : ""}`}
+                  onClick={() => setMode("browser")}
+                >
+                  浏览器登录（推荐）
                 </button>
-                <button className={`seg-item ${kind === "access" ? "active" : ""}`} onClick={() => setKind("access")}>
-                  短期令牌
+                <button className={`seg-item ${mode === "token" ? "active" : ""}`} onClick={() => setMode("token")}>
+                  手动令牌
                 </button>
               </div>
             </div>
 
-            <div className="field">
-              <label>令牌</label>
-              <textarea
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                rows={3}
-                placeholder="粘贴令牌原文；只保存在本机加密仓"
-                spellCheck={false}
-              />
-            </div>
+            {mode === "browser" ? (
+              <>
+                <ol className="steps">
+                  <li>点下面的按钮，弹出该平台的官方登录页</li>
+                  <li>在弹窗里用你的账号登录（扫码或手机号都行）</li>
+                  <li>登录成功、页面进到站点后，窗口会自动关闭并导入</li>
+                </ol>
+                <button className="btn primary block" onClick={startBrowserLogin} disabled={opening}>
+                  {opening ? "正在打开…" : `打开 ${cap?.display ?? "平台"} 登录页`}
+                </button>
+                <p className="hint">
+                  只从该页面读它自己存的登录令牌，以及当时的浏览器标识；不经过任何服务器，
+                  令牌加密后只存在本机。
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label>别名</label>
+                  <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例如：主号" />
+                </div>
 
-            {vendor === "trae-cn" && (
-              <div className="field">
-                <label>设备 ID（Trae 必填）</label>
-                <input
-                  value={deviceId}
-                  onChange={(e) => setDeviceId(e.target.value)}
-                  placeholder="x-device-id 原值"
-                  spellCheck={false}
-                />
-              </div>
+                <div className="field">
+                  <label>凭据类型</label>
+                  <div className="seg">
+                    <button
+                      className={`seg-item ${kind === "refresh" ? "active" : ""}`}
+                      onClick={() => setKind("refresh")}
+                    >
+                      长效令牌（推荐）
+                    </button>
+                    <button className={`seg-item ${kind === "access" ? "active" : ""}`} onClick={() => setKind("access")}>
+                      短期令牌
+                    </button>
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>令牌</label>
+                  <textarea
+                    value={secret}
+                    onChange={(e) => setSecret(e.target.value)}
+                    rows={3}
+                    placeholder="粘贴令牌原文；只保存在本机加密仓"
+                    spellCheck={false}
+                  />
+                </div>
+
+                {vendor === "trae-cn" && (
+                  <div className="field">
+                    <label>设备 ID（Trae 必填）</label>
+                    <input
+                      value={deviceId}
+                      onChange={(e) => setDeviceId(e.target.value)}
+                      placeholder="x-device-id 原值"
+                      spellCheck={false}
+                    />
+                  </div>
+                )}
+
+                <div className="field">
+                  <label>鉴权域名（可选）</label>
+                  <input
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="默认 www.codebuddy.cn"
+                    spellCheck={false}
+                  />
+                  <p className="hint">WorkBuddy 以登录态里的域名为准；留空用默认值。</p>
+                </div>
+
+                <button className="btn primary block" onClick={submit} disabled={!secret.trim() || busy !== null}>
+                  添加
+                </button>
+              </>
             )}
 
-            <div className="field">
-              <label>鉴权域名（可选）</label>
-              <input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="默认 www.codebuddy.cn"
-                spellCheck={false}
-              />
-              <p className="hint">WorkBuddy 以登录态里的域名为准；留空用默认值。</p>
-            </div>
-
-            <button className="btn primary block" onClick={submit} disabled={!secret.trim() || busy !== null}>
-              添加
-            </button>
             <button className="link-btn" onClick={onOpenSettings}>
               凭据存在哪？看设置页的说明
             </button>

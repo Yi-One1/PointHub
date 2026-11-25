@@ -1,0 +1,9 @@
+# 本项目放在含中文的路径下（E:\AI工作空间\积分枢纽PointHub）。
+# 增量编译会在 target/debug/incremental 里维护 .lock 文件，在非 ASCII 路径上
+# 这些锁删不掉（报 "拒绝访问 os error 5"），rustc 会一直阻塞等锁，
+# 表现为「编译卡住、CPU 几乎不动，最后 exit 1 且没有错误信息」。
+#
+# 关掉增量编译即可根治。代价：Rust 代码改动后重编稍慢；
+# 本项目主要改 TypeScript，Rust 改动频率低，稳定性优先。
+[build]
+incremental = false

@@ -12,7 +12,7 @@ use ph_engine::Aggregate;
 use ph_providers::{provider_for, TravelAction};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // ------------------------------------------------------------------ 视图结构
 
@@ -376,6 +376,80 @@ pub async fn set_account_enabled(
     engine
         .set_account_enabled(&id, enabled)
         .map_err(|e| e.user_message())
+}
+
+// ------------------------------------------------------------------ 浏览器登录导入
+
+/// 打开某平台的官方登录页。拿到令牌后会自动建账号并回一条 `ph://login` 事件。
+#[tauri::command]
+pub fn browser_login(app: AppHandle, vendor: String) -> Result<(), String> {
+    let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
+    crate::login::start(&app, v)
+}
+
+/// 浏览器授权成功后落库：建账号 -> 立刻读一次余额验证 -> 通知界面。
+///
+/// 「验证」这一步是刻意的：导入成功但令牌不可用，比导入失败更让人误判。
+pub async fn import_from_browser(
+    app: &AppHandle,
+    vendor: Vendor,
+    auth: crate::login::CapturedAuth,
+) -> Result<(), String> {
+    let cred = crate::login::build_credential(vendor, &auth);
+    let state = app.state::<SharedState>();
+
+    let (account_id, label) = {
+        let mut engine = state.engine.lock().await;
+        let base = format!("{} 网页", vendor.display());
+        let label = unique_label(&engine, vendor, &base);
+        let acc = engine
+            .add_account(vendor, label.clone(), cred)
+            .map_err(|e| e.user_message())?;
+        (acc.id, acc.label)
+    };
+
+    let message = {
+        let mut engine = state.engine.lock().await;
+        match engine.snapshot_one(&account_id).await {
+            Ok(s) => {
+                let bal = s
+                    .balance
+                    .map(|b| b.to_string())
+                    .unwrap_or_else(|| "未知".into());
+                let done = match s.checked_in_today {
+                    Some(true) => "，今日已签",
+                    Some(false) => "，今日待签",
+                    None => "",
+                };
+                format!("已导入「{label}」：余额 {bal}{done}")
+            }
+            Err(e) => format!("已导入「{label}」，但读取余额失败：{}", e.user_message()),
+        }
+    };
+
+    let _ = app.emit("ph://login", &message);
+    let _ = app.emit("ph://changed", ());
+    Ok(())
+}
+
+/// 同平台重名会让引擎拒绝新增，所以导入时自动编号。
+fn unique_label(engine: &ph_engine::Engine, vendor: Vendor, base: &str) -> String {
+    let used: Vec<&str> = engine
+        .accounts()
+        .iter()
+        .filter(|a| a.vendor == vendor)
+        .map(|a| a.label.as_str())
+        .collect();
+    if !used.contains(&base) {
+        return base.to_string();
+    }
+    for n in 2..100 {
+        let cand = format!("{base} {n}");
+        if !used.iter().any(|l| *l == cand) {
+            return cand;
+        }
+    }
+    format!("{base} {}", chrono::Local::now().timestamp())
 }
 
 // ------------------------------------------------------------------ 设置

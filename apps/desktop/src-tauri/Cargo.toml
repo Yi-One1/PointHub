@@ -24,6 +24,7 @@ ph-providers = { path = "../../../crates/ph-providers" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 chrono = "0.4"
 

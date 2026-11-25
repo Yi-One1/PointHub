@@ -3065,6 +3065,7 @@ dependencies = [
 name = "pointhub"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "ph-core",
  "ph-engine",

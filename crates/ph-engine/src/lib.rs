@@ -809,6 +809,13 @@ impl Engine {
             .filter(|e| e.at > since)
             .collect();
         p.tombstones = self.store.load_tombstones().unwrap_or_default();
+        p.credential_ids = self
+            .accounts
+            .iter()
+            .filter(|a| self.vault.get(&a.id).is_some())
+            .map(|a| a.id.clone())
+            .collect();
+        p.next_run_at = self.next_run_at();
         p
     }
 

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { LanInfo, OutcomeView, Settings, StateView } from "./types";
+import type { ClientStatus, LanInfo, OutcomeView, Settings, StateView } from "./types";
 
 // 所有后端调用集中在这里：前端组件不直接写命令名，
 // 命令改名时只改这一处。
@@ -34,4 +34,11 @@ export const api = {
   relocateData: (path: string) => invoke<string>("relocate_data", { path }),
   showMain: () => invoke<void>("show_main"),
   quit: () => invoke<void>("quit_app"),
+  /** 远程模式：当前连接状态 */
+  clientStatus: () => invoke<ClientStatus>("client_status"),
+  /** 远程模式：用配对码连接电脑 */
+  clientPair: (baseUrl: string, code: string) =>
+    invoke<ClientStatus>("client_pair", { baseUrl, code }),
+  /** 远程模式：断开并回到本机模式 */
+  clientUnpair: () => invoke<ClientStatus>("client_unpair"),
 };

@@ -465,7 +465,19 @@ async fn handle(mut stream: TcpStream, ctx: Arc<LanCtx>, peer: SocketAddr) {
                 json(&mut stream, 403, &json!({ "error": "电脑上关掉了「允许手机签到」" })).await;
                 return;
             }
-            match crate::commands::run_checkin_inner(&ctx.app, None).await {
+            // 手机可以只签指定账号；不传 ids 就是全部。
+            let body: Value = serde_json::from_slice(&req.body).unwrap_or(json!({}));
+            let ids: Vec<String> = body
+                .get("ids")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let ids = if ids.is_empty() { None } else { Some(ids) };
+            match crate::commands::run_checkin_inner(&ctx.app, ids).await {
                 Ok(outcomes) => {
                     let results: Vec<Value> = outcomes
                         .iter()
@@ -480,6 +492,63 @@ async fn handle(mut stream: TcpStream, ctx: Arc<LanCtx>, peer: SocketAddr) {
                     json(&mut stream, 200, &json!({ "results": results })).await;
                 }
                 Err(e) => json(&mut stream, 500, &json!({ "error": e })).await,
+            }
+        }
+        ("POST", "/api/refresh") => {
+            // 手机点「刷新积分」时，真正采样的是电脑：凭据和网络都在它那边。
+            let (ok, errs) = {
+                let state = ctx.app.state::<SharedState>();
+                let mut engine = state.engine.lock().await;
+                engine.touch_device(&device_id);
+                engine.snapshot_all().await
+            };
+            let _ = ctx.app.emit("ph://changed", ());
+            json(
+                &mut stream,
+                200,
+                &json!({ "sampled": ok.len(), "errors": errs }),
+            )
+            .await;
+        }
+        ("POST", "/api/travel") => {
+            let allow = {
+                let state = ctx.app.state::<SharedState>();
+                let engine = state.engine.lock().await;
+                engine.settings().sync.allow_remote_checkin
+            };
+            if !allow {
+                json(&mut stream, 403, &json!({ "error": "电脑上关掉了「允许手机签到」" })).await;
+                return;
+            }
+            let body: Value = serde_json::from_slice(&req.body).unwrap_or(json!({}));
+            let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if id.trim().is_empty() {
+                json(&mut stream, 400, &json!({ "error": "缺少账号 id" })).await;
+                return;
+            }
+            let result = {
+                let state = ctx.app.state::<SharedState>();
+                let mut engine = state.engine.lock().await;
+                engine
+                    .travel_one(id, ph_providers::TravelAction::Auto, None)
+                    .await
+                    .map(|snap| {
+                        format!(
+                            "{} {}{}",
+                            snap.state.label(),
+                            snap.location.unwrap_or_default(),
+                            snap.note
+                                .map(|n| format!("（{n}）"))
+                                .unwrap_or_default()
+                        )
+                    })
+            };
+            match result {
+                Ok(message) => {
+                    let _ = ctx.app.emit("ph://changed", ());
+                    json(&mut stream, 200, &json!({ "message": message })).await;
+                }
+                Err(e) => json(&mut stream, 400, &json!({ "error": e.user_message() })).await,
             }
         }
         _ => json(&mut stream, 404, &json!({ "error": "没有这个接口" })).await,

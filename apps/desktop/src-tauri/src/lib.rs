@@ -27,6 +27,8 @@ use ph_engine::Engine;
 /// 是这一层唯一允许的冗余。
 pub struct AppState {
     pub engine: tokio::sync::Mutex<Engine>,
+    /// 远程模式下的客户端（配对信息 + HTTP 调用）。
+    pub client: tokio::sync::Mutex<ph_client::Client>,
     /// 数据目录。发布版没有控制台，诊断信息要落到这里的 `logs/`。
     pub data_dir: std::path::PathBuf,
     pub minimize_to_tray: AtomicBool,
@@ -83,6 +85,9 @@ pub fn run() {
             commands::show_main,
             commands::quit_app,
             commands::lan_info,
+            commands::client_status,
+            commands::client_pair,
+            commands::client_unpair,
         ])
         .setup(|app| {
             // 数据目录：命令行指定 > 安卓应用私有目录 > 各平台默认。
@@ -103,6 +108,12 @@ pub fn run() {
                 sync_enabled: AtomicBool::new(engine.settings().sync.enabled),
                 sync_port: std::sync::atomic::AtomicU16::new(engine.settings().sync.port),
                 lan: std::sync::Mutex::new(None),
+                client: match ph_client::Client::open(engine.data_dir()) {
+                    Ok(c) => tokio::sync::Mutex::new(c),
+                    Err(e) => {
+                        return Err(format!("客户端配对信息初始化失败：{}", e.user_message()).into())
+                    }
+                },
                 engine: tokio::sync::Mutex::new(engine),
             });
             app.manage(state);

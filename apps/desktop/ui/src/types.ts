@@ -2,6 +2,8 @@
 
 export type ThemeMode = "light" | "dark" | "system";
 export type BallContent = "total_credits" | "pending_count";
+/** 运行模式：安卓端可选「本机」或「连接电脑」；桌面端固定本机。 */
+export type AppMode = "local" | "remote";
 
 export interface BallSettings {
   enabled: boolean;
@@ -31,6 +33,7 @@ export interface LanInfo {
 }
 
 export interface Settings {
+  mode: AppMode;
   theme: ThemeMode;
   autostart: boolean;
   minimize_to_tray: boolean;
@@ -116,6 +119,25 @@ export interface StateView {
   next_run_at: number | null;
   settings: Settings;
   platforms: PlatformCap[];
+  mode: AppMode;
+  remote: RemoteLink | null;
+}
+
+/** 远程模式下的连接信息 */
+export interface RemoteLink {
+  paired: boolean;
+  base_url: string | null;
+  server_name: string | null;
+  device_id: string | null;
+  error: string | null;
+}
+
+export interface ClientStatus {
+  mode: AppMode;
+  paired: boolean;
+  base_url: string | null;
+  server_name: string | null;
+  device_id: string | null;
 }
 
 export interface OutcomeView {

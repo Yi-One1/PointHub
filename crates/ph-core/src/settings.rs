@@ -1,5 +1,23 @@
 use serde::{Deserialize, Serialize};
 
+/// 运行模式。
+///
+/// 桌面端固定按 `Local` 处理；安卓端可选「本机独立账号」或「连接电脑」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppMode {
+    /// 账号与凭据都在本机，签到由本机执行。
+    Local,
+    /// 只做电脑的遥控器：账号、凭据、签到都在电脑上。
+    Remote,
+}
+
+impl Default for AppMode {
+    fn default() -> Self {
+        AppMode::Local
+    }
+}
+
 /// 界面主题。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -110,6 +128,9 @@ impl Default for SyncSettings {
 /// 否则会出现「改目录后设置文件找不到」的循环依赖。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    /// 本机模式 / 远程模式（安卓端用；桌面端忽略）。
+    #[serde(default)]
+    pub mode: AppMode,
     #[serde(default)]
     pub theme: ThemeMode,
     /// 开机自启。
@@ -139,6 +160,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            mode: AppMode::default(),
             theme: ThemeMode::default(),
             autostart: false,
             minimize_to_tray: true,

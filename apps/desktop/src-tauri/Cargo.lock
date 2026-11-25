@@ -2840,6 +2840,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "ph-client"
+version = "0.4.2"
+dependencies = [
+ "chrono",
+ "ph-core",
+ "ph-providers",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ph-core"
 version = "0.4.2"
 dependencies = [
@@ -3068,6 +3080,7 @@ version = "0.4.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "ph-client",
  "ph-core",
  "ph-engine",
  "ph-providers",

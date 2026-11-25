@@ -494,6 +494,12 @@ pub struct SyncPayload {
     pub events: Vec<ActivityEvent>,
     #[serde(default)]
     pub tombstones: Vec<Tombstone>,
+    /// 执行端本机持有凭据的账号 id。只用于对端展示「能不能签」，不含凭据本身。
+    #[serde(default)]
+    pub credential_ids: Vec<String>,
+    /// 对端的下一次自动签到时刻（epoch 秒）。
+    #[serde(default)]
+    pub next_run_at: Option<i64>,
 }
 
 fn default_kind() -> String {
@@ -513,6 +519,8 @@ impl SyncPayload {
             snapshots: Vec::new(),
             events: Vec::new(),
             tombstones: Vec::new(),
+            credential_ids: Vec::new(),
+            next_run_at: None,
         }
     }
 }

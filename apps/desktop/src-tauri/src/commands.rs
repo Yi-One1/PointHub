@@ -7,7 +7,7 @@
 
 #[cfg_attr(mobile, allow(unused_imports))]
 use crate::{close_ball, open_ball, SharedState};
-use ph_core::{Credential, Settings, Vendor};
+use ph_core::{AppMode, Credential, Settings, Vendor};
 use ph_engine::Aggregate;
 use ph_providers::{provider_for, TravelAction};
 use serde::{Deserialize, Serialize};
@@ -77,6 +77,30 @@ pub struct StateView {
     pub next_run_at: Option<i64>,
     pub settings: Settings,
     pub platforms: Vec<PlatformCapView>,
+    /// `local` | `remote`。
+    pub mode: String,
+    /// 远程连接信息；本机模式为 None。
+    pub remote: Option<RemoteLinkView>,
+}
+
+/// 远程模式下的连接信息。
+#[derive(Serialize, Clone)]
+pub struct RemoteLinkView {
+    pub paired: bool,
+    pub base_url: Option<String>,
+    pub server_name: Option<String>,
+    pub device_id: Option<String>,
+    /// 拉取失败时的原因；正常为 None。
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ClientStatusView {
+    pub mode: String,
+    pub paired: bool,
+    pub base_url: Option<String>,
+    pub server_name: Option<String>,
+    pub device_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -163,20 +187,203 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
         next_run_at: engine.next_run_at(),
         settings: engine.settings().clone(),
         platforms,
+        mode: "local".into(),
+        remote: None,
     }
+}
+
+/// 把远程载荷算出的视图拼成与本地一致的 `StateView`。
+fn build_remote_state(
+    view: ph_client::RemoteView,
+    settings: Settings,
+    remote: RemoteLinkView,
+) -> StateView {
+    let ph_client::RemoteView {
+        server_name,
+        accounts: remote_accounts,
+        total_balance,
+        account_count,
+        pending_count,
+        balance_known,
+        last_sampled_at,
+        trend,
+        events,
+        next_run_at,
+        ..
+    } = view;
+
+    let accounts = remote_accounts
+        .into_iter()
+        .map(|a| {
+            let verified = Vendor::parse(&a.vendor)
+                .map(|v| ph_client::capabilities(v).verified)
+                .unwrap_or(false);
+            AccountView {
+                id: a.id,
+                vendor: a.vendor,
+                vendor_display: a.vendor_display,
+                label: a.label,
+                hint: a.hint,
+                enabled: a.enabled,
+                checkin_enabled: a.checkin_enabled,
+                travel_enabled: a.travel_enabled,
+                schedule_text: a.schedule_text,
+                balance: a.balance,
+                checked_in_today: a.checked_in_today,
+                streak_days: a.streak_days,
+                today_gain: a.today_gain,
+                travel_state: a.travel_state,
+                travel_location: a.travel_location,
+                captured_at: a.captured_at,
+                last_error: a.last_error,
+                has_credential: a.has_credential,
+                can_checkin: a.can_checkin,
+                can_travel: a.can_travel,
+                verified,
+            }
+        })
+        .collect();
+
+    let platforms = ph_providers::all_capabilities()
+        .into_iter()
+        .map(|(v, c)| PlatformCapView {
+            vendor: v.id().to_string(),
+            display: v.display().to_string(),
+            checkin: c.checkin,
+            travel: c.travel,
+            balance: c.balance,
+            token_refresh: c.token_refresh,
+            verified: c.verified,
+        })
+        .collect();
+
+    StateView {
+        version: ph_core::VERSION.to_string(),
+        data_dir: format!("远程 · {server_name}"),
+        vault_kind: "凭据在电脑上".into(),
+        history_count: 0,
+        accounts,
+        aggregate: Aggregate {
+            total_balance,
+            account_count,
+            pending_count,
+            balance_known,
+            last_sampled_at,
+        },
+        trend: trend
+            .into_iter()
+            .map(|d| ph_engine::DayPoint {
+                date: d.date,
+                total: d.total,
+                known: d.known,
+                gain: d.gain,
+            })
+            .collect(),
+        events: events
+            .into_iter()
+            .map(|e| EventView {
+                at: e.at,
+                account_id: e.account_id,
+                label: e.label,
+                vendor: e.vendor.id().to_string(),
+                kind: e.kind,
+                delta: e.delta,
+                text: e.text,
+            })
+            .collect(),
+        next_run_at,
+        settings,
+        platforms,
+        mode: "remote".into(),
+        remote: Some(remote),
+    }
+}
+
+fn mode_str(m: AppMode) -> &'static str {
+    match m {
+        AppMode::Local => "local",
+        AppMode::Remote => "remote",
+    }
+}
+
+/// 远程模式下取一次电脑的数据；失败时回退到本机视图并带上错误原因，
+/// 而不是整页报错——用户至少还能切回设置页重连。
+async fn remote_state(state: &SharedState, settings: Settings, fallback: StateView) -> StateView {
+    let client = state.client.lock().await;
+    let Some(cfg) = client.config().cloned() else {
+        let mut v = fallback;
+        v.mode = "remote".into();
+        v.remote = Some(RemoteLinkView {
+            paired: false,
+            base_url: None,
+            server_name: None,
+            device_id: None,
+            error: Some("还没有连接电脑".into()),
+        });
+        return v;
+    };
+    let link = RemoteLinkView {
+        paired: true,
+        base_url: Some(cfg.base_url.clone()),
+        server_name: Some(cfg.server_name.clone()),
+        device_id: Some(cfg.device_id.clone()),
+        error: None,
+    };
+    match client.pull(0).await {
+        Ok(p) => build_remote_state(ph_client::RemoteView::build(&p, &cfg), settings, link),
+        Err(e) => {
+            let mut v = fallback;
+            v.mode = "remote".into();
+            v.remote = Some(RemoteLinkView {
+                error: Some(e.user_message()),
+                ..link
+            });
+            v
+        }
+    }
+}
+
+/// 远程模式下禁止修改账号；账号归电脑管。
+async fn remote_guard(state: &SharedState) -> Result<(), String> {
+    let engine = state.engine.lock().await;
+    if engine.settings().mode == AppMode::Remote {
+        return Err("远程模式下账号由电脑管理，请到电脑上操作".into());
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ 查询
 
 #[tauri::command]
 pub async fn bootstrap(state: State<'_, SharedState>) -> Result<StateView, String> {
-    let engine = state.engine.lock().await;
-    Ok(build_state(&engine))
+    let (settings, local) = {
+        let engine = state.engine.lock().await;
+        (engine.settings().clone(), build_state(&engine))
+    };
+    if settings.mode == AppMode::Remote {
+        return Ok(remote_state(state.inner(), settings, local).await);
+    }
+    Ok(local)
 }
 
 /// 全量采样后刷新视图。单个账号失败不影响其它账号。
+///
+/// 远程模式下这一步是「让电脑采样，再把结果拉回来」。
 #[tauri::command]
 pub async fn refresh_all(state: State<'_, SharedState>) -> Result<StateView, String> {
+    let (settings, local) = {
+        let engine = state.engine.lock().await;
+        (engine.settings().clone(), build_state(&engine))
+    };
+    if settings.mode == AppMode::Remote {
+        {
+            let client = state.client.lock().await;
+            if client.is_paired() {
+                client.refresh().await.map_err(|e| e.user_message())?;
+            }
+        }
+        return Ok(remote_state(state.inner(), settings, local).await);
+    }
     let mut engine = state.engine.lock().await;
     let (_snaps, _errs) = engine.snapshot_all().await;
     Ok(build_state(&engine))
@@ -198,6 +405,29 @@ pub async fn run_checkin_inner(
     ids: Option<Vec<String>>,
 ) -> Result<Vec<OutcomeView>, String> {
     let state = app.state::<SharedState>();
+    let mode = {
+        let engine = state.engine.lock().await;
+        engine.settings().mode
+    };
+    // 远程模式：本机没有凭据，只能请求电脑执行。
+    if mode == AppMode::Remote {
+        let results = {
+            let client = state.client.lock().await;
+            client.checkin(ids).await.map_err(|e| e.user_message())?
+        };
+        let _ = app.emit("ph://changed", ());
+        return Ok(results
+            .into_iter()
+            .map(|r| OutcomeView {
+                account_id: String::new(),
+                label: r.label,
+                status: r.status,
+                status_text: r.status_text,
+                message: "已由电脑执行".into(),
+                credit: None,
+            })
+            .collect());
+    }
     let mut engine = state.engine.lock().await;
     let settings = engine.settings().clone();
 
@@ -300,6 +530,14 @@ pub async fn travel(
         "depart" => TravelAction::DepartOnly,
         _ => TravelAction::Auto,
     };
+    let mode = {
+        let engine = state.engine.lock().await;
+        engine.settings().mode
+    };
+    if mode == AppMode::Remote {
+        let client = state.client.lock().await;
+        return client.travel(&id).await.map_err(|e| e.user_message());
+    }
     let mut engine = state.engine.lock().await;
     let snap = engine
         .travel_one(&id, act, location)
@@ -338,6 +576,7 @@ pub async fn add_account(
     state: State<'_, SharedState>,
     payload: AddAccountPayload,
 ) -> Result<String, String> {
+    remote_guard(state.inner()).await?;
     let vendor = Vendor::parse(&payload.vendor)
         .ok_or_else(|| format!("不认识的平台：{}", payload.vendor))?;
     if payload.secret.trim().is_empty() {
@@ -362,6 +601,7 @@ pub async fn add_account(
 
 #[tauri::command]
 pub async fn remove_account(state: State<'_, SharedState>, id: String) -> Result<(), String> {
+    remote_guard(state.inner()).await?;
     let mut engine = state.engine.lock().await;
     engine.remove_account(&id).map_err(|e| e.user_message())
 }
@@ -372,6 +612,7 @@ pub async fn set_account_enabled(
     id: String,
     enabled: bool,
 ) -> Result<(), String> {
+    remote_guard(state.inner()).await?;
     let mut engine = state.engine.lock().await;
     engine
         .set_account_enabled(&id, enabled)
@@ -382,7 +623,12 @@ pub async fn set_account_enabled(
 
 /// 打开某平台的官方登录页。拿到令牌后会自动建账号并回一条 `ph://login` 事件。
 #[tauri::command]
-pub fn browser_login(app: AppHandle, vendor: String) -> Result<(), String> {
+pub async fn browser_login(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    vendor: String,
+) -> Result<(), String> {
+    remote_guard(state.inner()).await?;
     let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
     crate::browser_login::start(app, v)
 }
@@ -511,6 +757,65 @@ pub async fn lan_info(state: State<'_, SharedState>) -> Result<LanInfo, String> 
     })
 }
 
+// ------------------------------------------------------------------ 远程模式（安卓连电脑）
+
+#[tauri::command]
+pub async fn client_status(state: State<'_, SharedState>) -> Result<ClientStatusView, String> {
+    let mode = {
+        let engine = state.engine.lock().await;
+        engine.settings().mode
+    };
+    let client = state.client.lock().await;
+    let cfg = client.config().cloned();
+    Ok(ClientStatusView {
+        mode: mode_str(mode).to_string(),
+        paired: client.is_paired(),
+        base_url: cfg.as_ref().map(|c| c.base_url.clone()),
+        server_name: cfg.as_ref().map(|c| c.server_name.clone()),
+        device_id: cfg.as_ref().map(|c| c.device_id.clone()),
+    })
+}
+
+async fn set_mode(state: &SharedState, mode: AppMode) -> Result<(), String> {
+    let mut engine = state.engine.lock().await;
+    let mut s = engine.settings().clone();
+    s.mode = mode;
+    engine.update_settings(s).map_err(|e| e.user_message())
+}
+
+#[tauri::command]
+pub async fn client_pair(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    base_url: String,
+    code: String,
+) -> Result<ClientStatusView, String> {
+    {
+        let mut client = state.client.lock().await;
+        client
+            .pair(&base_url, &code)
+            .await
+            .map_err(|e| e.user_message())?;
+    }
+    set_mode(state.inner(), AppMode::Remote).await?;
+    let _ = app.emit("ph://changed", ());
+    client_status(state).await
+}
+
+#[tauri::command]
+pub async fn client_unpair(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<ClientStatusView, String> {
+    {
+        let mut client = state.client.lock().await;
+        client.unpair().map_err(|e| e.user_message())?;
+    }
+    set_mode(state.inner(), AppMode::Local).await?;
+    let _ = app.emit("ph://changed", ());
+    client_status(state).await
+}
+
 // ------------------------------------------------------------------ 设置
 
 #[tauri::command]
@@ -548,8 +853,14 @@ pub async fn save_settings(
         let _ = apply_ball(&app, settings.ball.enabled);
     }
 
-    let engine = state.engine.lock().await;
-    Ok(build_state(&engine))
+    let (saved, local) = {
+        let engine = state.engine.lock().await;
+        (engine.settings().clone(), build_state(&engine))
+    };
+    if saved.mode == AppMode::Remote {
+        return Ok(remote_state(state.inner(), saved, local).await);
+    }
+    Ok(local)
 }
 
 #[tauri::command]

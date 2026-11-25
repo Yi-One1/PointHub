@@ -1,7 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { useTheme } from "./theme";
-import type { LanInfo, AccountView, DayPoint, Settings, StateView, ThemeMode } from "./types";
+import type {
+  AccountView,
+  ClientStatus,
+  DayPoint,
+  LanInfo,
+  Settings,
+  StateView,
+  ThemeMode,
+} from "./types";
 
 type Tab = "overview" | "accounts" | "settings";
 
@@ -70,6 +78,17 @@ export default function App() {
 
   // 主题：settings.theme 决定；system 时跟随系统并监听变化
   useTheme(view?.settings.theme);
+
+  // 远程模式下定期从电脑拉一次数据，让积分「实时」可见。
+  // 只在页面可见时拉，后台不空转。
+  useEffect(() => {
+    if (view?.mode !== "remote") return;
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      api.bootstrap().then(setView).catch(() => undefined);
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [view?.mode]);
 
   const platformCount = useMemo(
     () => view?.platforms.reduce((n, p) => n + (p.checkin ? 1 : 0), 0) ?? 0,
@@ -282,9 +301,14 @@ function Overview({
         <div>
           <h1>总览</h1>
           <p className="sub">
-            {enabled.length === 0
-              ? "还没有账号，去「账号」页导入一个"
-              : `今日已签 ${done} / ${enabled.length}${lastSample ? ` · 最近采样 ${lastSample}` : ""}`}
+            {view.mode === "remote" && (
+              <span className="tag tag-muted">远程 · {view.remote?.server_name ?? "电脑"}</span>
+            )}
+            {view.mode === "remote" && view.remote?.error
+              ? ` 连接异常：${view.remote.error}`
+              : enabled.length === 0
+                ? "还没有账号，去「账号」页导入一个"
+                : `今日已签 ${done} / ${enabled.length}${lastSample ? ` · 最近采样 ${lastSample}` : ""}`}
           </p>
         </div>
         <div className="acts">
@@ -334,11 +358,15 @@ function Overview({
         <div className="empty">
           <div className="empty-title">还没有纳管任何账号</div>
           <p className="empty-text">
-            导出一个长效令牌就能开始。令牌会以当前 Windows 用户身份加密保存，不会离开这台电脑。
+            {view.mode === "remote"
+              ? "电脑上还没有账号。先在电脑端导入，手机这边会自动同步过来。"
+              : "导出一个长效令牌就能开始。令牌会以当前 Windows 用户身份加密保存，不会离开这台电脑。"}
           </p>
-          <button className="btn primary" onClick={onAdd}>
-            去添加账号
-          </button>
+          {view.mode !== "remote" && (
+            <button className="btn primary" onClick={onAdd}>
+              去添加账号
+            </button>
+          )}
         </div>
       ) : (
         <div className="panels">
@@ -411,6 +439,7 @@ function Overview({
                         aria-checked={a.enabled}
                         aria-label={`启用 ${a.label}`}
                         onClick={() => onToggle(a, !a.enabled)}
+                        style={view.mode === "remote" ? { display: "none" } : undefined}
                       >
                         <span />
                       </button>
@@ -608,6 +637,26 @@ function AccountsPage({
       notify(String(e), "warn");
     }
   };
+
+  if (view.mode === "remote") {
+    return (
+      <>
+        <div className="head">
+          <div>
+            <h1>账号</h1>
+            <p className="sub">远程模式：账号、凭据和签到都在电脑上</p>
+          </div>
+        </div>
+
+        <div className="empty">
+          <div className="empty-title">账号由电脑管理</div>
+          <p className="empty-text">
+            在电脑端的「账号」页导入、删除或停用账号；手机这边只负责实时查看和远程签到。
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -831,6 +880,52 @@ function SettingsPage({
   // 安卓端自己就是手机，再显示「手机访问」没有意义
   const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+  // 远程连接状态与配对表单
+  const [client, setClient] = useState<ClientStatus | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [code, setCode] = useState("");
+  const [connecting, setConnecting] = useState(false);
+
+  useEffect(() => {
+    if (!isPhone) return;
+    api
+      .clientStatus()
+      .then((c) => {
+        setClient(c);
+        if (c.base_url) setBaseUrl(c.base_url);
+      })
+      .catch(() => undefined);
+  }, [isPhone]);
+
+  const connect = async () => {
+    setConnecting(true);
+    try {
+      const c = await api.clientPair(baseUrl.trim(), code.trim());
+      setClient(c);
+      setDraft({ ...draft, mode: "remote" });
+      setCode("");
+      notify(`已连接 ${c.server_name ?? "电脑"}`, "ok");
+    } catch (e) {
+      notify(String(e), "warn");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setConnecting(true);
+    try {
+      const c = await api.clientUnpair();
+      setClient(c);
+      setDraft({ ...draft, mode: "local" });
+      notify("已断开，回到本机模式", "ok");
+    } catch (e) {
+      notify(String(e), "warn");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   useEffect(() => {
     let alive = true;
     const pull = () => {
@@ -868,6 +963,91 @@ function SettingsPage({
           </button>
         </div>
       </div>
+
+      {isPhone && (
+        <section className="panel">
+          <div className="phead">
+            <span className="pname">连接方式</span>
+            {client?.paired && <span className="pnote">已连接 {client.server_name}</span>}
+          </div>
+
+          <div className="row">
+            <div>
+              <div className="row-title">运行模式</div>
+              <div className="row-desc">
+                本机模式：账号和签到都在手机上；连接电脑：手机只做遥控器，凭据留在电脑
+              </div>
+            </div>
+            <div className="seg">
+              <button
+                className={`seg-item ${draft.mode === "local" ? "active" : ""}`}
+                onClick={() => patch({ mode: "local" })}
+              >
+                本机模式
+              </button>
+              <button
+                className={`seg-item ${draft.mode === "remote" ? "active" : ""}`}
+                onClick={() => patch({ mode: "remote" })}
+              >
+                连接电脑
+              </button>
+            </div>
+          </div>
+
+          {draft.mode === "remote" &&
+            (client?.paired ? (
+              <>
+                <div className="row">
+                  <div>
+                    <div className="row-title">已连接</div>
+                    <div className="row-desc">
+                      {client.server_name ?? "电脑"} · {client.base_url}
+                    </div>
+                  </div>
+                  <button className="btn" onClick={disconnect} disabled={connecting}>
+                    {connecting ? "处理中…" : "断开"}
+                  </button>
+                </div>
+                <div className="row">
+                  <div className="row-desc">断开连接会同时回到本机模式；账号仍留在电脑上。</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label>电脑地址</label>
+                  <input
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="192.168.1.5:47821"
+                    spellCheck={false}
+                  />
+                  <p className="hint">在电脑端「设置 → 手机访问」里能看到地址。</p>
+                </div>
+
+                <div className="field">
+                  <label>配对码</label>
+                  <input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="6 位数字"
+                    inputMode="numeric"
+                    maxLength={6}
+                  />
+                  <p className="hint">配对码 5 分钟有效，用过一次就换新码。</p>
+                </div>
+
+                <button
+                  className="btn primary block"
+                  onClick={connect}
+                  disabled={connecting || !baseUrl.trim() || !code.trim()}
+                >
+                  {connecting ? "连接中…" : "连接电脑"}
+                </button>
+              </>
+            ))}
+        </section>
+      )}
 
       {!isPhone && (
       <section className="panel">
@@ -957,7 +1137,9 @@ function SettingsPage({
         <div className="row">
           <div>
             <div className="row-title">主题</div>
-            <div className="row-desc">「跟随系统」会随 Windows 的浅色/深色切换</div>
+            <div className="row-desc">
+              {isPhone ? "「跟随系统」会随手机的深色模式切换" : "「跟随系统」会随 Windows 的浅色/深色切换"}
+            </div>
           </div>
           <div className="seg">
             {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
@@ -966,12 +1148,14 @@ function SettingsPage({
                 className={`seg-item ${draft.theme === m ? "active" : ""}`}
                 onClick={() => patch({ theme: m })}
               >
-                {m === "light" ? "浅色" : m === "dark" ? "深色" : "跟随系统"}
+                {m === "light" ? (isPhone ? "正常" : "浅色") : m === "dark" ? "深色" : "跟随系统"}
               </button>
             ))}
           </div>
         </div>
 
+        {!isPhone && (
+          <>
         <div className="row">
           <div>
             <div className="row-title">桌面悬浮球</div>
@@ -1024,6 +1208,8 @@ function SettingsPage({
             </button>
           </div>
         </div>
+          </>
+        )}
       </section>
 
       <section className="panel">
@@ -1031,6 +1217,8 @@ function SettingsPage({
           <span className="pname">运行</span>
         </div>
 
+        {!isPhone && (
+          <>
         <div className="row">
           <div>
             <div className="row-title">开机自启动</div>
@@ -1050,6 +1238,8 @@ function SettingsPage({
             label="最小化到托盘"
           />
         </div>
+          </>
+        )}
 
         <div className="row">
           <div>

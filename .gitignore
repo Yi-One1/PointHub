@@ -1,0 +1,30 @@
+# Rust
+/target
+**/target
+Cargo.lock.bak
+
+# Node
+node_modules
+**/node_modules
+dist
+**/dist
+.vite
+
+# Tauri
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/target
+
+# 本机数据 / 凭据（绝不入库）
+*.bin
+*.dat
+vault.bin
+/data
+/.design
+
+# 编辑器
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db

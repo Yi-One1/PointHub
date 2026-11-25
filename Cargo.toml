@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ph-core",
+    "crates/ph-vault",
+    "crates/ph-store",
+    "crates/ph-providers",
+    "crates/ph-engine",
+    "crates/ph-cli",
+]
+exclude = ["apps/desktop/src-tauri", "apps/desktop/ui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["Yi-One1"]
+repository = "https://github.com/Yi-One1/PointHub"
+
+[workspace.dependencies]
+ph-core = { path = "crates/ph-core" }
+ph-vault = { path = "crates/ph-vault" }
+ph-store = { path = "crates/ph-store" }
+ph-providers = { path = "crates/ph-providers" }
+ph-engine = { path = "crates/ph-engine" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

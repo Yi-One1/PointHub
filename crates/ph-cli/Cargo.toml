@@ -1,0 +1,18 @@
+[package]
+name = "phctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "积分枢纽 PointHub 命令行核心，用于在无界面环境下验证签到链路"
+
+[[bin]]
+name = "phctl"
+path = "src/main.rs"
+
+[dependencies]
+ph-core.workspace = true
+ph-engine.workspace = true
+ph-providers.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+chrono.workspace = true

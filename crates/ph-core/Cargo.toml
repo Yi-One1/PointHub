@@ -1,0 +1,14 @@
+[package]
+name = "ph-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+# 仅用于把网络错误统一映射成 Error::Network；不发起任何请求。
+reqwest = { workspace = true }

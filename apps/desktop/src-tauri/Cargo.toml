@@ -1,0 +1,40 @@
+[package]
+name = "pointhub"
+version = "0.1.0"
+edition = "2021"
+description = "积分枢纽 PointHub 桌面端"
+authors = ["Yi-One1"]
+license = "MIT"
+
+[lib]
+name = "pointhub_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+
+ph-core = { path = "../../../crates/ph-core" }
+ph-engine = { path = "../../../crates/ph-engine" }
+ph-store = { path = "../../../crates/ph-store" }
+ph-providers = { path = "../../../crates/ph-providers" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+chrono = "0.4"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

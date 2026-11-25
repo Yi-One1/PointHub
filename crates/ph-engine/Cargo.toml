@@ -1,0 +1,18 @@
+[package]
+name = "ph-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-vault.workspace = true
+ph-store.workspace = true
+ph-providers.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+rand.workspace = true
+tokio.workspace = true
+tracing.workspace = true

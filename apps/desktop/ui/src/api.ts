@@ -1,0 +1,31 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { OutcomeView, Settings, StateView } from "./types";
+
+// 所有后端调用集中在这里：前端组件不直接写命令名，
+// 命令改名时只改这一处。
+
+export const api = {
+  bootstrap: () => invoke<StateView>("bootstrap"),
+  refreshAll: () => invoke<StateView>("refresh_all"),
+  checkin: (ids?: string[]) => invoke<OutcomeView[]>("checkin", { ids: ids ?? null }),
+  travel: (id: string, action: "auto" | "status" | "claim" | "depart" = "auto", location?: number) =>
+    invoke<string>("travel", { id, action, location: location ?? null }),
+  addAccount: (payload: {
+    vendor: string;
+    label: string;
+    secret: string;
+    secret_kind: "refresh" | "access";
+    device_id?: string;
+    domain?: string;
+    cookie?: string;
+  }) => invoke<string>("add_account", { payload }),
+  removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+  setAccountEnabled: (id: string, enabled: boolean) =>
+    invoke<void>("set_account_enabled", { id, enabled }),
+  saveSettings: (settings: Settings) => invoke<StateView>("save_settings", { settings }),
+  setBall: (enabled: boolean) => invoke<void>("set_ball", { enabled }),
+  openDataDir: () => invoke<void>("open_data_dir"),
+  relocateData: (path: string) => invoke<string>("relocate_data", { path }),
+  showMain: () => invoke<void>("show_main"),
+  quit: () => invoke<void>("quit_app"),
+};

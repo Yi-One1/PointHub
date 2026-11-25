@@ -4,7 +4,7 @@
 > **部分落地**（核心在，缺外壳/缺验证）、**未开始**（说清卡在哪）。
 > 不做「看起来做了」的表述。
 
-版本：v0.1.0 · 2026-11-25
+版本：v0.4.2 · 2026-11-25
 
 ---
 
@@ -15,7 +15,7 @@
 | 1 | 定时自动领取每日积分 | 已落地 | 外壳常驻循环每 45 秒核对（`spawn_scheduler`），到点串行执行且与手动签到同一路径；不补签时只认到点后 30 分钟窗口；`phctl plan` 可看排期 |
 | 2 | 实时显示各 agent 各账号积分 | 已落地 | 总览按平台分组、账号逐行显示（各平台小计 + 合计 KPI）+ 悬浮球；`Engine::aggregate()` 实时汇总 |
 | 3 | 同一 agent 多账号 | 已落地 | 账号模型按 id 独立，凭据各自加密，`phctl account add` 可加多个 |
-| 4 | Windows + Android 双端互通 | 已落地（手机走浏览器） | Windows 端起服务，手机**浏览器**直接访问（见下「双端互通」）；安卓工程已能出调试 APK（见 docs/ANDROID.md），但手机端目前用浏览器而非原生界面 |
+| 4 | Windows + Android 双端互通 | 已落地（手机走浏览器） | Windows 端起服务，手机浏览器配对访问（见第五节）；安卓 release 包 7.4 MB（见 `docs/ANDROID.md`），手机端用浏览器而非原生界面 |
 | 5 | 手动单个签到 + 一键全部签到 | 已落地 | 总览每行「签到」/ 顶部「一键全部签到」/ 悬浮球面板「一键签到」/ 托盘菜单 / `phctl checkin` |
 | 6 | 浏览器授权 + 手动令牌 | 已落地（WorkBuddy 走官方插件授权） | 账号页两条路：**浏览器授权**（`POST /v2/plugin/auth/state` 取授权链接 → 用**用户自己的浏览器**打开 → 轮询 `/v2/plugin/auth/token` 拿 accessToken + refreshToken → 导入后立刻读一次余额验证）与**手动粘贴令牌**（含设备 id、域名）。不读客户端加密登录态、不扫进程内存、不用内嵌窗口、不开调试端口。网页版 localStorage 里没有令牌（实测只有埋点键），登录态是随请求轮换的 HttpOnly cookie，故不采用 |
 | 7 | 双端更新功能 | 未开始 | 方案已定（Tauri updater + APK 自装 + 可配置源），未接 |
@@ -27,14 +27,14 @@
 | 13 | Windows 浅色 / 深色 | 已落地 | 三态主题（浅色 / 深色 / 跟随系统），CSS 变量整套切换 |
 | 14 | 安卓正常 / 深色 + 跟随系统 | 已落地 | 主题跟随系统；≤760px 走移动端布局：侧栏收成底部标签栏、单列、触控区 ≥40px、`safe-area` 留白。已在 390×844 / 360×640 / 844×390 三档实测无横向溢出 |
 | 15 | 签到后系统弹窗提示 | 已落地 | `tauri-plugin-notification`，成功与失败分别可控；CLI 侧无弹窗（合理） |
-| 16 | 包名 `中文名英文名_v版本` + 语义化版本 | 已落地 | `积分枢纽PointHub_v0.1.0.exe`；版本号单点来自 `Cargo.toml` 的 `workspace.package.version` |
-| 17 | 体积小、占用少 | 已落地 | 发布版便携 exe **4.5 MB**（4,751,360 字节），主进程工作集 ~77 MB、私有内存 ~40 MB；`opt-level=z` + LTO + strip 已启用 |
+| 16 | 包名 `中文名英文名_v版本` + 语义化版本 | 已落地 | `积分枢纽PointHub_v<版本>.exe/.apk`；版本号单点来自 `Cargo.toml` 的 `workspace.package.version` |
+| 17 | 体积小、占用少 | 已落地 | 便携 exe **4.6 MB**、安卓 release APK **7.4 MB**；`opt-level=z` + LTO + strip 已启用 |
 | 18 | 语言选型（Rust 可行性） | 已落地 | 结论与取舍见 `DECISIONS.md` D02 |
 | 19 | 中文名「积分枢纽」/ 英文名 PointHub | 已落地 | 产品名、窗口标题、安装包名、托盘提示均已统一 |
 | 20 | WorkBuddy 增加「派猫猫旅行」 | 已落地 | 与签到同模块（非独立分支），按状态机自动「先领后派」 |
 | 21 | 开工前必须提问确认 | 已落地 | 三轮共 12 个问题，结论进 `DECISIONS.md` |
 | 22 | 参考项目须遵守开源协议 | 已落地 | MIT 的可用；两个无 LICENSE 的**只借鉴接口事实**；见 D11 |
-| 23 | 上传到 GitHub 仓库 | 部分落地 | 本地仓库已初始化并关联 `origin`；**未推送**（等首次提交确认） |
+| 23 | 上传到 GitHub 仓库 | 已落地 | `https://github.com/Yi-One1/PointHub`（`master`），本地与远端同步 |
 
 ---
 
@@ -84,7 +84,8 @@ VendorSnapshot     一次采样
 
 1. **签到域名不许硬编码**，以凭据里的 `domain` 为准（`copilot.tencent.com` 会 404）；
 2. **旅行的域名与签到不同，且路径不带 `/v2`**；
-3. **余额字段是复数 `total_credits`**，只认单数会永远拿不到。
+3. **余额要从汇总接口取**：`checkin-activity-status` 的 `total_credits` 是本季活动累计得分，不是余额；
+   余额取 `POST /billing/meter/get-user-resource-summary` 的 `data.TotalCredits`（字符串小数）。
 
 签发令牌会**轮换**：每次刷新都返回新的长效令牌，必须回写，否则下次用不了。
 
@@ -115,8 +116,6 @@ VendorSnapshot     一次采样
  │  POST /api/pair         │  提交 6 位配对码 → 换 session token
  │  GET  /api/state        │  账号 + 最新快照 + 汇总
  │  POST /api/checkin      │  { ids?: [] } → 结果列表
- │  POST /api/travel       │  { id, action }
- │  WS   /api/events       │  签到进度 / 状态变化推送
 ```
 
 **实现要点**：`apps/desktop/src-tauri/src/lan.rs` + `assets/lan.html`（单文件页面，
@@ -140,23 +139,22 @@ VendorSnapshot     一次采样
 
 ---
 
-## 六、验收标准（v0.1.0 交付条件）
+## 六、验收状态（v0.4.2）
 
-- [x] `cargo test --workspace` 全绿（21 个测试）
-- [x] `cargo check --workspace` 零错误
+- [x] `cargo test --workspace` 全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
-- [x] 桌面端可启动、数据目录可创建
-- [x] 用假令牌可在 CLI 完成「添加账号 → 列表 → 计划」完整闭环
-- [ ] 真实令牌端到端签到（需要你的账号，见下）
-- [ ] 发布版体积实测
-- [ ] 安卓端出包
+- [x] 桌面端启动、数据目录可创建、CLI 全链路闭环
+- [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
+- [x] 发布版体积实测：exe 4.6 MB / APK 7.4 MB
+- [x] 安卓出包，并在模拟器上验证安装与启动
+- [ ] Redmi K80 Pro / Android 15 真机验证
 
 ---
 
 ## 七、下一步（按优先级）
 
-1. **接常驻调度器**：引擎已能算「该不该跑」，缺一个外壳里的循环 + 睡眠到下一个时间点；顺带做启动补签。
-2. **真实账号联调**：WorkBuddy 一条链路跑通，抓 `status` / `checkin` / `travel` 的真实响应，校准字段。
-3. **局域网互通**：PC 侧服务 + 手机配对页；先在 Windows 上用手机浏览器验证协议，再落 Android。
-4. **Android 工程**：需要 JDK 17 + Android SDK/NDK（要你同意后再装，我会先问）。
-5. **自动更新 + 卸载清理**：随安装包一起做。
+1. **真机验证**：Android 15 安装 v0.4.2 APK；异常则抓 logcat。
+2. **Trae / Qoder 补齐**：Qoder 领取端点需真实抓包；Trae 刷新令牌需设备凭据样本。
+3. **自动更新**：Windows updater + Android 下载 APK 自装，源可配置。
+4. **卸载清理**：安装包侧清理脚本（便携版本身不写注册表）。
+5. 更细的当前快照与阻塞项见 `progress.md`。

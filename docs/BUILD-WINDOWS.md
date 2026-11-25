@@ -50,8 +50,9 @@ rm -rf apps/desktop/src-tauri/target/debug/incremental
 
 ## 编译很慢是否正常
 
-`cargo build` 在本机全量编桌面端约 **9~10 分钟**（含 ph-core/ph-store/ph-providers/ph-engine
-与 Tauri 外壳，`opt-level` 见 workspace 配置）。这只是首次或大改后；只改 UI 时不需要重编 Rust。
+首次全量编桌面端约 **9~10 分钟**（含 ph-core/ph-store/ph-providers/ph-engine
+与 Tauri 外壳）。之后是增量：只改 Rust 约 22 秒；只改 UI 则前端 1.4 秒 + Rust 重编
+（Tauri 把前端产物在编译期嵌入 exe，所以 UI 改动也会触发 Rust）。
 
 如果远超这个量级且 CPU 不动，按上一节判定是否为等锁。
 

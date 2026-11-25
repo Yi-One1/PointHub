@@ -65,6 +65,7 @@ PointHub/
 │   └── ui/                  React + TypeScript 界面（双端复用）
 ├── docs/                    SPEC / 架构 / ADR
 ├── scripts/                 构建与打包脚本
+├── progress.md              当前进展交接（新对话先看）
 ├── DECISIONS.md             决策台账
 └── CONTEXT.md               术语表
 ```
@@ -105,7 +106,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 ```
 
-产物在 `dist/`，命名格式 `积分枢纽PointHub_v0.3.0.exe`。
+产物在 `dist/`，命名格式 `积分枢纽PointHub_v<版本>.exe`；安卓包见 `docs/ANDROID.md`。
 
 **`dist/` 里的文件视为已交付的历史版本，脚本不覆盖、不删除。** 要再出一版，
 先按语义化版本升 `Cargo.toml` 里 `[workspace.package] version`，再跑脚本；
@@ -115,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 
 | 指标 | 数值 |
 |---|---|
-| 便携 exe 体积 | 4.5 MB（单文件，无外部资源） |
+| 便携 exe 体积 | 4.6 MB（单文件，无外部资源） |
 | 空闲内存 | 约 78 MB |
 | 冷启动到可见界面 | 1 秒内 |
 
@@ -145,7 +146,7 @@ phctl plan                                    # 每个账号下次执行时间
 | 项目 | 位置 / 做法 |
 |---|---|
 | 数据目录 | 默认 `%LOCALAPPDATA%\PointHub`，可在设置里改（搬迁会复制现有数据） |
-| 令牌 | 只存在 `vault.bin`，用当前 Windows 用户的 DPAPI 加密；换机后需重新导入 |
+| 令牌 | 只存在 `vault.bin`；Windows 用 DPAPI 加密，安卓用 AES 回退后端；换机后需重新导入 |
 | 账号元数据 | `accounts.json`（**不含令牌**） |
 | 积分历史 | `history.jsonl`（追加写，一行一条快照） |
 | 日志 | `logs/YYYY-MM-DD.log`（不含令牌明文） |
@@ -163,11 +164,13 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 调度器常驻（每 45 秒核对，到点执行，错过按设置补签）
 - [x] Android 工程与 APK 构建链路（release 包 7.4 MB，见 `docs/ANDROID.md`）
 - [x] 局域网互通（PC 服务端 + 手机浏览器配对）
-- [ ] Android 端界面适配（单列布局、触控尺寸、底部导航）
+- [x] Android 端界面适配（单列布局、触控尺寸、底部导航）
+- [x] 代码已推 GitHub（`master`，见 `progress.md`）
 - [ ] 自动更新（Windows updater + Android 装 APK）
 - [ ] 卸载清理（安装包侧）
 
-详见 `docs/SPEC.md` 与 `DECISIONS.md`。
+当前状态与新对话接手说明见 `progress.md`；需求逐条对照见 `docs/SPEC.md`，
+重大取舍见 `DECISIONS.md`。
 
 ---
 

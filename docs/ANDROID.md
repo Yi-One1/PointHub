@@ -15,11 +15,12 @@
 ## 一条命令
 
 ```bat
-scripts\build-android.bat
+scripts\build-android.bat release --target aarch64
 ```
 
-脚本会做三件事：检查环境 → 构建前端 → 调 Tauri CLI 出 APK。
-产物在 `apps/desktop/src-tauri/gen/android/app/build/outputs/apk/`。
+脚本依次：检查环境 → 构建前端 → 打 Gradle 补丁 → 调 Tauri CLI 出 APK →
+复制到 `dist\积分枢纽PointHub_v<版本>.apk`（已存在则跳过）。
+原始产物仍在 `apps/desktop/src-tauri/gen/android/app/build/outputs/apk/`。
 
 ## 环境变量
 
@@ -44,15 +45,14 @@ scripts\build-android.bat
 1. **它是空操作**（`node -e "process.exit(0)"`）。因为该脚本本意是让运行中的 CLI
    通过本地服务下发配置，而 `tauri android build` 已经把 Kotlin 绑定和资源生成完了，
    再走一遍反而会因为拿不到服务而失败。空操作后 Gradle 自己跑 cargo，链路正常。
-2. 如果你要**在 Android Studio 里点 Run**，得先手动跑一次 `scripts\build-android.bat`，
+2. 如果你要**在 Android Studio 里点 Run**，得先手动跑一次 `scripts\build-android.bat release --target aarch64`，
    让资源与绑定就位，再在 Studio 里运行。直接冷启动 Studio 会因为缺配置而报错。
 
 ## 产物与体积
 
-- 调试包默认出 **universal**（4 个 ABI 全带上），体积很大（本次 613 MB），
-  因为调试构建不剥离符号。**这个体积不代表发布体积。**
-- 发布包的做法：`--release` + 只出 `aarch64`，并在 `Cargo.toml` 里保留
-  `strip = true` 与 `lto = true`，预计在 10 MB 量级（尚未实测）。
+- 正式包：release + `aarch64` 单架构，**实测 7.4 MB**（`Cargo.toml` 已开
+  `strip = true` + `lto = true`，AGP 默认剥离 native 符号）。
+- 调试包：默认 universal（4 个 ABI），保留调试符号，约 181 MB，仅排障用。
 
 ## 界面适配（v0.4.0）
 

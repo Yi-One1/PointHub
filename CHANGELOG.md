@@ -45,3 +45,4 @@
 
 - `cargo test --workspace`：21 个测试通过（模型、加密往返、数据读写、调度边界、字段候选名）
 - 前端 `tsc --noEmit` 与 `vite build` 通过
+- 发布版实测：便携 exe 4.5 MB，空闲内存约 78 MB

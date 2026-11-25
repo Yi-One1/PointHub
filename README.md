@@ -214,10 +214,11 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 多账号管理、逐账号签到 + 一键全部签到
 - [x] 总览控制台：四格 KPI、按平台分组、近 7 日每日新增、最近活动
 - [x] 调度器常驻（每 45 秒核对，到点执行，错过按设置补签）
-- [x] Android 工程与 APK 构建链路（release 包 7.8 MB，见 `docs/ANDROID.md`）
+- [x] Android 工程与 APK 构建链路（release 包 8.0 MB，见 `docs/ANDROID.md`）
 - [x] 局域网互通（PC 服务端 + 手机浏览器配对）
 - [x] Android 端界面适配（单列布局、触控尺寸、底部导航）
 - [x] 安卓 App 双模式：本机模式 / 连接电脑，持久配对、远程签到
+- [x] 安卓每日自动签到（WorkManager 00:16 + 打开补签）与双端签到通知
 - [x] 双端同步（账号 / 快照 / 历史 / 活动，凭据不跨设备）
 - [x] Android 17 真机可连（targetSdk 36，绕开本地网络保护）
 - [x] 代码已推 GitHub（`master`，见 `progress.md`）

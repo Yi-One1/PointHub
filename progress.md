@@ -1,10 +1,10 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.5.0（已发布）**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.6.0（已发布）**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`，本地与远端同步）
-发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.5.0>
+发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.6.0>
 
 ---
 
@@ -42,9 +42,14 @@
 - **数据跟随安装目录（0.5.0）**：发行版默认 `<exe 所在目录>\data`；首次启动把
   `%LOCALAPPDATA%\PointHub` 的旧数据整体迁过去并清空原位置，失败则继续用旧目录；
   调试版仍用旧目录（D20）。
-- **发布（组 6）**：tag `v0.5.0` 与 GitHub Release 已上线，上传便携 exe 5.0 MB、
-  Setup 2.0 MB、APK 7.8 MB。GitHub 会丢弃资产名里的非 ASCII 前缀，仓库上显示为
-  `PointHub_v0.5.0_Setup.exe` 等；自动更新按 `_Setup.exe` / `.apk` 后缀匹配，不受影响。
+- **安卓定时签到（组 7，0.6.0）**：WorkManager 每天 00:16 触发 `CheckinWorker`，
+  经 JNI 调 `android_worker.rs`（自建 tokio 运行时）执行签到；打开 App 约 12 秒后
+  补签当天漏掉的；结果回 Kotlin 发「签到结果」通知。Kotlin 源在
+  `apps/desktop/android/`，由 `scripts/patch-android-sources.ps1` 幂等注入 `gen/`。
+- **发布（0.5.0 / 0.6.0）**：两个 tag 与 GitHub Release 均已上线；0.6.0 上传
+  便携 exe 5.0 MB、Setup 2.0 MB、APK 8.0 MB。GitHub 会丢弃资产名里的非 ASCII
+  前缀，仓库上显示为 `PointHub_v0.6.0_Setup.exe` 等；自动更新按 `_Setup.exe` /
+  `.apk` 后缀匹配，不受影响。
 - **收尾（本次）**：README / SPEC / ANDROID / DECISIONS / progress 与当前状态对齐；
   仓库体检（无密钥、无账号数据、无 `dist/` 与构建产物入库）；
   本地构建垃圾清理待用户授权（清单见「未完成的待办」）。
@@ -74,8 +79,6 @@
 
 ## 未完成的待办
 
-- [ ] **组 7：安卓定时签到 + 通知**：WorkManager 每日定时 + 打开时补签（D17）；
-      双端签到结果通知（安卓通知权限尚未真机验证）。
 - [ ] **积分自动刷新**：窗口可见时每 10 分钟采样、可关闭（D18，需求 2 的剩余部分）。
 - [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
       Trae 的 ExchangeToken 需设备私钥签名样本（P01 / P02）。
@@ -95,8 +98,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.5.0.exe`（5.0 MB）、`dist/积分枢纽PointHub_v0.5.0_Setup.exe`（2.0 MB） |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.5.0.apk`（7.8 MB，arm64，debug 签名） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.6.0.exe`（5.0 MB）、`dist/积分枢纽PointHub_v0.6.0_Setup.exe`（2.0 MB） |
+| Android 正式包 | `dist/积分枢纽PointHub_v0.6.0.apk`（8.0 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`（安装版为 `安装目录\data`）；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -113,8 +116,9 @@
 - `phctl status`：`余额 201.76 / 已签 / 连签 36`，与汇总接口一致。
 - 手机端无头浏览器：错误码 400、无 token 401、重复用码 400、已签账号 `alreadydone`。
 - APK：`apksigner verify` 通过（Android Debug 证书）；`aapt2` 显示
-  `versionName=0.5.0`、`native-code=arm64-v8a`。
-- Release：匿名访问 `releases/latest` 返回 200、`tag_name=v0.5.0`，三个资产状态 `uploaded`。
+  `versionName=0.6.0`、`native-code=arm64-v8a`；`llvm-nm` 可见
+  `Java_cn_pointhub_desktop_CheckinBridge_runScheduledCheckin`。
+- Release：匿名访问 `releases/latest` 返回 200、`tag_name=v0.6.0`，三个资产状态 `uploaded`。
 
 ### 隐私与仓库卫生
 

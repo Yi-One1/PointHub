@@ -50,7 +50,7 @@ scripts\build-android.bat release --target aarch64
 
 ## 产物与体积
 
-- 正式包：release + `aarch64` 单架构，**实测 7.8 MB**（`Cargo.toml` 已开
+- 正式包：release + `aarch64` 单架构，**实测 8.0 MB**（`Cargo.toml` 已开
   `strip = true` + `lto = true`，AGP 默认剥离 native 符号）。
 - 调试包：默认 universal（4 个 ABI）并保留调试符号，约 150–180 MB，仅排障用。
 
@@ -85,12 +85,26 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 
 换电脑或重新 init 后无需手工改 `gen/` 里的文件。
 
+## 后台定时签到（0.6.0）
+
+- Kotlin 侧 `CheckinWorker` + `PeriodicWorkRequest`，每天 **00:16** 触发（默认签到
+  00:10 + 最多 5 分钟抖动之后）；已排过则保留原计划，开机后系统自动恢复。
+- Worker 通过 JNI 调 `CheckinBridge.runScheduledCheckin(context.dataDir)`；Rust 在
+  `android_worker.rs` 里自建 tokio 运行时执行签到，返回 JSON，由 Kotlin 发
+  「签到结果」通知。远程模式、未开调度、没有到点账号时静默跳过。
+- 打开 App 约 12 秒后补签当天漏掉的（`spawn_mobile_catchup`）。
+- `gen/` 不入库：Kotlin 源在 `apps/desktop/android/`，每次构建由
+  `scripts/patch-android-sources.ps1` 复制进去，并补 `POST_NOTIFICATIONS` 权限、
+  `androidx.work` 依赖、R8 keep 规则与 MainActivity 调用。
+- 国产 ROM 需在系统设置里允许后台运行，否则可能被省电策略延后；
+  打开 App 补签是兜底。
+
 ## 最近一次构建
 
-- 2026-11-26，`dist\积分枢纽PointHub_v0.5.0.apk`，**7.8 MB**
-  （release / arm64-v8a / versionName 0.5.0 / debug keystore 签名 /
-  `apksigner verify` 通过），已随 v0.5.0 发布到 GitHub Releases。
-- 早期 debug 包（约 181 MB）只用于排障，不入库、不发布。
+- 2026-11-26，`dist\积分枢纽PointHub_v0.6.0.apk`，**8.0 MB**
+  （release / arm64-v8a / versionName 0.6.0 / debug keystore 签名 /
+  `apksigner verify` 通过）。
+- 早期 debug 包（约 150–180 MB）只用于排障，不入库、不发布。
 
 ## targetSdk 固定为 36（Android 17 本地网络保护）
 

@@ -4,7 +4,7 @@
 > 每条都写清楚：为什么这么定、代价是什么、以后想改要动哪里。
 > 日常实现细节不写在这里，写进 `docs/SPEC.md`。
 
-版本：v0.5.0 · 最后更新 2026-11-26
+版本：v0.6.0 · 最后更新 2026-11-26
 
 ---
 
@@ -279,6 +279,12 @@ SQLite/解密依赖，需权衡体积。**边界**：只读、不改客户端文
 且在国产系统上仍可能被杀。每日一次的签到对分钟级精度不敏感，系统延迟可接受。
 
 **代价**：Doze / 厂商省电策略下可能延迟几分钟到几十分钟。**兜底**：打开 App 即补签。
+
+**落地方式（0.6.0）**：Kotlin 的 `CheckinWorker` 用 `PeriodicWorkRequest` 每天 00:16
+触发，经 JNI 调 `android_worker.rs` 执行签到，结果回 Kotlin 发系统通知。
+后台进程可能没有 Tauri `setup`，所以 Rust 侧自建轻量 tokio 运行时、以
+`context.dataDir` 打开引擎。`gen/` 不入库，Kotlin 源放 `apps/desktop/android/`，
+构建时由 `scripts/patch-android-sources.ps1` 幂等注入（含 R8 keep 规则）。
 
 ---
 

@@ -6,6 +6,29 @@
 > **产物不覆盖**：`dist/` 里已出的包视为交付历史，构建脚本拒绝覆盖或删除。
 > 要再出一版，先升 `Cargo.toml` 的 `[workspace.package] version`。
 
+## [0.6.0] - 2026-11-26
+
+**新增：安卓每日自动签到 + 双端通知**（新功能，按 SemVer 升 MINOR）。
+
+### 新增
+
+- **安卓定时签到**：WorkManager 每天 00:16 触发后台任务，经 JNI 调共享引擎执行；
+  远程模式 / 未开调度 / 没有到点账号时静默跳过，不打扰用户（D17）。
+- **打开 App 补签**：启动约 12 秒后补一次当天漏掉的签到，
+  兜住 Doze 与厂商省电策略。
+- **安卓签到通知**：新增「签到结果」通知渠道，首次进入前台申请 Android 13+
+  通知权限；后台任务直接发系统通知，Windows 沿用原有通知。
+- **构建链路**：新增 `scripts/sync-version.ps1`，安卓包版本号随 Cargo.toml 同步；
+  `scripts/patch-android-sources.ps1` 把 `apps/desktop/android/` 的 Kotlin 源
+  幂等注入 `gen/`，并补权限、依赖、R8 keep 规则与 MainActivity 调用。
+
+### 修复
+
+- **WorkManager 被 R8 裁掉导致启动崩溃**：Room 与 Worker 靠类名反射创建，
+  默认优化会把它们移除；补 keep 规则后正常。
+- **后台任务读错数据目录**：安卓上 Tauri 的 `app_data_dir` 解析为
+  `context.dataDir`，不是 `filesDir`；按错路径打开会得到一个空引擎。
+
 ## [0.5.0] - 2026-11-26
 
 已发布：GitHub Release `v0.5.0`（便携 exe 5.0 MB / 安装包 2.0 MB / APK 7.8 MB，arm64）。

@@ -12,7 +12,7 @@
 
 | # | 需求 | 状态 | 证据 / 卡点 |
 |---|---|---|---|
-| 1 | 定时自动领取每日积分 | 部分落地 | Windows 已落地（外壳常驻循环每 45 秒核对，`spawn_scheduler`）；**安卓端调度器尚未实现**（当前是 `#[cfg(desktop)]`）。安卓本机模式将用 WorkManager 每日定时 + 打开时补签（D17） |
+| 1 | 定时自动领取每日积分 | 已落地 | Windows：外壳常驻循环每 45 秒核对（`spawn_scheduler`）；安卓：WorkManager 每天 00:16 触发后台签到，打开 App 约 12 秒后补签（`android_worker.rs`，D17） |
 | 2 | 实时显示各 agent 各账号积分 | 部分落地 | 总览按平台分组、账号逐行显示（各平台小计 + 合计 KPI）+ 悬浮球；`Engine::aggregate()` 实时汇总。**自动刷新尚未实现**（约定默认 10 分钟、可关闭） |
 | 3 | 同一 agent 多账号 | 已落地 | 账号模型按 id 独立，凭据各自加密，`phctl account add` 可加多个 |
 | 4 | Windows + Android 双端互通 | 已落地 | 安卓 App 双模式（连接电脑 / 本机）；持久设备配对后可远程查看、远程签到，`/api/sync/pull` 与 `/api/sync/push` 双向同步账号、快照、历史、活动；凭据不跨电脑；每账号唯一执行端（D03 / D15）。安卓端定时调度仍未做，见第 1 条 |
@@ -26,7 +26,7 @@
 | 12 | 便携 exe / 安装包两种产物 | 已落地 | 便携 exe 可构建；`scripts/build-windows.ps1 -Installer` 出 NSIS 安装包（0.5.0 已出 `_Setup.exe`）；便携 exe 已存在时用 `-InstallerOnly` 单独补安装包 |
 | 13 | Windows 浅色 / 深色 | 已落地 | 三态主题（浅色 / 深色 / 跟随系统），CSS 变量整套切换 |
 | 14 | 安卓正常 / 深色 + 跟随系统 | 已落地 | 主题跟随系统；≤760px 走移动端布局：侧栏收成底部标签栏、单列、触控区 ≥40px、`safe-area` 留白。已在 390×844 / 360×640 / 844×390 三档实测无横向溢出 |
-| 15 | 签到后系统弹窗提示 | 部分落地 | Windows 已接 `tauri-plugin-notification`；安卓端尚未真机验证通知权限，且安卓目前没有自动签到可触发通知 |
+| 15 | 签到后系统弹窗提示 | 已落地 | Windows 接 `tauri-plugin-notification`；安卓新增「签到结果」通知渠道，首次进入前台申请 Android 13+ 通知权限，后台任务直接发系统通知 |
 | 16 | 包名 `中文名英文名_v版本` + 语义化版本 | 已落地 | `积分枢纽PointHub_v<版本>.exe/.apk`；版本号单点来自 `Cargo.toml` 的 `workspace.package.version` |
 | 17 | 体积小、占用少 | 已落地 | 便携 exe **5.0 MB**、安卓 release APK **7.8 MB**；`opt-level=z` + LTO + strip 已启用 |
 | 18 | 语言选型（Rust 可行性） | 已落地 | 结论与取舍见 `DECISIONS.md` D02 |
@@ -150,7 +150,7 @@ VendorSnapshot     一次采样
 
 ---
 
-## 六、验收状态（v0.5.0）
+## 六、验收状态（v0.6.0）
 
 - [x] `cargo test --workspace` 62 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
@@ -163,13 +163,12 @@ VendorSnapshot     一次采样
 - [x] 自动更新：v0.5.0 已发布 Release，能读到最新版本；检查 / 下载 / 镜像源配置均已落地
 - [x] 卸载清理：NSIS 钩子 + 默认删除 / 勾选保留，隔离目录验证通过
 - [x] 数据目录跟随安装目录：旧数据迁移、清空旧位置、删除/保留清理均验证
+- [x] 安卓后台签到：WorkManager 任务注册成功，APK 内 JNI 符号与 4 个 Kotlin 类校验通过；真机按验收步骤确认
 
 ---
 
 ## 七、下一步（按优先级）
 
-1. **安卓定时签到 + 通知**（组 7）：WorkManager 每日定时 + 打开时补签，
-   双端签到结果通知（D17）。
-2. **积分自动刷新**：窗口可见时每 10 分钟采样一次，可关闭（D18，需求 2 的剩余部分）。
-3. **Trae / Qoder 补齐**：Qoder 领取端点需真实抓包；Trae 刷新令牌需设备凭据样本。
-4. 更细的当前快照与阻塞项见 `progress.md`。
+1. **积分自动刷新**：窗口可见时每 10 分钟采样一次，可关闭（D18，需求 2 的剩余部分）。
+2. **Trae / Qoder 补齐**：Qoder 领取端点需真实抓包；Trae 刷新令牌需设备凭据样本。
+3. 更细的当前快照与阻塞项见 `progress.md`。

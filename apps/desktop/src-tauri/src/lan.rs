@@ -7,8 +7,10 @@
 //!
 //! 1. **来源必须是内网地址**：服务绑在 `0.0.0.0`（家里可能有多块网卡），但每个连接
 //!    先验来源 IP，公网地址一律直接断开；
-//! 2. **配对码**：6 位数字、5 分钟有效、用一次就作废；配对后换成 32 字节随机 token；
-//! 3. **只读开关**：关掉「允许手机签到」后，手机只能看，`/api/checkin` 直接 403。
+//! 2. **配对码**：6 位数字、5 分钟有效、用一次就作废；配对后换成 32 字节随机 token，
+//!    落盘只存它的 SHA-256，撤销配对即失效；
+//! 3. **执行端隔离**：同步只搬账号元数据/快照/活动，凭据不出本机；
+//!    只有执行端是本机的账号才会被真正签到。
 //!
 //! 没有做 HMAC 防重放：token 只在内网、只走 HTTP、且服务被内网来源限制卡死，
 //! 上 HMAC 增加的是复杂度而不是安全性。真要在意，应该整体上 TLS，那是另一件事。
@@ -19,7 +21,7 @@ use serde_json::{json, Value};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -28,8 +30,8 @@ use crate::SharedState;
 const PAGE: &str = include_str!("../assets/lan.html");
 /// 配对码有效期。
 const PAIR_TTL: Duration = Duration::from_secs(300);
-/// 请求体上限：手机端只发很小的 JSON。
-const MAX_BODY: usize = 64 * 1024;
+/// 请求体上限：同步可能一次带上万条历史，给到 8MB；普通接口远小于此。
+const MAX_BODY: usize = 8 * 1024 * 1024;
 /// 单次读超时：局域网里不该有慢请求。
 const READ_TIMEOUT: Duration = Duration::from_secs(6);
 
@@ -41,8 +43,6 @@ struct PairCode {
 /// 服务运行期的共享状态。
 pub struct LanCtx {
     app: AppHandle,
-    /// 已配对设备的 token（内存里，重启后需要重新配对）。
-    tokens: Mutex<Vec<String>>,
     pair: Mutex<PairCode>,
     pub port: u16,
 }
@@ -73,23 +73,6 @@ impl LanCtx {
         }
         ok
     }
-
-    fn issue_token(&self) -> String {
-        let token = random_hex(32);
-        let mut t = self.tokens.lock().expect("token 锁");
-        t.push(token.clone());
-        // 只留最近 16 台，够用且不会无限涨
-        if t.len() > 16 {
-            let drop = t.len() - 16;
-            t.drain(0..drop);
-        }
-        token
-    }
-
-    fn token_ok(&self, token: &str) -> bool {
-        let t = self.tokens.lock().expect("token 锁");
-        t.iter().any(|x| x == token)
-    }
 }
 
 fn six_digits() -> String {
@@ -99,6 +82,25 @@ fn six_digits() -> String {
 fn random_hex(bytes: usize) -> String {
     let mut rng = rand::thread_rng();
     (0..bytes).map(|_| format!("{:02x}", rng.gen::<u8>())).collect()
+}
+
+/// 出示的 token 是否属于一台已配对设备。
+///
+/// 每次现查磁盘，撤销配对立刻生效；同步不是高频动作，这点开销可以忽略。
+/// 返回设备 id，供后续记录「最后在线」。
+async fn auth_device(app: &AppHandle, token: &str) -> Option<String> {
+    if token.trim().is_empty() {
+        return None;
+    }
+    let hash = ph_core::DeviceInfo::hash_token(token);
+    let state = app.state::<SharedState>();
+    let engine = state.engine.lock().await;
+    engine
+        .devices()
+        .ok()?
+        .into_iter()
+        .find(|d| d.token_hash.as_deref() == Some(hash.as_str()))
+        .map(|d| d.id)
 }
 
 /// 只允许内网来源：即使机器有公网 IP，也不该被外面访问到。
@@ -157,7 +159,6 @@ pub fn start(app: AppHandle) -> Result<Arc<LanCtx>, String> {
 
     let ctx = Arc::new(LanCtx {
         app,
-        tokens: Mutex::new(Vec::new()),
         pair: Mutex::new(PairCode {
             code: six_digits(),
             expires_at: Instant::now() + PAIR_TTL,
@@ -206,8 +207,22 @@ pub fn start(app: AppHandle) -> Result<Arc<LanCtx>, String> {
 struct Request {
     method: String,
     path: String,
+    /// `?` 之后的原始查询串（不解码：同步只用数字参数）。
+    query: String,
     auth: String,
     body: Vec<u8>,
+}
+
+/// 从 `a=1&b=2` 里取一个参数，找不到就是 None。
+fn query_param(query: &str, key: &str) -> Option<String> {
+    query.split('&').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        if k == key {
+            Some(v.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
@@ -235,7 +250,11 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
     let mut lines = head.lines();
     let mut first = lines.next()?.split_whitespace();
     let method = first.next()?.to_string();
-    let path = first.next()?.split('?').next()?.to_string();
+    let raw_path = first.next()?;
+    let (path, query) = match raw_path.split_once('?') {
+        Some((p, q)) => (p.to_string(), q.to_string()),
+        None => (raw_path.to_string(), String::new()),
+    };
 
     let mut auth = String::new();
     let mut length = 0usize;
@@ -269,6 +288,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
     Some(Request {
         method,
         path,
+        query,
         auth,
         body,
     })
@@ -338,31 +358,102 @@ async fn handle(mut stream: TcpStream, ctx: Arc<LanCtx>, peer: SocketAddr) {
                 json(&mut stream, 400, &json!({ "error": "配对码不对或已过期，回电脑上再看一眼" })).await;
                 return;
             }
-            let token = ctx.issue_token();
-            log(
-                &ctx.app,
-                &format!(
-                    "手机 {} 配对成功，新配对码 {}",
-                    peer.ip(),
-                    ctx.current_code()
-                ),
-            );
-            json(&mut stream, 200, &json!({ "token": token })).await;
+            let name = body
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("安卓手机");
+            let kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("android");
+            // 令牌只在这里返回一次；落盘的是它的摘要。
+            let token = random_hex(32);
+            let hash = ph_core::DeviceInfo::hash_token(&token);
+            let outcome = {
+                let state = ctx.app.state::<SharedState>();
+                let mut engine = state.engine.lock().await;
+                engine
+                    .pair_device(name, kind, hash)
+                    .map(|d| (d, engine.local_device().clone()))
+            };
+            match outcome {
+                Ok((device, server)) => {
+                    log(
+                        &ctx.app,
+                        &format!(
+                            "手机 {} 配对成功（设备 {}），新配对码 {}",
+                            peer.ip(),
+                            device.id,
+                            ctx.current_code()
+                        ),
+                    );
+                    json(
+                        &mut stream,
+                        200,
+                        &json!({
+                            "token": token,
+                            "device_id": device.id,
+                            "server": {
+                                "id": server.id,
+                                "name": server.name,
+                                "kind": server.kind,
+                            },
+                        }),
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    json(&mut stream, 500, &json!({ "error": e.user_message() })).await;
+                }
+            }
             return;
         }
         _ => {}
     }
 
-    // 以下都要鉴权
-    if !ctx.token_ok(&req.auth) {
-        json(&mut stream, 401, &json!({ "error": "没有配对，或者配对被重置了" })).await;
+    // 以下都要鉴权：token 必须属于一台已配对设备。
+    let Some(device_id) = auth_device(&ctx.app, &req.auth).await else {
+        json(&mut stream, 401, &json!({ "error": "没有配对，或者配对被撤销了" })).await;
         return;
-    }
+    };
 
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/api/state") => {
             let v = build_state(&ctx.app).await;
             json(&mut stream, 200, &v).await;
+        }
+        ("GET", "/api/sync/pull") => {
+            let since = query_param(&req.query, "since")
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            let value = {
+                let state = ctx.app.state::<SharedState>();
+                let mut engine = state.engine.lock().await;
+                engine.touch_device(&device_id);
+                serde_json::to_value(engine.sync_export(since)).unwrap_or_else(|_| json!({}))
+            };
+            json(&mut stream, 200, &value).await;
+        }
+        ("POST", "/api/sync/push") => {
+            let payload: ph_core::SyncPayload = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    json(&mut stream, 400, &json!({ "error": format!("同步载荷无法解析：{e}") })).await;
+                    return;
+                }
+            };
+            let result = {
+                let state = ctx.app.state::<SharedState>();
+                let mut engine = state.engine.lock().await;
+                engine.touch_device(&device_id);
+                engine.sync_merge(&payload)
+            };
+            match result {
+                Ok(report) => {
+                    let _ = ctx.app.emit("ph://changed", ());
+                    json(&mut stream, 200, &json!(report)).await;
+                }
+                Err(e) => {
+                    json(&mut stream, 400, &json!({ "error": e.user_message() })).await;
+                }
+            }
         }
         ("POST", "/api/checkin") => {
             let allow = {

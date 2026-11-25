@@ -94,6 +94,16 @@ pub struct Account {
     pub updated_at: i64,
     pub last_checkin_at: Option<i64>,
     pub last_error: Option<String>,
+    /// 平台侧稳定用户 id（能拿到就填），用于双端认出「同一个账号」。
+    #[serde(default)]
+    pub platform_uid: Option<String>,
+    /// 唯一执行端设备 id。凭据只存在于执行端，签到也只由它执行。
+    /// 老数据没有这个字段，读取后会由引擎补成本机 id。
+    #[serde(default)]
+    pub executor: Option<String>,
+    /// 首次导入该账号的设备 id，仅用于展示来源。
+    #[serde(default)]
+    pub origin_device: Option<String>,
 }
 
 impl Account {
@@ -113,6 +123,9 @@ impl Account {
             updated_at: now,
             last_checkin_at: None,
             last_error: None,
+            platform_uid: None,
+            executor: None,
+            origin_device: None,
         }
     }
 }
@@ -401,6 +414,129 @@ impl ActivityEvent {
             delta,
             text: text.into(),
         }
+    }
+}
+
+/// 双端同步协议的版本号。
+///
+/// 载荷结构一旦不兼容就加一，对端看到不认识的版本必须整体拒绝，
+/// 而不是「尽量解析」——半解析的同步结果比不同步更糟。
+pub const SYNC_PROTOCOL: u32 = 1;
+
+/// 一台参与同步的设备。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    /// 设备本地生成的稳定 id（uuid）。
+    pub id: String,
+    /// 显示名，例如「书房电脑」「Pixel 8」。
+    pub name: String,
+    /// `pc` | `android`。
+    pub kind: String,
+    /// 配对令牌的 SHA-256（hex）。本机自己的记录不带令牌。
+    #[serde(default)]
+    pub token_hash: Option<String>,
+    pub paired_at: i64,
+    #[serde(default)]
+    pub last_seen_at: Option<i64>,
+}
+
+impl DeviceInfo {
+    pub fn new(name: impl Into<String>, kind: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.into(),
+            kind: kind.into(),
+            token_hash: None,
+            paired_at: chrono::Local::now().timestamp(),
+            last_seen_at: None,
+        }
+    }
+
+    /// 令牌哈希：落盘只存它，令牌原文只在配对时返回一次。
+    pub fn hash_token(token: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(token.as_bytes());
+        h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+/// 删除标记：防止已删除的账号被对端同步回生。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tombstone {
+    pub account_id: String,
+    pub deleted_at: i64,
+    /// 执行删除的设备 id。
+    pub device_id: String,
+}
+
+/// 双端同步载荷。
+///
+/// **硬约束：这里没有、也不允许出现凭据字段。**
+/// 凭据（令牌 / cookie / 设备标识）只留在执行端的加密仓里，
+/// 同步只搬「账号是什么、积分多少、发生过什么」。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncPayload {
+    pub protocol: u32,
+    pub from_device: String,
+    pub from_name: String,
+    #[serde(default = "default_kind")]
+    pub from_kind: String,
+    pub sent_at: i64,
+    /// 增量起点：只带此时间之后的快照/活动；0 表示全量。
+    #[serde(default)]
+    pub since: i64,
+    #[serde(default)]
+    pub accounts: Vec<Account>,
+    #[serde(default)]
+    pub snapshots: Vec<VendorSnapshot>,
+    #[serde(default)]
+    pub events: Vec<ActivityEvent>,
+    #[serde(default)]
+    pub tombstones: Vec<Tombstone>,
+}
+
+fn default_kind() -> String {
+    "pc".into()
+}
+
+impl SyncPayload {
+    pub fn new(device: &DeviceInfo, since: i64) -> Self {
+        Self {
+            protocol: SYNC_PROTOCOL,
+            from_device: device.id.clone(),
+            from_name: device.name.clone(),
+            from_kind: device.kind.clone(),
+            sent_at: chrono::Local::now().timestamp(),
+            since,
+            accounts: Vec::new(),
+            snapshots: Vec::new(),
+            events: Vec::new(),
+            tombstones: Vec::new(),
+        }
+    }
+}
+
+/// 一次合并的结果，直接展示给用户。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MergeReport {
+    pub accounts_added: usize,
+    pub accounts_updated: usize,
+    pub accounts_removed: usize,
+    pub snapshots_added: usize,
+    pub events_added: usize,
+    /// 无法自动合并、需要用户手动处理的说明。
+    #[serde(default)]
+    pub conflicts: Vec<String>,
+}
+
+impl MergeReport {
+    pub fn is_noop(&self) -> bool {
+        self.accounts_added == 0
+            && self.accounts_updated == 0
+            && self.accounts_removed == 0
+            && self.snapshots_added == 0
+            && self.events_added == 0
     }
 }
 

@@ -277,6 +277,203 @@ impl Store {
             .map(|s| s.lines().count())
             .unwrap_or(0)
     }
+
+    // ------------------------------------------------------------ 本机身份与配对设备
+
+    /// 本机身份。首次使用时由引擎创建后写入。
+    pub fn load_device(&self) -> Result<Option<ph_core::DeviceInfo>> {
+        let p = self.path_of(files::DEVICE);
+        if !p.exists() {
+            return Ok(None);
+        }
+        let raw = std::fs::read_to_string(&p).map_err(|e| Error::Io(e.to_string()))?;
+        if raw.trim().is_empty() {
+            return Ok(None);
+        }
+        serde_json::from_str(&raw).map(Some).map_err(|e| {
+            Error::Format(format!("device.json 无法解析：{e}"))
+        })
+    }
+
+    pub fn save_device(&self, d: &ph_core::DeviceInfo) -> Result<()> {
+        let body = serde_json::to_vec_pretty(d)
+            .map_err(|e| Error::Format(format!("设备信息序列化失败：{e}")))?;
+        write_atomic(&self.path_of(files::DEVICE), &body)
+    }
+
+    /// 已配对设备清单（本机视角）。
+    pub fn load_devices(&self) -> Result<Vec<ph_core::DeviceInfo>> {
+        let p = self.path_of(files::DEVICES);
+        if !p.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = std::fs::read_to_string(&p).map_err(|e| Error::Io(e.to_string()))?;
+        if raw.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        serde_json::from_str(&raw).map_err(|e| {
+            Error::Format(format!("devices.json 无法解析：{e}"))
+        })
+    }
+
+    pub fn save_devices(&self, v: &[ph_core::DeviceInfo]) -> Result<()> {
+        let body = serde_json::to_vec_pretty(v)
+            .map_err(|e| Error::Format(format!("设备清单序列化失败：{e}")))?;
+        write_atomic(&self.path_of(files::DEVICES), &body)
+    }
+
+    /// 按 id 覆盖或追加一台设备。
+    pub fn upsert_device(&self, d: &ph_core::DeviceInfo) -> Result<()> {
+        let mut all = self.load_devices()?;
+        match all.iter_mut().find(|x| x.id == d.id) {
+            Some(slot) => *slot = d.clone(),
+            None => all.push(d.clone()),
+        }
+        self.save_devices(&all)
+    }
+
+    /// 撤销配对。返回是否真的删掉了一台设备。
+    pub fn remove_device(&self, id: &str) -> Result<bool> {
+        let mut all = self.load_devices()?;
+        let before = all.len();
+        all.retain(|d| d.id != id);
+        if all.len() == before {
+            return Ok(false);
+        }
+        self.save_devices(&all)?;
+        Ok(true)
+    }
+
+    /// 记录一次「这台设备来过」，用于界面展示最后在线时间。
+    pub fn touch_device(&self, id: &str, at: i64) -> Result<()> {
+        let mut all = self.load_devices()?;
+        let Some(d) = all.iter_mut().find(|x| x.id == id) else {
+            return Ok(());
+        };
+        d.last_seen_at = Some(at);
+        self.save_devices(&all)
+    }
+
+    // ------------------------------------------------------------ 删除标记
+
+    pub fn load_tombstones(&self) -> Result<Vec<ph_core::Tombstone>> {
+        let p = self.path_of(files::TOMBSTONES);
+        if !p.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = std::fs::read_to_string(&p).map_err(|e| Error::Io(e.to_string()))?;
+        if raw.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        serde_json::from_str(&raw).map_err(|e| {
+            Error::Format(format!("tombstones.json 无法解析：{e}"))
+        })
+    }
+
+    pub fn save_tombstones(&self, v: &[ph_core::Tombstone]) -> Result<()> {
+        let body = serde_json::to_vec_pretty(v)
+            .map_err(|e| Error::Format(format!("删除标记序列化失败：{e}")))?;
+        write_atomic(&self.path_of(files::TOMBSTONES), &body)
+    }
+
+    /// 记下一条删除标记；同一个账号只保留最新的一条。
+    pub fn add_tombstone(&self, t: &ph_core::Tombstone) -> Result<()> {
+        let mut all = self.load_tombstones()?;
+        match all.iter_mut().find(|x| x.account_id == t.account_id) {
+            Some(slot) => {
+                if t.deleted_at > slot.deleted_at {
+                    *slot = t.clone();
+                }
+            }
+            None => all.push(t.clone()),
+        }
+        self.save_tombstones(&all)
+    }
+
+    /// 账号被重新导入时清掉它的删除标记。
+    pub fn clear_tombstone(&self, account_id: &str) -> Result<()> {
+        let mut all = self.load_tombstones()?;
+        let before = all.len();
+        all.retain(|t| t.account_id != account_id);
+        if all.len() != before {
+            self.save_tombstones(&all)?;
+        }
+        Ok(())
+    }
+
+    // ------------------------------------------------------------ 同步合并
+
+    /// 全量快照（同步去重用；日常取数请用 `load_snapshots`）。
+    pub fn load_all_snapshots(&self) -> Result<Vec<VendorSnapshot>> {
+        let p = self.path_of(files::HISTORY);
+        if !p.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = std::fs::read_to_string(&p).map_err(|e| Error::Io(e.to_string()))?;
+        Ok(raw
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<VendorSnapshot>(l).ok())
+            .collect())
+    }
+
+    pub fn load_all_events(&self) -> Result<Vec<ActivityEvent>> {
+        let p = self.path_of(files::EVENTS);
+        if !p.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = std::fs::read_to_string(&p).map_err(|e| Error::Io(e.to_string()))?;
+        Ok(raw
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<ActivityEvent>(l).ok())
+            .collect())
+    }
+
+    /// 合并外部快照。
+    ///
+    /// 去重键是「账号 + 采样时刻」：同一账号同一秒只会有一个采样，
+    /// 重复推送同一条是幂等的，不会把历史越滚越长。
+    pub fn merge_snapshots(&self, snaps: &[VendorSnapshot]) -> Result<usize> {
+        if snaps.is_empty() {
+            return Ok(0);
+        }
+        let mut seen: std::collections::HashSet<String> = self
+            .load_all_snapshots()?
+            .into_iter()
+            .map(|s| format!("{}@{}", s.account_id, s.captured_at))
+            .collect();
+        let mut added = 0;
+        for s in snaps {
+            let key = format!("{}@{}", s.account_id, s.captured_at);
+            if seen.insert(key) {
+                self.append_snapshot(s)?;
+                added += 1;
+            }
+        }
+        Ok(added)
+    }
+
+    /// 合并外部活动流水。去重键：账号 + 时刻 + 类型 + 文案。
+    pub fn merge_events(&self, evs: &[ActivityEvent]) -> Result<usize> {
+        if evs.is_empty() {
+            return Ok(0);
+        }
+        let mut seen: std::collections::HashSet<String> = self
+            .load_all_events()?
+            .into_iter()
+            .map(|e| format!("{}@{}#{}#{}", e.account_id, e.at, e.kind, e.text))
+            .collect();
+        let mut added = 0;
+        for e in evs {
+            let key = format!("{}@{}#{}#{}", e.account_id, e.at, e.kind, e.text);
+            if seen.insert(key) {
+                self.append_event(e)?;
+                added += 1;
+            }
+        }
+        Ok(added)
+    }
 }
 
 #[cfg(test)]
@@ -332,6 +529,52 @@ mod tests {
         let s = Store::open(&dir).unwrap();
         let st = s.load_settings().unwrap();
         assert!(st.scheduler_enabled);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_is_idempotent() {
+        let dir = tmpdir("merge");
+        let s = Store::open(&dir).unwrap();
+        let a = Account::new(Vendor::TraeCn, "t", "h");
+        let mut snap = VendorSnapshot::empty(&a, 500);
+        snap.balance = Some(12.5);
+        let ev = ph_core::ActivityEvent::checkin(&a, 500, "已领取", Some(10));
+
+        assert_eq!(s.merge_snapshots(std::slice::from_ref(&snap)).unwrap(), 1);
+        assert_eq!(s.merge_snapshots(std::slice::from_ref(&snap)).unwrap(), 0);
+        assert_eq!(s.merge_events(std::slice::from_ref(&ev)).unwrap(), 1);
+        assert_eq!(s.merge_events(std::slice::from_ref(&ev)).unwrap(), 0);
+        assert_eq!(s.history_line_count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn devices_and_tombstones_roundtrip() {
+        let dir = tmpdir("devices");
+        let s = Store::open(&dir).unwrap();
+        assert!(s.load_device().unwrap().is_none());
+
+        let me = ph_core::DeviceInfo::new("书房电脑", "pc");
+        s.save_device(&me).unwrap();
+        assert_eq!(s.load_device().unwrap().unwrap().id, me.id);
+
+        let mut phone = ph_core::DeviceInfo::new("Pixel", "android");
+        phone.token_hash = Some(ph_core::DeviceInfo::hash_token("abc"));
+        s.upsert_device(&phone).unwrap();
+        assert_eq!(s.load_devices().unwrap().len(), 1);
+        assert!(s.remove_device(&phone.id).unwrap());
+        assert!(!s.remove_device(&phone.id).unwrap());
+
+        let t = ph_core::Tombstone {
+            account_id: "a1".into(),
+            deleted_at: 100,
+            device_id: me.id.clone(),
+        };
+        s.add_tombstone(&t).unwrap();
+        assert_eq!(s.load_tombstones().unwrap().len(), 1);
+        s.clear_tombstone("a1").unwrap();
+        assert!(s.load_tombstones().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

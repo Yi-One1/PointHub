@@ -12,3 +12,5 @@ chrono.workspace = true
 uuid.workspace = true
 # 仅用于把网络错误统一映射成 Error::Network；不发起任何请求。
 reqwest = { workspace = true }
+# 只用来给配对令牌算摘要，不参与凭据加密。
+sha2.workspace = true

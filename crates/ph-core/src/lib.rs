@@ -11,8 +11,8 @@ pub mod settings;
 
 pub use error::{Error, Result};
 pub use model::{
-    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, TravelSnapshot, TravelState,
-    Vendor, VendorSnapshot,
+    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, DeviceInfo, MergeReport,
+    SyncPayload, Tombstone, TravelSnapshot, TravelState, Vendor, VendorSnapshot, SYNC_PROTOCOL,
 };
 pub use schedule::AccountSchedule;
 pub use settings::Settings;
@@ -28,4 +28,10 @@ pub mod files {
     pub const HISTORY: &str = "history.jsonl";
     pub const EVENTS: &str = "events.jsonl";
     pub const LOGS_DIR: &str = "logs";
+    /// 本机身份（设备 id / 显示名）。
+    pub const DEVICE: &str = "device.json";
+    /// 已配对设备（含令牌哈希）。
+    pub const DEVICES: &str = "devices.json";
+    /// 账号删除标记。
+    pub const TOMBSTONES: &str = "tombstones.json";
 }

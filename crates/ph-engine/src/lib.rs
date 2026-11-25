@@ -9,12 +9,14 @@
 //! UI 只调这里的方法，不直接碰 vault / providers / store。
 
 use ph_core::{
-    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, Error, Result, Settings,
-    TravelSnapshot, Vendor, VendorSnapshot,
+    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, DeviceInfo, Error,
+    MergeReport, Result, Settings, SyncPayload, Tombstone, TravelSnapshot, Vendor, VendorSnapshot,
+    SYNC_PROTOCOL,
 };
 use ph_providers::{provider_for, TravelAction};
 use ph_store::Store;
 use ph_vault::Vault;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// 汇总视图，给悬浮球与总览页用。
@@ -48,6 +50,30 @@ pub struct Engine {
     vault: Vault,
     settings: Settings,
     accounts: Vec<Account>,
+    /// 本机身份。双端同步与执行端判定都以它为准。
+    device: DeviceInfo,
+}
+
+/// 设备类型：安卓壳编译出来就是 `android`，其余按 `pc` 处理。
+fn device_kind() -> &'static str {
+    if cfg!(target_os = "android") {
+        "android"
+    } else {
+        "pc"
+    }
+}
+
+/// 默认设备名：优先用主机名，读不到就给一个人能看懂的兜底。
+fn default_device_name() -> String {
+    if cfg!(target_os = "android") {
+        return "安卓手机".into();
+    }
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "我的电脑".into())
 }
 
 impl Engine {
@@ -60,15 +86,39 @@ impl Engine {
             store.log(&format!("设置读取失败，使用默认值：{e}"));
             Settings::default()
         });
-        let accounts = store.load_accounts().unwrap_or_else(|e| {
+        let mut accounts = store.load_accounts().unwrap_or_else(|e| {
             store.log(&format!("账号读取失败：{e}"));
             Vec::new()
         });
+        let device = match store.load_device()? {
+            Some(d) => d,
+            None => {
+                let d = DeviceInfo::new(default_device_name(), device_kind());
+                store.save_device(&d)?;
+                d
+            }
+        };
+        // 老数据没有 executor / origin_device：补成本机，避免同步时被当成「无主账号」。
+        let mut dirty = false;
+        for a in &mut accounts {
+            if a.executor.is_none() {
+                a.executor = Some(device.id.clone());
+                dirty = true;
+            }
+            if a.origin_device.is_none() {
+                a.origin_device = Some(device.id.clone());
+                dirty = true;
+            }
+        }
+        if dirty {
+            store.save_accounts(&accounts)?;
+        }
         Ok(Self {
             store,
             vault,
             settings,
             accounts,
+            device,
         })
     }
 
@@ -93,6 +143,97 @@ impl Engine {
     /// 历史快照条数（用于自检与体积提示）。
     pub fn history_count(&self) -> usize {
         self.store.history_line_count()
+    }
+
+    /// 本机身份（设备 id / 显示名 / 类型）。
+    pub fn local_device(&self) -> &DeviceInfo {
+        &self.device
+    }
+
+    pub fn local_device_id(&self) -> &str {
+        &self.device.id
+    }
+
+    /// 已配对设备清单。令牌只以哈希形式保存。
+    pub fn devices(&self) -> Result<Vec<DeviceInfo>> {
+        self.store.load_devices()
+    }
+
+    /// 配对一台新设备。`token_hash` 由调用方对令牌做摘要后传入。
+    pub fn pair_device(&mut self, name: &str, kind: &str, token_hash: String) -> Result<DeviceInfo> {
+        let mut d = DeviceInfo::new(
+            if name.trim().is_empty() {
+                "已配对设备"
+            } else {
+                name.trim()
+            },
+            if kind.trim().is_empty() { "android" } else { kind.trim() },
+        );
+        d.token_hash = Some(token_hash);
+        self.store.upsert_device(&d)?;
+        self.store
+            .log(&format!("设备配对成功：{}（{}）", d.name, d.kind));
+        Ok(d)
+    }
+
+    /// 撤销一台设备的配对。被撤销设备持有的令牌立即失效（服务层重启校验用）。
+    pub fn revoke_device(&mut self, id: &str) -> Result<()> {
+        if self.store.remove_device(id)? {
+            self.store.log(&format!("撤销设备配对：{id}"));
+        }
+        Ok(())
+    }
+
+    pub fn touch_device(&mut self, id: &str) {
+        let _ = self
+            .store
+            .touch_device(id, chrono::Local::now().timestamp());
+    }
+
+    /// 已配对设备的令牌摘要清单，供局域网服务做鉴权。
+    pub fn paired_token_hashes(&self) -> Vec<String> {
+        self.store
+            .load_devices()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|d| d.token_hash)
+            .collect()
+    }
+
+    /// 某账号的执行端 id（老数据为空时视为本机）。
+    pub fn account_executor<'a>(&'a self, a: &'a Account) -> &'a str {
+        a.executor.as_deref().unwrap_or(self.device.id.as_str())
+    }
+
+    /// 这个账号是否由本机执行（只有执行端能签到、采样、派猫猫）。
+    pub fn is_local_executor(&self, a: &Account) -> bool {
+        self.account_executor(a) == self.device.id
+    }
+
+    /// 把账号的执行端指派给本机。
+    ///
+    /// 只允许「认领到自己」：凭据不跨设备搬家，所以不能隔空把执行端塞给别的设备。
+    pub fn assign_executor(&mut self, account_id: &str, device_id: Option<&str>) -> Result<()> {
+        let target = device_id.unwrap_or(self.device.id.as_str());
+        if target != self.device.id {
+            return Err(Error::Unsupported(
+                "暂不支持把执行端指派给其它设备，请在目标设备上认领".into(),
+            ));
+        }
+        let label = {
+            let acc = self
+                .accounts
+                .iter_mut()
+                .find(|a| a.id == account_id)
+                .ok_or_else(|| Error::NotFound(format!("账号 {account_id}")))?;
+            acc.executor = Some(self.device.id.clone());
+            acc.updated_at = chrono::Local::now().timestamp();
+            acc.label.clone()
+        };
+        self.store.save_accounts(&self.accounts)?;
+        self.store
+            .log(&format!("账号 {label} 的执行端设为本机"));
+        Ok(())
     }
 
     pub fn find(&self, id_or_label: &str) -> Option<&Account> {
@@ -142,10 +283,15 @@ impl Engine {
         }
         let mut account = Account::new(vendor, label, cred.hint());
         account.travel_enabled = vendor.has_travel();
+        // 导入它的设备就是执行端：凭据落在本机，签到也只能在本机跑。
+        account.executor = Some(self.device.id.clone());
+        account.origin_device = Some(self.device.id.clone());
         self.vault.put(&account.id, cred);
         self.vault.flush()?;
         self.accounts.push(account.clone());
         self.store.save_accounts(&self.accounts)?;
+        // 重新导入同一账号时，旧的删除标记要清掉。
+        self.store.clear_tombstone(&account.id)?;
         self.store
             .log(&format!("新增账号 {} / {}", vendor.display(), account.label));
         Ok(account)
@@ -174,6 +320,12 @@ impl Engine {
         if self.accounts.len() == before {
             return Err(Error::NotFound(format!("账号 {account_id}")));
         }
+        // 删除会传播到对端：没有墓碑的话，对端下一次同步就把它带回来了。
+        self.store.add_tombstone(&Tombstone {
+            account_id: account_id.to_string(),
+            deleted_at: chrono::Local::now().timestamp(),
+            device_id: self.device.id.clone(),
+        })?;
         self.vault.remove(account_id);
         self.vault.flush()?;
         self.store.save_accounts(&self.accounts)?;
@@ -203,6 +355,12 @@ impl Engine {
             .find(|a| a.id == account_id)
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("账号 {account_id}")))?;
+        if !self.is_local_executor(&account) {
+            return Err(Error::Unsupported(format!(
+                "账号「{}」由另一台设备执行，本机不重复签到",
+                account.label
+            )));
+        }
         let cred = self
             .vault
             .get(account_id)
@@ -250,7 +408,7 @@ impl Engine {
         let ids: Vec<String> = self
             .accounts
             .iter()
-            .filter(|a| a.enabled)
+            .filter(|a| a.enabled && self.is_local_executor(a))
             .map(|a| a.id.clone())
             .collect();
         let mut ok = Vec::new();
@@ -304,6 +462,12 @@ impl Engine {
             .find(|a| a.id == account_id)
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("账号 {account_id}")))?;
+        if !self.is_local_executor(&account) {
+            return Err(Error::Unsupported(format!(
+                "账号「{}」由另一台设备执行，本机不签到",
+                account.label
+            )));
+        }
         let mut cred = self
             .vault
             .get(account_id)
@@ -398,7 +562,7 @@ impl Engine {
         let ids: Vec<String> = self
             .accounts
             .iter()
-            .filter(|a| a.enabled && a.checkin_enabled)
+            .filter(|a| a.enabled && a.checkin_enabled && self.is_local_executor(a))
             .map(|a| a.id.clone())
             .collect();
         let mut out = Vec::new();
@@ -441,6 +605,12 @@ impl Engine {
             .find(|a| a.id == account_id)
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("账号 {account_id}")))?;
+        if !self.is_local_executor(&account) {
+            return Err(Error::Unsupported(format!(
+                "账号「{}」由另一台设备执行，本机不派猫猫",
+                account.label
+            )));
+        }
         if !account.vendor.has_travel() {
             return Err(Error::Unsupported(format!(
                 "{} 没有附件活动",
@@ -616,6 +786,219 @@ impl Engine {
             .map(|d| d.timestamp())
     }
 
+    // ------------------------------------------------------------ 双端同步
+
+    /// 打包一份同步载荷。`since` 为 0 表示全量。
+    ///
+    /// 只含账号元数据、快照、活动与墓碑；凭据永远不在这里（类型上就没有字段）。
+    pub fn sync_export(&self, since: i64) -> SyncPayload {
+        let mut p = SyncPayload::new(&self.device, since);
+        p.accounts = self.accounts.clone();
+        p.snapshots = self
+            .store
+            .load_all_snapshots()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| s.captured_at > since)
+            .collect();
+        p.events = self
+            .store
+            .load_all_events()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| e.at > since)
+            .collect();
+        p.tombstones = self.store.load_tombstones().unwrap_or_default();
+        p
+    }
+
+    /// 合并对端载荷。幂等：同一份载荷重复合并不会产生重复数据。
+    pub fn sync_merge(&mut self, payload: &SyncPayload) -> Result<MergeReport> {
+        if payload.protocol != SYNC_PROTOCOL {
+            return Err(Error::Unsupported(format!(
+                "同步协议不一致：对端 v{}，本机 v{SYNC_PROTOCOL}",
+                payload.protocol
+            )));
+        }
+        let now = chrono::Local::now().timestamp();
+        let mut report = MergeReport::default();
+
+        // 记录对端设备；已配对设备保留原有令牌哈希，不被载荷覆盖。
+        if payload.from_device != self.device.id {
+            let mut peer = self
+                .store
+                .load_devices()?
+                .into_iter()
+                .find(|d| d.id == payload.from_device)
+                .unwrap_or_else(|| DeviceInfo {
+                    id: payload.from_device.clone(),
+                    name: payload.from_name.clone(),
+                    kind: payload.from_kind.clone(),
+                    token_hash: None,
+                    paired_at: now,
+                    last_seen_at: None,
+                });
+            if !payload.from_name.trim().is_empty() {
+                peer.name = payload.from_name.clone();
+            }
+            peer.last_seen_at = Some(now);
+            self.store.upsert_device(&peer)?;
+        }
+
+        // 1. 墓碑：对端删掉的账号，本机也删（除非本机在删除之后还改过）。
+        let mut tombstones = self.store.load_tombstones()?;
+        let mut cred_dirty = false;
+        for t in &payload.tombstones {
+            if let Some(local) = self
+                .accounts
+                .iter()
+                .find(|a| a.id == t.account_id)
+                .cloned()
+            {
+                if local.updated_at > t.deleted_at {
+                    report.conflicts.push(format!(
+                        "账号「{}」在删除后又被修改，已保留",
+                        local.label
+                    ));
+                } else {
+                    self.accounts.retain(|a| a.id != t.account_id);
+                    self.vault.remove(&t.account_id);
+                    cred_dirty = true;
+                    report.accounts_removed += 1;
+                }
+            }
+            match tombstones.iter_mut().find(|x| x.account_id == t.account_id) {
+                Some(slot) => {
+                    if t.deleted_at > slot.deleted_at {
+                        *slot = t.clone();
+                    }
+                }
+                None => tombstones.push(t.clone()),
+            }
+        }
+        if cred_dirty {
+            self.vault.flush()?;
+        }
+        self.store.save_tombstones(&tombstones)?;
+
+        let deleted: HashMap<String, i64> = tombstones
+            .iter()
+            .map(|t| (t.account_id.clone(), t.deleted_at))
+            .collect();
+
+        // 2. 账号：id 相同直接用；否则按平台稳定 id 认人（禁止按令牌片段猜）。
+        let mut changed = false;
+        let mut id_map: HashMap<String, String> = HashMap::new();
+        for remote in &payload.accounts {
+            if deleted
+                .get(&remote.id)
+                .map(|d| remote.updated_at <= *d)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let local_idx = self
+                .accounts
+                .iter()
+                .position(|a| a.id == remote.id)
+                .or_else(|| {
+                    remote.platform_uid.as_ref().and_then(|uid| {
+                        self.accounts.iter().position(|a| {
+                            a.vendor == remote.vendor
+                                && a.platform_uid.as_deref() == Some(uid.as_str())
+                        })
+                    })
+                });
+
+            match local_idx {
+                None => {
+                    let mut a = remote.clone();
+                    a.executor = Some(
+                        remote
+                            .executor
+                            .clone()
+                            .unwrap_or_else(|| payload.from_device.clone()),
+                    );
+                    a.origin_device = Some(
+                        remote
+                            .origin_device
+                            .clone()
+                            .unwrap_or_else(|| payload.from_device.clone()),
+                    );
+                    self.accounts.push(a);
+                    report.accounts_added += 1;
+                    changed = true;
+                }
+                Some(i) => {
+                    let local = self.accounts[i].clone();
+                    if remote.id != local.id {
+                        id_map.insert(remote.id.clone(), local.id.clone());
+                    }
+                    if remote.updated_at > local.updated_at {
+                        let mut merged = remote.clone();
+                        // 本机 id 不漂：对端快照/活动随后会按 id_map 改写到这个 id 上。
+                        merged.id = local.id.clone();
+                        // 执行端以本机已指派的为准；两端不一致时只报冲突，不悄悄改。
+                        if let (Some(le), Some(re)) = (&local.executor, &remote.executor) {
+                            if le != re {
+                                report.conflicts.push(format!(
+                                    "账号「{}」两端执行端不同（本机 {} / 对端 {}），已保留本机",
+                                    local.label, le, re
+                                ));
+                            }
+                        }
+                        merged.executor = local.executor.clone().or_else(|| remote.executor.clone());
+                        merged.updated_at = remote.updated_at;
+                        self.accounts[i] = merged;
+                        report.accounts_updated += 1;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed {
+            self.store.save_accounts(&self.accounts)?;
+        }
+
+        // 3. 快照 / 活动：先按 id_map 改写账号 id，再做幂等合并。
+        let snapshots: Vec<VendorSnapshot> = payload
+            .snapshots
+            .iter()
+            .map(|s| {
+                let mut s = s.clone();
+                if let Some(nid) = id_map.get(&s.account_id) {
+                    s.account_id = nid.clone();
+                }
+                s
+            })
+            .collect();
+        let events: Vec<ActivityEvent> = payload
+            .events
+            .iter()
+            .map(|e| {
+                let mut e = e.clone();
+                if let Some(nid) = id_map.get(&e.account_id) {
+                    e.account_id = nid.clone();
+                }
+                e
+            })
+            .collect();
+        report.snapshots_added = self.store.merge_snapshots(&snapshots)?;
+        report.events_added = self.store.merge_events(&events)?;
+
+        self.store.log(&format!(
+            "同步合并 {}：账号 +{} ~{} -{}，快照 +{}，活动 +{}，冲突 {}",
+            payload.from_name,
+            report.accounts_added,
+            report.accounts_updated,
+            report.accounts_removed,
+            report.snapshots_added,
+            report.events_added,
+            report.conflicts.len()
+        ));
+        Ok(report)
+    }
+
     fn note_error(&mut self, account_id: &str, msg: &str) {
         if let Some(acc) = self.accounts.iter_mut().find(|a| a.id == account_id) {
             acc.last_error = Some(msg.to_string());
@@ -630,5 +1013,134 @@ impl Engine {
                 let _ = self.store.save_accounts(&self.accounts);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ph_core::Credential;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("ph-engine-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn payload_never_carries_credentials() {
+        let dir = tmpdir("nocred");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let token = "refresh-token-SHOULD-NOT-LEAK-123456";
+        e.add_account(
+            Vendor::WorkBuddy,
+            "主号",
+            Credential::from_refresh_token(token),
+        )
+        .unwrap();
+
+        let json = serde_json::to_string(&e.sync_export(0)).unwrap();
+        assert!(!json.contains(token));
+        assert!(!json.contains("refresh_token"));
+        assert!(!json.contains("access_token"));
+        assert!(!json.contains("\"cookie\""));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_is_idempotent() {
+        let (da, db) = (tmpdir("merge-a"), tmpdir("merge-b"));
+        let mut a = Engine::open(Some(da.clone())).unwrap();
+        let mut b = Engine::open(Some(db.clone())).unwrap();
+        a.add_account(
+            Vendor::TraeCn,
+            "t",
+            Credential::from_refresh_token("tok-aaaaaaaaaaaa"),
+        )
+        .unwrap();
+
+        let p = a.sync_export(0);
+        let r1 = b.sync_merge(&p).unwrap();
+        assert_eq!(r1.accounts_added, 1);
+        let r2 = b.sync_merge(&p).unwrap();
+        assert!(r2.is_noop());
+        assert_eq!(b.accounts().len(), 1);
+        // 对端账号的执行端仍是 A，本机 B 不该抢着签。
+        assert!(!b.is_local_executor(&b.accounts()[0]));
+        let _ = std::fs::remove_dir_all(&da);
+        let _ = std::fs::remove_dir_all(&db);
+    }
+
+    #[test]
+    fn tombstone_propagates_deletion() {
+        let (da, db) = (tmpdir("tomb-a"), tmpdir("tomb-b"));
+        let mut a = Engine::open(Some(da.clone())).unwrap();
+        let mut b = Engine::open(Some(db.clone())).unwrap();
+        let acc = a
+            .add_account(
+                Vendor::QoderCn,
+                "q",
+                Credential::from_refresh_token("tok-bbbbbbbbbbbb"),
+            )
+            .unwrap();
+        b.sync_merge(&a.sync_export(0)).unwrap();
+        assert_eq!(b.accounts().len(), 1);
+
+        a.remove_account(&acc.id).unwrap();
+        let r = b.sync_merge(&a.sync_export(0)).unwrap();
+        assert_eq!(r.accounts_removed, 1);
+        assert!(b.accounts().is_empty());
+
+        // 对端删掉之后，旧载荷不能把它复活。
+        let again = b.sync_merge(&a.sync_export(0)).unwrap();
+        assert!(b.accounts().is_empty());
+        assert!(again.is_noop());
+        let _ = std::fs::remove_dir_all(&da);
+        let _ = std::fs::remove_dir_all(&db);
+    }
+
+    #[test]
+    fn platform_uid_merges_and_remaps_history() {
+        let dir = tmpdir("uid");
+        let mut b = Engine::open(Some(dir.clone())).unwrap();
+
+        let phone = DeviceInfo::new("Pixel", "android");
+        let mut first = Account::new(Vendor::WorkBuddy, "旧记录", "hint");
+        first.id = "remote-1".into();
+        first.platform_uid = Some("uid-42".into());
+        first.executor = Some(phone.id.clone());
+        first.origin_device = Some(phone.id.clone());
+        first.updated_at = 1_000;
+
+        let mut p1 = SyncPayload::new(&phone, 0);
+        p1.accounts = vec![first];
+        assert_eq!(b.sync_merge(&p1).unwrap().accounts_added, 1);
+
+        // 同一平台 id、不同本地 id 的第二次同步：应认成同一个账号，并保留本机 id。
+        let mut second = Account::new(Vendor::WorkBuddy, "新名字", "hint");
+        second.id = "remote-2".into();
+        second.platform_uid = Some("uid-42".into());
+        second.executor = Some(phone.id.clone());
+        second.origin_device = Some(phone.id.clone());
+        second.updated_at = 2_000;
+        let mut snap = VendorSnapshot::empty(&second, 2_001);
+        snap.balance = Some(88.5);
+
+        let mut p2 = SyncPayload::new(&phone, 0);
+        p2.accounts = vec![second];
+        p2.snapshots = vec![snap];
+        let r = b.sync_merge(&p2).unwrap();
+
+        assert_eq!(b.accounts().len(), 1, "同一平台 id 不该出现两个账号");
+        assert_eq!(b.accounts()[0].id, "remote-1");
+        assert_eq!(b.accounts()[0].label, "新名字");
+        assert_eq!(r.accounts_updated, 1);
+        // 对端快照按 id_map 改写到本机 id 上，否则总览统计不到。
+        assert_eq!(
+            b.latest_snapshots().get("remote-1").and_then(|s| s.balance),
+            Some(88.5)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

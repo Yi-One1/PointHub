@@ -312,14 +312,14 @@ mod tests {
         let s = Store::open(&dir).unwrap();
         let a = Account::new(Vendor::WorkBuddy, "a", "h");
         let mut snap = VendorSnapshot::empty(&a, 100);
-        snap.balance = Some(1000);
+        snap.balance = Some(1000.0);
         s.append_snapshot(&snap).unwrap();
         snap.captured_at = 200;
-        snap.balance = Some(1100);
+        snap.balance = Some(1100.0);
         s.append_snapshot(&snap).unwrap();
 
         let latest = s.latest_by_account().unwrap();
-        assert_eq!(latest.get(&a.id).unwrap().balance, Some(1100));
+        assert_eq!(latest.get(&a.id).unwrap().balance, Some(1100.0));
         assert_eq!(s.history_line_count(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }

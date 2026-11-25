@@ -490,15 +490,61 @@ fn device_kind() -> &'static str {
     }
 }
 
-/// 网络层失败时补一句普通用户能照着做的排查方向。
+/// 网络层失败时把真实原因挖出来，并补一句普通用户能照着做的排查方向。
+///
+/// `reqwest::Error` 的 Display 只有「error sending request」，真正的原因
+/// （Permission denied / Network is unreachable / Connection timed out）
+/// 藏在 source 链里；再补一次裸 TCP 探测，避免把系统级问题误判成「Wi-Fi 不对」。
 fn network_hint(e: reqwest::Error) -> Error {
-    let err: Error = e.into();
-    match err {
-        Error::Network(m) if !m.contains("同一个 Wi-Fi") => {
-            Error::Network(format!("{m}（请确认手机和电脑连的是同一个 Wi-Fi）"))
+    let kind = if e.is_timeout() {
+        "请求超时"
+    } else if e.is_connect() {
+        "连接失败"
+    } else {
+        "网络错误"
+    };
+    let mut detail = e.to_string();
+    let mut src = std::error::Error::source(&e);
+    while let Some(s) = src {
+        let t = s.to_string();
+        if !t.is_empty() && !detail.contains(&t) {
+            detail.push_str("；");
+            detail.push_str(&t);
         }
-        other => other,
+        src = s.source();
     }
+    let probe = e
+        .url()
+        .map(|u| {
+            tcp_probe(
+                u.host_str().unwrap_or(""),
+                u.port_or_known_default().unwrap_or(0),
+            )
+        })
+        .unwrap_or_default();
+    Error::Network(format!(
+        "{kind}：{detail}{probe}（请确认手机和电脑连的是同一个 Wi-Fi）"
+    ))
+}
+
+/// 绕过 HTTP 栈直接做一次 TCP 连接，把系统级错误原文带出来。
+fn tcp_probe(host: &str, port: u16) -> String {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+    if host.is_empty() || port == 0 {
+        return String::new();
+    }
+    let addrs: Vec<_> = match (host, port).to_socket_addrs() {
+        Ok(it) => it.collect(),
+        Err(e) => return format!("；TCP 自检：地址解析失败（{e}）"),
+    };
+    for addr in addrs {
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+            Ok(_) => return format!("；TCP 自检：到 {addr} 可连通"),
+            Err(e) => return format!("；TCP 自检：到 {addr} 失败（{e}）"),
+        }
+    }
+    "；TCP 自检：没有可用地址".to_string()
 }
 
 /// 统一解析响应：非 2xx 时尽量取出服务端的 `error` 文案。

@@ -9,8 +9,8 @@
 //! UI 只调这里的方法，不直接碰 vault / providers / store。
 
 use ph_core::{
-    Account, CheckinOutcome, CheckinStatus, Credential, Error, Result, Settings, TravelSnapshot,
-    Vendor, VendorSnapshot,
+    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, Error, Result, Settings,
+    TravelSnapshot, Vendor, VendorSnapshot,
 };
 use ph_providers::{provider_for, TravelAction};
 use ph_store::Store;
@@ -28,6 +28,19 @@ pub struct Aggregate {
     pub balance_known: usize,
     /// 最近一次采样时间。
     pub last_sampled_at: Option<i64>,
+}
+
+/// 近 N 天里某一天的余额合计。
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct DayPoint {
+    /// 本地日期，形如 `11-25`。
+    pub date: String,
+    /// 当天最后一次采样时各账号余额之和。
+    pub total: i64,
+    /// 当天有余额数据的账号数（用于提示合计覆盖了几个号）。
+    pub known: usize,
+    /// 相对前一天的新增（余额差）。前一天没有数据时为 None，**不要填 0**。
+    pub gain: Option<i64>,
 }
 
 pub struct Engine {
@@ -370,6 +383,13 @@ impl Engine {
             outcome.status.label(),
             outcome.message
         ));
+        // 记流水：界面「最近活动」直接读它，不再从日志里正则捞。
+        let _ = self.store.append_event(&ActivityEvent::checkin(
+            &account,
+            outcome.at,
+            outcome.status.label(),
+            outcome.credit,
+        ));
         Ok(outcome)
     }
 
@@ -437,6 +457,20 @@ impl Engine {
         let result = provider.travel(&account, &cred, action, location_id).await;
         self.vault.put(account_id, cred);
         self.vault.flush()?;
+        if let Ok(snap) = &result {
+            let text = match (&snap.location, snap.note.as_deref()) {
+                (Some(loc), Some(note)) => format!("{} {loc}（{note}）", snap.state.label()),
+                (Some(loc), None) => format!("{} {loc}", snap.state.label()),
+                (None, Some(note)) => format!("{}（{note}）", snap.state.label()),
+                (None, None) => snap.state.label().to_string(),
+            };
+            let _ = self.store.append_event(&ActivityEvent::travel(
+                &account,
+                chrono::Local::now().timestamp(),
+                text,
+                snap.reward_credit,
+            ));
+        }
         result
     }
 
@@ -476,6 +510,72 @@ impl Engine {
         self.store.latest_by_account().unwrap_or_default()
     }
 
+    /// 近 `days` 天的每日余额合计（含今天，按日期升序）。
+    ///
+    /// 规则：取每天最后一次采样；只统计**当前仍纳管**的账号——
+    /// 删掉的账号不该继续占着历史合计，否则曲线会莫名掉一截。
+    pub fn daily_series(&self, days: i64) -> Vec<DayPoint> {
+        use chrono::Datelike;
+        use std::collections::BTreeMap;
+
+        let today = chrono::Local::now().date_naive();
+        let from = today - chrono::Duration::days(days.max(1) - 1);
+        // date -> account_id -> 当天最后余额
+        let mut per_day: BTreeMap<chrono::NaiveDate, BTreeMap<String, i64>> = BTreeMap::new();
+
+        if let Ok(snaps) = self.store.load_snapshots(20000) {
+            for s in snaps {
+                let Some(dt) = ph_core::schedule::local_from_epoch(s.captured_at) else {
+                    continue;
+                };
+                let d = dt.date();
+                if d < from || d > today {
+                    continue;
+                }
+                if let Some(b) = s.balance {
+                    // 顺序遍历，后写覆盖前写，天然得到「当天最后一次」。
+                    per_day.entry(d).or_default().insert(s.account_id.clone(), b);
+                }
+            }
+        }
+
+        let mut out = Vec::with_capacity(days.max(1) as usize);
+        let mut prev: Option<(i64, usize)> = None;
+        for i in (0..days.max(1)).rev() {
+            let d = today - chrono::Duration::days(i);
+            let mut total = 0i64;
+            let mut known = 0usize;
+            if let Some(m) = per_day.get(&d) {
+                for a in &self.accounts {
+                    if let Some(b) = m.get(&a.id) {
+                        total += *b;
+                        known += 1;
+                    }
+                }
+            }
+            // 只有两天都有数据才算得出「新增」，否则宁可空着。
+            let gain = match prev {
+                Some((pt, pk)) if known > 0 && pk > 0 => Some(total - pt),
+                _ => None,
+            };
+            if known > 0 {
+                prev = Some((total, known));
+            }
+            out.push(DayPoint {
+                date: format!("{:02}-{:02}", d.month(), d.day()),
+                total,
+                known,
+                gain,
+            });
+        }
+        out
+    }
+
+    /// 最近的活动流水（新的在前）。
+    pub fn recent_events(&self, limit: usize) -> Vec<ActivityEvent> {
+        self.store.load_events(limit).unwrap_or_default()
+    }
+
     // ------------------------------------------------------------ 调度支持
 
     /// 今天还没执行、且已过执行时间点的账号（用于「启动补签」）。
@@ -503,6 +603,17 @@ impl Engine {
             .filter(|a| a.enabled && a.checkin_enabled)
             .map(|a| a.schedule.next_run_after(now, &a.id))
             .min()
+    }
+
+    /// 下一次自动签到的时刻（epoch 秒），给界面直接显示。
+    pub fn next_run_at(&self) -> Option<i64> {
+        use chrono::TimeZone;
+        let now = chrono::Local::now().naive_local();
+        let next = self.next_wakeup(now)?;
+        chrono::Local
+            .from_local_datetime(&next)
+            .single()
+            .map(|d| d.timestamp())
     }
 
     fn note_error(&mut self, account_id: &str, msg: &str) {

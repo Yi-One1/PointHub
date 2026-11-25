@@ -24,6 +24,9 @@ export const api = {
     invoke<void>("set_account_enabled", { id, enabled }),
   saveSettings: (settings: Settings) => invoke<StateView>("save_settings", { settings }),
   setBall: (enabled: boolean) => invoke<void>("set_ball", { enabled }),
+  setBallExpanded: (expanded: boolean) => invoke<void>("set_ball_expanded", { expanded }),
+  setBallAccount: (accountId: string | null) =>
+    invoke<void>("set_ball_account", { accountId }),
   openDataDir: () => invoke<void>("open_data_dir"),
   relocateData: (path: string) => invoke<string>("relocate_data", { path }),
   showMain: () => invoke<void>("show_main"),

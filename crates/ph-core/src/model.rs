@@ -357,6 +357,53 @@ pub struct CheckinOutcome {
     pub at: i64,
 }
 
+/// 一条用户可见的活动记录。
+///
+/// 只记「发生了什么事」，不存令牌、也不存上游原始响应体——
+/// 这个文件是明文，任何敏感内容都不该进来。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityEvent {
+    /// 发生时间（epoch 秒）。
+    pub at: i64,
+    pub account_id: String,
+    /// 记录当时的账号别名，便于账号被删后仍能读懂历史。
+    pub label: String,
+    pub vendor: Vendor,
+    /// `checkin` | `travel`
+    pub kind: String,
+    /// 本次影响的积分（领取为正，失败为空）。
+    #[serde(default)]
+    pub delta: Option<i64>,
+    /// 人话描述，例如「已领取」「派猫猫 已到达」。
+    pub text: String,
+}
+
+impl ActivityEvent {
+    pub fn checkin(account: &Account, at: i64, text: impl Into<String>, delta: Option<i64>) -> Self {
+        Self {
+            at,
+            account_id: account.id.clone(),
+            label: account.label.clone(),
+            vendor: account.vendor,
+            kind: "checkin".into(),
+            delta,
+            text: text.into(),
+        }
+    }
+
+    pub fn travel(account: &Account, at: i64, text: impl Into<String>, delta: Option<i64>) -> Self {
+        Self {
+            at,
+            account_id: account.id.clone(),
+            label: account.label.clone(),
+            vendor: account.vendor,
+            kind: "travel".into(),
+            delta,
+            text: text.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

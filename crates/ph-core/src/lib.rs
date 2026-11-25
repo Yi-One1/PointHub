@@ -11,8 +11,8 @@ pub mod settings;
 
 pub use error::{Error, Result};
 pub use model::{
-    Account, CheckinOutcome, CheckinStatus, Credential, TravelSnapshot, TravelState, Vendor,
-    VendorSnapshot,
+    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, TravelSnapshot, TravelState,
+    Vendor, VendorSnapshot,
 };
 pub use schedule::AccountSchedule;
 pub use settings::Settings;
@@ -26,5 +26,6 @@ pub mod files {
     pub const SETTINGS: &str = "settings.json";
     pub const VAULT: &str = "vault.bin";
     pub const HISTORY: &str = "history.jsonl";
+    pub const EVENTS: &str = "events.jsonl";
     pub const LOGS_DIR: &str = "logs";
 }

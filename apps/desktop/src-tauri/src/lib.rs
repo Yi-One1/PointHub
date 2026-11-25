@@ -32,7 +32,7 @@ pub type SharedState = Arc<AppState>;
 
 #[cfg_attr(mobile, allow(unused_variables))]
 pub fn run() {
-    let engine = Engine::open(None).unwrap_or_else(|e| {
+    let engine = Engine::open(data_dir_arg()).unwrap_or_else(|e| {
         eprintln!("初始化失败：{}", e.user_message());
         std::process::exit(1);
     });
@@ -62,6 +62,8 @@ pub fn run() {
             commands::open_data_dir,
             commands::relocate_data,
             commands::set_ball,
+            commands::set_ball_expanded,
+            commands::set_ball_account,
             commands::show_main,
             commands::quit_app,
         ])
@@ -76,6 +78,7 @@ pub fn run() {
                     }
                 }
                 sync_autostart(app.handle());
+                spawn_scheduler(app.handle().clone());
             }
             Ok(())
         });
@@ -101,6 +104,27 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("Tauri 启动失败");
+}
+
+// ------------------------------------------------------------------ 启动参数
+
+/// 解析 `--data-dir <路径>` / `--data-dir=<路径>`。
+///
+/// 用途有两个：便携版把数据放在自己旁边，以及开发时用演示数据看界面——
+/// 不必为了看一眼截图去动用户真正的数据目录。
+fn data_dir_arg() -> Option<std::path::PathBuf> {
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        if a == "--data-dir" {
+            return it.next().map(std::path::PathBuf::from);
+        }
+        if let Some(rest) = a.strip_prefix("--data-dir=") {
+            if !rest.trim().is_empty() {
+                return Some(std::path::PathBuf::from(rest));
+            }
+        }
+    }
+    None
 }
 
 // ------------------------------------------------------------------ 桌面专属
@@ -190,14 +214,21 @@ pub fn open_ball(app: &tauri::AppHandle) -> tauri::Result<()> {
         .focused(false)
         .build()?;
     // 默认贴右上角；具体坐标由前端首次拖拽后写回设置。
+    //
+    // 位置必须按**窗口实际尺寸**算，不能按 96 常量算：WebView 实际尺寸
+    // 可能和请求值有出入，按常量算会让球贴出屏幕边缘（被裁掉一条）。
     if let Ok(Some(monitor)) = w.current_monitor() {
         let size = monitor.size();
+        let origin = monitor.position();
         let scale = monitor.scale_factor();
-        let x = (size.width as f64 / scale) as i32 - 120;
-        let _ = w.set_position(tauri::PhysicalPosition::new(
-            (x as f64 * scale) as i32,
-            (60.0 * scale) as i32,
-        ));
+        let win_w = w
+            .outer_size()
+            .map(|s| s.width as i32)
+            .unwrap_or((96.0 * scale) as i32);
+        let margin = (24.0 * scale) as i32;
+        let x = origin.x + size.width as i32 - win_w - margin;
+        let y = origin.y + (60.0 * scale) as i32;
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
     }
     Ok(())
 }
@@ -237,4 +268,57 @@ fn sync_autostart(app: &tauri::AppHandle) {
         }
         _ => {}
     }
+}
+
+// ------------------------------------------------------------------ 常驻调度
+
+/// 后台签到循环。
+///
+/// 设计取舍：
+/// - **45 秒一轮**。签到时间本身带 0~5 分钟确定性抖动，秒级精度没有意义；
+///   轮询太密只是在空转锁。
+/// - 每轮只做「判断谁该走了」这一件小事，真正签到复用 `run_checkin_inner`，
+///   保证手动点按钮和自动跑走的是同一条代码路径（含通知）。
+/// - 跑完 emit 一次 `ph://changed`，界面收到就重拉状态，不靠前端轮询。
+#[cfg(desktop)]
+fn spawn_scheduler(app: tauri::AppHandle) {
+    use std::time::Duration;
+    use tauri::Emitter;
+
+    tauri::async_runtime::spawn(async move {
+        // 起步先等一会：首屏正在读数据，没必要抢同一把锁。
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        loop {
+            let now = chrono::Local::now().naive_local();
+            let ids: Vec<String> = {
+                let state = app.state::<SharedState>();
+                let engine = state.engine.lock().await;
+                let s = engine.settings();
+                if !s.scheduler_enabled {
+                    Vec::new()
+                } else {
+                    let catch_up = s.catch_up_missed;
+                    engine
+                        .due_accounts(now)
+                        .into_iter()
+                        .filter(|a| {
+                            if catch_up {
+                                return true;
+                            }
+                            // 不补签时只认「刚过点 30 分钟内」的窗口。
+                            let slot = a.schedule.slot_on(now.date(), &a.id);
+                            now.signed_duration_since(slot) <= chrono::Duration::minutes(30)
+                        })
+                        .map(|a| a.id)
+                        .collect()
+                }
+            };
+
+            if !ids.is_empty() {
+                let _ = commands::run_checkin_inner(&app, Some(ids)).await;
+                let _ = app.emit("ph://changed", ());
+            }
+            tokio::time::sleep(Duration::from_secs(45)).await;
+        }
+    });
 }

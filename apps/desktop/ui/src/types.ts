@@ -10,6 +10,8 @@ export interface BallSettings {
   size: number;
   opacity: number;
   show: BallContent;
+  /** 球面绑定的账号；null = 全部合计 */
+  selected: string | null;
 }
 
 export interface SyncSettings {
@@ -72,6 +74,26 @@ export interface PlatformCap {
   verified: boolean;
 }
 
+/** 近 7 日里的一天 */
+export interface DayPoint {
+  date: string;
+  total: number;
+  known: number;
+  /** 相对前一天的新增；前一天无数据时为 null */
+  gain: number | null;
+}
+
+/** 一条活动流水 */
+export interface ActivityEvent {
+  at: number;
+  account_id: string;
+  label: string;
+  vendor: string;
+  kind: string;
+  delta: number | null;
+  text: string;
+}
+
 export interface StateView {
   version: string;
   data_dir: string;
@@ -79,6 +101,9 @@ export interface StateView {
   history_count: number;
   accounts: AccountView[];
   aggregate: Aggregate;
+  trend: DayPoint[];
+  events: ActivityEvent[];
+  next_run_at: number | null;
   settings: Settings;
   platforms: PlatformCap[];
 }

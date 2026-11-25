@@ -53,6 +53,17 @@ pub struct AccountView {
 }
 
 #[derive(Serialize)]
+pub struct EventView {
+    pub at: i64,
+    pub account_id: String,
+    pub label: String,
+    pub vendor: String,
+    pub kind: String,
+    pub delta: Option<i64>,
+    pub text: String,
+}
+
+#[derive(Serialize)]
 pub struct StateView {
     pub version: String,
     pub data_dir: String,
@@ -60,6 +71,10 @@ pub struct StateView {
     pub history_count: usize,
     pub accounts: Vec<AccountView>,
     pub aggregate: Aggregate,
+    pub trend: Vec<ph_engine::DayPoint>,
+    pub events: Vec<EventView>,
+    /// 下一次自动签到的时刻（epoch 秒）；没有启用账号时为 None。
+    pub next_run_at: Option<i64>,
     pub settings: Settings,
     pub platforms: Vec<PlatformCapView>,
 }
@@ -131,6 +146,21 @@ fn build_state(engine: &ph_engine::Engine) -> StateView {
         history_count: engine.history_count(),
         accounts,
         aggregate: engine.aggregate(),
+        trend: engine.daily_series(7),
+        events: engine
+            .recent_events(12)
+            .into_iter()
+            .map(|e| EventView {
+                at: e.at,
+                account_id: e.account_id,
+                label: e.label,
+                vendor: e.vendor.id().to_string(),
+                kind: e.kind,
+                delta: e.delta,
+                text: e.text,
+            })
+            .collect(),
+        next_run_at: engine.next_run_at(),
         settings: engine.settings().clone(),
         platforms,
     }
@@ -392,6 +422,90 @@ pub async fn save_settings(
 #[tauri::command]
 pub fn set_ball(app: AppHandle, enabled: bool) -> Result<(), String> {
     apply_ball(&app, enabled)
+}
+
+/// 悬浮球收起时的直径、展开后的面板尺寸（逻辑像素）。
+const BALL_SIZE: f64 = 96.0;
+const BALL_PANEL_W: f64 = 336.0;
+const BALL_PANEL_H: f64 = 384.0;
+
+/// 展开 / 收起悬浮球窗口。
+///
+/// 关键点：**右边缘锚定**。球贴在屏幕右侧时，若向左扩展且不锚定，
+/// 面板会直接飞出屏幕；锚定后球体位置看不出变化，面板从它下面长出来。
+/// 再对四边做一次夹紧，防止贴边时露到屏幕外。
+#[tauri::command]
+pub fn set_ball_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        use tauri::{PhysicalPosition, PhysicalSize};
+        let w = match app.get_webview_window("ball") {
+            Some(w) => w,
+            None => return Ok(()),
+        };
+        let scale = w.scale_factor().map_err(|e| e.to_string())?;
+        let pos = w.outer_position().map_err(|e| e.to_string())?;
+        let size = w.outer_size().map_err(|e| e.to_string())?;
+
+        let (lw, lh) = if expanded {
+            (BALL_PANEL_W, BALL_PANEL_H)
+        } else {
+            (BALL_SIZE, BALL_SIZE)
+        };
+        let new_w = (lw * scale).round().max(1.0) as i32;
+        let new_h = (lh * scale).round().max(1.0) as i32;
+
+        let right = pos.x + size.width as i32;
+        let mut x = right - new_w;
+        let mut y = pos.y;
+
+        if let Ok(Some(m)) = w.current_monitor() {
+            let ms = m.size();
+            let mp = m.position();
+            let left = mp.x;
+            let top = mp.y;
+            let right_lim = mp.x + ms.width as i32;
+            let bottom_lim = mp.y + ms.height as i32;
+            if x + new_w > right_lim {
+                x = right_lim - new_w;
+            }
+            if x < left {
+                x = left;
+            }
+            if y + new_h > bottom_lim {
+                y = bottom_lim - new_h;
+            }
+            if y < top {
+                y = top;
+            }
+        }
+
+        // 先定位再改尺寸：反过来的话窗口会先缩小/放大再跳一下，肉眼可见。
+        w.set_position(PhysicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        w.set_size(PhysicalSize::new(new_w as u32, new_h as u32))
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, expanded);
+    }
+    Ok(())
+}
+
+/// 悬浮球绑定哪个账号（`None` = 全部合计）。
+///
+/// 单独开一个命令而不是复用 `save_settings`：球窗口若拿旧快照整包回写，
+/// 会把主窗口刚改的别的设置覆盖掉。
+#[tauri::command]
+pub async fn set_ball_account(
+    state: State<'_, SharedState>,
+    account_id: Option<String>,
+) -> Result<(), String> {
+    let mut engine = state.engine.lock().await;
+    let mut s = engine.settings().clone();
+    s.ball.selected = account_id;
+    engine.update_settings(s).map_err(|e| e.user_message())
 }
 
 pub fn apply_ball(app: &AppHandle, enabled: bool) -> Result<(), String> {

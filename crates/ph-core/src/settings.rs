@@ -34,6 +34,11 @@ pub struct BallSettings {
     /// 球面显示的内容：总积分 / 今日待签数。
     #[serde(default)]
     pub show: BallContent,
+    /// 球面绑定哪个账号；None 表示「全部合计」。
+    ///
+    /// 用账号 id 而不是别名：别名可改，id 不会漂。
+    #[serde(default)]
+    pub selected: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +70,7 @@ impl Default for BallSettings {
             size: default_ball_size(),
             opacity: default_opacity(),
             show: BallContent::TotalCredits,
+            selected: None,
         }
     }
 }

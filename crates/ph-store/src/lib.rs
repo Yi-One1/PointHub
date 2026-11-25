@@ -3,7 +3,7 @@
 //! 这里**不存任何令牌**——令牌在 `ph-vault`。
 //! 所有写入都是「临时文件 + 改名」，避免断电时留下半个文件。
 
-use ph_core::{files, Account, Error, Result, Settings, VendorSnapshot};
+use ph_core::{files, Account, ActivityEvent, Error, Result, Settings, VendorSnapshot};
 use std::path::{Path, PathBuf};
 
 /// 数据目录定位。
@@ -219,6 +219,42 @@ impl Store {
             map.insert(s.account_id.clone(), s);
         }
         Ok(map)
+    }
+
+    /// 追加一条活动流水（签到 / 派猫猫）。同样是 JSONL 追加写。
+    pub fn append_event(&self, ev: &ActivityEvent) -> Result<()> {
+        use std::io::Write;
+        let p = self.path_of(files::EVENTS);
+        let line = serde_json::to_string(ev)
+            .map_err(|e| Error::Format(format!("活动序列化失败：{e}")))?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&p)
+            .map_err(|e| Error::Io(e.to_string()))?;
+        writeln!(f, "{line}").map_err(|e| Error::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 读取最近 N 条活动（按时间倒序，最新在前）。
+    ///
+    /// 排序不依赖文件顺序：追加写和外部写入混在一起时，文件顺序不等于时间顺序。
+    pub fn load_events(&self, limit: usize) -> Result<Vec<ActivityEvent>> {
+        let p = self.path_of(files::EVENTS);
+        if !p.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = std::fs::read_to_string(&p).map_err(|e| Error::Io(e.to_string()))?;
+        // 全量读后排序会随文件增长变慢，这里只保留末尾 limit*4 行做候选。
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        let start = lines.len().saturating_sub(limit.saturating_mul(4).max(limit));
+        let mut out: Vec<ActivityEvent> = lines[start..]
+            .iter()
+            .filter_map(|l| serde_json::from_str::<ActivityEvent>(l).ok())
+            .collect();
+        out.sort_by(|a, b| b.at.cmp(&a.at));
+        out.truncate(limit);
+        Ok(out)
     }
 
     /// 追加一行运行日志（给用户看的那种，不含令牌）。

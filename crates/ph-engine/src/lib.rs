@@ -343,6 +343,46 @@ impl Engine {
                     .unwrap_or(keeper);
                 return Ok((acc, true, merged));
             }
+        } else {
+            // 没有 JWT 身份（例如 Trae / Qoder 的普通令牌）时，退一步用**整串令牌完全相同**
+            // 判断：同一串令牌不可能属于两个账号。仍然禁止按令牌片段猜（D15）。
+            let dup_ids: Vec<String> = self
+                .accounts
+                .iter()
+                .filter(|a| {
+                    a.vendor == vendor
+                        && self
+                            .vault
+                            .get(&a.id)
+                            .map_or(false, |c| same_secret(c, &cred))
+                })
+                .map(|a| a.id.clone())
+                .collect();
+            if !dup_ids.is_empty() {
+                let keeper_id = dup_ids.iter().find_map(|id| {
+                    let a = self.accounts.iter().find(|a| &a.id == id)?;
+                    self.is_local_executor(a).then(|| id.clone())
+                });
+                let Some(keeper_id) = keeper_id else {
+                    return Err(Error::Unsupported(
+                        "该账号由另一台设备执行，本机不能同时持有一份凭据。请先在手机上处理该账号后再导入。"
+                            .into(),
+                    ));
+                };
+                self.update_credential(&keeper_id, cred)?;
+                let mut merged = 0;
+                for id in dup_ids.iter().filter(|id| **id != keeper_id) {
+                    self.remove_account(id)?;
+                    merged += 1;
+                }
+                let acc = self
+                    .accounts
+                    .iter()
+                    .find(|a| a.id == keeper_id)
+                    .cloned()
+                    .expect("刚更新过的账号一定还在");
+                return Ok((acc, true, merged));
+            }
         }
 
         let mut account = self.add_account(vendor, label, cred)?;
@@ -1137,6 +1177,19 @@ impl Engine {
     }
 }
 
+/// 两份额度的凭据是否持有**完全相同**的令牌。
+/// 只比整串，不做任何片段匹配（D15 明确禁止按令牌片段猜身份）。
+fn same_secret(a: &Credential, b: &Credential) -> bool {
+    fn eq(x: Option<&str>, y: Option<&str>) -> bool {
+        match (x, y) {
+            (Some(x), Some(y)) => !x.is_empty() && x == y,
+            _ => false,
+        }
+    }
+    eq(a.refresh_token.as_deref(), b.refresh_token.as_deref())
+        || eq(a.access_token.as_deref(), b.access_token.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1355,6 +1408,42 @@ mod tests {
         assert_eq!(acc.id, old.id);
         assert_eq!(e.accounts().len(), 1);
         assert_eq!(e.accounts()[0].platform_uid.as_deref(), Some("legacy-1"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn identical_opaque_token_updates_instead_of_duplicating() {
+        let dir = tmpdir("opaque-dedup");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        // Trae 这类不是 JWT 的令牌：只能靠整串完全相同来认。
+        let (first, updated, _) = e
+            .upsert_account(
+                Vendor::TraeCn,
+                "Trae 主号",
+                Credential::from_access_token("opaque-token-1234567890"),
+            )
+            .unwrap();
+        assert!(!updated);
+
+        let (again, updated, _) = e
+            .upsert_account(
+                Vendor::TraeCn,
+                "别名不同",
+                Credential::from_access_token("opaque-token-1234567890"),
+            )
+            .unwrap();
+        assert!(updated, "整串令牌相同应认成同一账号");
+        assert_eq!(again.id, first.id);
+        assert_eq!(e.accounts().len(), 1);
+
+        // 不同令牌仍是不同账号。
+        e.upsert_account(
+            Vendor::TraeCn,
+            "Trae 小号",
+            Credential::from_access_token("opaque-token-0987654321"),
+        )
+        .unwrap();
+        assert_eq!(e.accounts().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

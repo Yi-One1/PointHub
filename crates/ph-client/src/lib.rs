@@ -337,7 +337,8 @@ impl Client {
                 "kind": device_kind(),
             }))
             .send()
-            .await?;
+            .await
+            .map_err(network_hint)?;
         let pair: PairResp = decode(resp).await?;
         let cfg = ClientConfig {
             base_url: base,
@@ -360,7 +361,8 @@ impl Client {
             .get(format!("{}/api/sync/pull?since={since}", cfg.base_url))
             .bearer_auth(&cfg.token)
             .send()
-            .await?;
+            .await
+            .map_err(network_hint)?;
         decode(resp).await
     }
 
@@ -373,7 +375,8 @@ impl Client {
             .bearer_auth(&cfg.token)
             .json(payload)
             .send()
-            .await?;
+            .await
+            .map_err(network_hint)?;
         decode(resp).await
     }
 
@@ -391,7 +394,8 @@ impl Client {
             .bearer_auth(&cfg.token)
             .json(&serde_json::json!({}))
             .send()
-            .await?;
+            .await
+            .map_err(network_hint)?;
         Ok(decode::<Resp>(resp).await?.sampled)
     }
 
@@ -409,7 +413,8 @@ impl Client {
             .bearer_auth(&cfg.token)
             .json(&serde_json::json!({ "ids": ids }))
             .send()
-            .await?;
+            .await
+            .map_err(network_hint)?;
         Ok(decode::<Resp>(resp).await?.results)
     }
 
@@ -426,7 +431,8 @@ impl Client {
             .bearer_auth(&cfg.token)
             .json(&serde_json::json!({ "id": account_id }))
             .send()
-            .await?;
+            .await
+            .map_err(network_hint)?;
         Ok(decode::<Resp>(resp).await?.message)
     }
 
@@ -481,6 +487,17 @@ fn device_kind() -> &'static str {
         "android"
     } else {
         "pc"
+    }
+}
+
+/// 网络层失败时补一句普通用户能照着做的排查方向。
+fn network_hint(e: reqwest::Error) -> Error {
+    let err: Error = e.into();
+    match err {
+        Error::Network(m) if !m.contains("同一个 Wi-Fi") => {
+            Error::Network(format!("{m}（请确认手机和电脑连的是同一个 Wi-Fi）"))
+        }
+        other => other,
     }
 }
 

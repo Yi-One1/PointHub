@@ -50,9 +50,9 @@ scripts\build-android.bat release --target aarch64
 
 ## 产物与体积
 
-- 正式包：release + `aarch64` 单架构，**实测 7.4 MB**（`Cargo.toml` 已开
+- 正式包：release + `aarch64` 单架构，**实测 7.8 MB**（`Cargo.toml` 已开
   `strip = true` + `lto = true`，AGP 默认剥离 native 符号）。
-- 调试包：默认 universal（4 个 ABI），保留调试符号，约 181 MB，仅排障用。
+- 调试包：默认 universal（4 个 ABI）并保留调试符号，约 150–180 MB，仅排障用。
 
 ## 界面适配（v0.4.0）
 
@@ -69,7 +69,7 @@ scripts\build-android.bat release --target aarch64
 REM  release 小包（推荐，arm64 单架构）
 scripts\build-android.bat release --target aarch64
 
-REM  debug 大包（181 MB，带调试信息，排障时用）
+REM  debug 大包（约 150–180 MB，带调试信息，排障时用）
 scripts\build-android.bat --target aarch64
 ```
 
@@ -87,12 +87,10 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 
 ## 最近一次构建
 
-- 2026-11-25，`dist\积分枢纽PointHub_v0.4.2.apk`，**7.4 MB**
-  （release / arm64-v8a / debug keystore 签名 / `apksigner verify` 通过）
-- 同版本的 debug 包 `dist\积分枢纽PointHub_v0.4.2_arm64-debug.apk` 为 181 MB，
-  仅排障用
-- 雷电模拟器（x86_64 + ARM 翻译层 / Android 9）实测：安装、启动、
-  页面加载正常，0 条崩溃日志
+- 2026-11-26，`dist\积分枢纽PointHub_v0.5.0.apk`，**7.8 MB**
+  （release / arm64-v8a / versionName 0.5.0 / debug keystore 签名 /
+  `apksigner verify` 通过），已随 v0.5.0 发布到 GitHub Releases。
+- 早期 debug 包（约 181 MB）只用于排障，不入库、不发布。
 
 ## targetSdk 固定为 36（Android 17 本地网络保护）
 
@@ -103,10 +101,3 @@ Android 17（API 37）对 targetSdk 37 的应用启用「本地网络保护」�
 `scripts/patch-android-gradle.ps1` 会把 `targetSdk` 固定为 `36`，
 沿用 INTERNET 权限下的隐式局域网许可。**不要**手工改回 37；
 `gen/` 重新生成后由脚本幂等补回。
-
-## 待办
-
-- [x] 发布版 APK 实测体积（7.4 MB）
-- [x] 签名配置（自用分发用 debug keystore，无需正式 keystore）
-- [x] 模拟器安装验证（雷电，见上）
-- [x] 真机安装验证（Redmi K80 Pro / Android 17，targetSdk 36 后可连局域网）

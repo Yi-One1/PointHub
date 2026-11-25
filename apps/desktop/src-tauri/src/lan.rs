@@ -332,6 +332,11 @@ async fn handle(mut stream: TcpStream, ctx: Arc<LanCtx>, peer: SocketAddr) {
     let Some(req) = read_request(&mut stream).await else {
         return;
     };
+    // 每一次请求都落日志：手机连不上时，看这里就知道请求到底有没有到电脑。
+    log(
+        &ctx.app,
+        &format!("请求 {} {} <- {}", req.method, req.path, peer.ip()),
+    );
 
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/") | ("GET", "/index.html") => {
@@ -355,6 +360,10 @@ async fn handle(mut stream: TcpStream, ctx: Arc<LanCtx>, peer: SocketAddr) {
             let body: Value = serde_json::from_slice(&req.body).unwrap_or(json!({}));
             let code = body.get("code").and_then(|c| c.as_str()).unwrap_or("");
             if !ctx.take_code(code) {
+                log(
+                    &ctx.app,
+                    &format!("配对失败：{} 出示的配对码 {code} 不对或已过期", peer.ip()),
+                );
                 json(&mut stream, 400, &json!({ "error": "配对码不对或已过期，回电脑上再看一眼" })).await;
                 return;
             }

@@ -13,8 +13,11 @@ import org.json.JSONObject
  */
 class CheckinWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
+        // 必须与 Tauri 的 app_data_dir 一致：安卓上它解析成 context.dataDir
+        // （/data/user/0/<包名>），不是 filesDir。
+        val dataDir = applicationContext.dataDir.absolutePath
         val json = try {
-            CheckinBridge.runScheduledCheckin(applicationContext.filesDir.absolutePath)
+            CheckinBridge.runScheduledCheckin(dataDir)
         } catch (t: Throwable) {
             CheckinNotify.show(
                 applicationContext,

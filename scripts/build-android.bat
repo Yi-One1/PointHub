@@ -41,9 +41,22 @@ call npm run build
 if errorlevel 1 ( popd & echo   ERROR: frontend build failed & exit /b 1 )
 popd
 
+echo [2/3] gradle patch (tracked; gen/ is gitignored)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0patch-android-gradle.ps1"
+if errorlevel 1 ( echo   ERROR: gradle patch failed & exit /b 1 )
+
 echo [3/3] build apk
+REM   first arg "release" switches to a release build (smaller, stripped)
+REM   anything else keeps the debug build
+set "MODE=--debug"
+set "EXTRA=%*"
+if /I "%~1"=="release" (
+  REM  release is the CLI default; only --debug has to be passed explicitly
+  set "MODE="
+  set "EXTRA=%2 %3 %4"
+)
 pushd "%APP_DIR%"
-call npx @tauri-apps/cli android build --debug --apk %*
+call npx @tauri-apps/cli android build %MODE% --apk %EXTRA%
 set "RC=%ERRORLEVEL%"
 popd
 

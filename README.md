@@ -161,7 +161,7 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 多账号管理、逐账号签到 + 一键全部签到
 - [x] 总览控制台：四格 KPI、按平台分组、近 7 日每日新增、最近活动
 - [x] 调度器常驻（每 45 秒核对，到点执行，错过按设置补签）
-- [x] Android 工程与 APK 构建链路（调试包已出，见 `docs/ANDROID.md`）
+- [x] Android 工程与 APK 构建链路（release 包 7.4 MB，见 `docs/ANDROID.md`）
 - [x] 局域网互通（PC 服务端 + 手机浏览器配对）
 - [ ] Android 端界面适配（单列布局、触控尺寸、底部导航）
 - [ ] 自动更新（Windows updater + Android 装 APK）

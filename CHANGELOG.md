@@ -41,6 +41,21 @@ JVM 在 `onCreate` 就抛异常，进程直接退出——连 Rust 的 `run()` �
 
 另外把 debug 包的 native 调试符号剥掉，体积从 322 MB 回到 148 MB。
 
+### 体积优化（同一版本，仅打包方式变化）
+
+debug 包（148 MB）能装但太大。改用 release 构建后 **7.4 MB**（缩小约 20 倍）：
+
+- release 默认 strip + R8 + 已有 LTO profile，无需额外配置
+- 自用分发，release 用 **debug keystore** 签名（`apksigner verify` 通过），
+  不上架应用商店，省去管理私钥；要上架时再换正式 keystore
+- `gen/` 被 git 忽略，签名配置没法只改本地；新增受控脚本
+  `scripts/patch-android-gradle.ps1`，每次构建前幂等打补丁（含去重清理）
+- 构建命令：`scripts\build-android.bat release --target aarch64`
+
+产物：`dist\积分枢纽PointHub_v0.4.2_arm64.apk`（7.4 MB）。
+模拟器复验：安装成功、进程存活、`mCurrentFocus` 为本应用，
+0 条 FATAL / UnsatisfiedLinkError，`Rust_onPageLoaded` 出现 1 次。
+
 ## [0.4.1] - 2026-11-25
 
 **修复：安卓端一打开就闪退**（按 SemVer 升 PATCH）。

@@ -63,12 +63,37 @@ scripts\build-android.bat
 - `safe-area-inset-bottom` 留白给手势条，`100dvh` 适配地址栏收起
 - 三档视口实测（390×844 / 360×640 / 844×390 横屏）三个页面均无横向溢出
 
+## 出包命令
+
+```bat
+REM  release 小包（推荐，arm64 单架构）
+scripts\build-android.bat release --target aarch64
+
+REM  debug 大包（181 MB，带调试信息，排障时用）
+scripts\build-android.bat --target aarch64
+```
+
+`gen/` 整个目录被 git 忽略，`tauri android init` 也会重新生成
+`app/build.gradle.kts`。构建脚本会在编译前调用
+`scripts/patch-android-gradle.ps1`，幂等地写入两条配置：
+
+1. release 用 debug keystore 签名（自用分发，不需要正式私钥）
+2. 去掉 `keepDebugSymbols`，让 native so 被 strip
+
+换电脑或重新 init 后无需手工改 `gen/` 里的文件。
+
 ## 最近一次构建
 
-- 2026-11-25，`app-universal-debug.apk`，**577 MB**（4 个 ABI 全带、未剥符号）
+- 2026-11-25，`dist\积分枢纽PointHub_v0.4.2_arm64.apk`，**7.4 MB**
+  （release / arm64-v8a / debug keystore 签名 / `apksigner verify` 通过）
+- 同版本的 debug 包 `dist\积分枢纽PointHub_v0.4.2_arm64-debug.apk` 为 181 MB，
+  仅排障用
+- 雷电模拟器（x86_64 + ARM 翻译层 / Android 9）实测：安装、启动、
+  页面加载正常，0 条崩溃日志
 
 ## 待办
 
-- [ ] 发布版 APK 实测体积
-- [ ] 签名配置（release 需要 keystore）
-- [ ] 真机安装验证（用到 DevEco/ADB，需先确认设备）
+- [x] 发布版 APK 实测体积（7.4 MB）
+- [x] 签名配置（自用分发用 debug keystore，无需正式 keystore）
+- [x] 模拟器安装验证（雷电，见上）
+- [ ] 真机安装验证（Redmi K80 Pro / Android 15）

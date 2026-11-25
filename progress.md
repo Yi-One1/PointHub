@@ -1,7 +1,7 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.4.2**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.5.0**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`，已与本地同步）。
 
@@ -42,7 +42,14 @@
   Windows 下载 `_Setup.exe` 后启动安装向导，安卓跳浏览器下载 APK；
   源可切镜像前缀，启动时自动检查（只发通知，不自动装）。不接 Tauri updater（D08）。
   仓库尚未发布 Release，所以现在检查会显示「更新源里还没有发布记录」。
-- **产物**：`dist/` 内 v0.1.0 ~ v0.4.2 的 exe 与 APK 并存，脚本不覆盖历史产物。
+- **卸载清理（组 5）**：安装包 NSIS 钩子在删程序前调用 `pointhub.exe --purge-data`；
+  默认删除账号、令牌、日志、自启、快捷方式、计划任务、WebView2 缓存，
+  勾选「保留账号数据」则只删程序痕迹。只删白名单数据文件，不误伤程序文件。
+- **数据跟随安装目录（0.5.0）**：发行版默认 `<exe 所在目录>\data`（安装版即
+  `安装目录\data`），便携版换位置也跟随；首次启动把 `%LOCALAPPDATA%\PointHub`
+  的旧数据搬过去并清空原位置，迁移失败则继续用旧目录。调试版仍用旧目录。
+- **产物**：`dist/` 内 v0.1.0 ~ v0.4.2 的 exe 与 APK、v0.4.2 与 v0.5.0 的
+  `_Setup.exe` 并存，脚本不覆盖历史产物。
 - **GitHub**：代码、文档、脚本已推送；`.design/`、`dist/`、`target/`、
   `.workbuddy/` 等均被 `.gitignore` 排除。
 
@@ -55,7 +62,8 @@
 2. **不读浏览器 localStorage / Cookie**：实测 WorkBuddy 网页存储全是埋点键，
    真凭证是轮换的 HttpOnly `session` cookie，拷出来很快失效；改用官方插件授权换 refresh token。
 3. **SemVer 严格判定**：修用户可见故障 = PATCH（0.3.0→0.3.1、0.3.1→0.3.2、
-   0.4.0→0.4.1→0.4.2）；新增手机访问 = MINOR（0.3.2→0.4.0）。
+   0.4.0→0.4.1→0.4.2）；新增手机访问 = MINOR（0.3.2→0.4.0）；
+   数据目录改为跟随安装目录 = MINOR（0.4.2→0.5.0）。
    版本单点在 `Cargo.toml [workspace.package] version`，打包脚本自动同步其余三处。
 4. **安卓自用分发**：release 用 debug keystore 签名，省去管理私钥；上架时再换正式 keystore。
    `gen/` 被 git 忽略且会被 Tauri 重新生成，所以签名/strip 补丁放在受控脚本
@@ -65,7 +73,7 @@
 6. **令牌不落日志、快照不填 0**：`null` 与 `0` 在界面上是两种文案。
 7. **产物不覆盖**：`dist/` 视为交付历史，重出包必须先升版本。
 
-详见 `DECISIONS.md` D01–D14。
+详见 `DECISIONS.md` D01–D20。
 
 ---
 
@@ -73,9 +81,9 @@
 
 - [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
       Trae 的 ExchangeToken 需设备私钥签名样本（见 `DECISIONS.md` P01/P02）。
-- [ ] **发布 0.5.0**：升版本、出双端产物、打 tag 并发布 GitHub Release；
-  发布后自动更新的「发现新版本 → 下载」才能真跑一遍。
-- [ ] **卸载清理**：安装包侧清理脚本（便携版本身不写注册表）。
+- [ ] **发布 0.5.0**：版本已升到 0.5.0、Windows Setup 已出；还差便携 exe、APK、
+      打 tag 并发布 GitHub Release。发布后自动更新的「发现新版本 → 下载」才能真跑一遍。
+- [x] **卸载清理**：安装包 NSIS 钩子 + `--purge-data` / `--purge-app`（组 5）。
 - [ ] **Windows 防火墙**：首次监听 47821 若是局域网连不上，需手动放行入站（需管理员权限）。
 - [ ] 清理旧的大体积 debug APK（148 / 181 MB）以腾地方——**未擅自删除**。
 
@@ -87,9 +95,9 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.4.2.exe`（4.6 MB） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.4.2.exe`（4.6 MB）；`dist/积分枢纽PointHub_v0.5.0_Setup.exe` |
 | Android 正式包 | `dist/积分枢纽PointHub_v0.4.2.apk`（7.4 MB，arm64） |
-| 数据目录 | `%LOCALAPPDATA%\PointHub` |
+| 数据目录 | 发行版 `<exe 所在目录>\data`（安装版为 `安装目录\data`）；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
 | 预览启动 | 双击 `1. 一键启动预览.bat`（按文件时间增量编译，无改动秒开） |
 | Windows 打包 | `powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1` |
@@ -98,7 +106,9 @@
 
 ### 验证过的证据
 
-- `cargo test --workspace` 全绿；`cargo check --workspace` 零错误；前端 `tsc` + `vite build` 通过。
+- `cargo test --workspace` 62 个测试全绿；`cargo check --workspace` 零错误；前端 `tsc` + `vite build` 通过。
+- 数据目录迁移 / 卸载清理：在隔离临时目录用 release exe 验证——旧数据搬到
+  `<exe>\data`、旧目录清空；保留模式不动 `data`；删除模式清掉 `data`、旧目录与自启项。
 - `phctl status`：`余额 201.76 / 已签 / 连签 36`，与汇总接口一致。
 - 手机端无头浏览器：错误码 400、无 token 401、重复用码 400、已签账号 `alreadydone`。
 - 模拟器：`llvm-nm -D` 有 `Java_cn_pointhub_desktop_Rust_onCreate`；

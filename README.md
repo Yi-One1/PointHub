@@ -132,6 +132,9 @@ PointHub/
 
 它的黑窗口是日志窗口，**关掉窗口 = 退出程序**。
 
+> 预览版是调试构建，数据仍用 `%LOCALAPPDATA%\PointHub`；正式版迁移后如果预览里
+> 看不到账号，这是正常的——真实数据在安装目录的 `data` 里，请用安装后的程序查看。
+
 ### 想自己敲命令
 
 ```bash
@@ -184,8 +187,8 @@ phctl travel --id 主号                         # 派猫猫旅行
 phctl plan                                    # 每个账号下次执行时间
 ```
 
-`phctl` 与桌面端**共用同一个数据目录**（默认 `%LOCALAPPDATA%\PointHub`），
-所以两边看到的是同一份账号。
+`phctl` 默认使用自己 exe 同目录的 `data`；要和桌面端共用账号，需让两者在同一目录，
+或给 `phctl` 传 `--data-dir "<安装目录>\data"`（见 D20）。
 
 ---
 
@@ -193,7 +196,7 @@ phctl plan                                    # 每个账号下次执行时间
 
 | 项目 | 位置 / 做法 |
 |---|---|
-| 数据目录 | 默认 `%LOCALAPPDATA%\PointHub`，可在设置里改（搬迁会复制现有数据） |
+| 数据目录 | 发行版默认 `<程序所在目录>\data`（安装版即 `安装目录\data`）；旧版首次启动会把 `%LOCALAPPDATA%\PointHub` 的数据搬过来并清空原位置（D20）。可在设置里改（搬迁会复制现有数据） |
 | 令牌 | 只存在 `vault.bin`；Windows 用 DPAPI 加密，安卓用 AES 回退后端；换机后需重新导入 |
 | 账号元数据 | `accounts.json`（**不含令牌**） |
 | 积分历史 | `history.jsonl`（追加写，一行一条快照） |
@@ -219,7 +222,8 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 代码已推 GitHub（`master`，见 `progress.md`）
 - [x] 本机导入（读 WorkBuddy 客户端登录态，仅 Windows）与账号去重
 - [x] 自动更新：检查 GitHub Releases、下载安装包、更新源可配镜像
-- [ ] 卸载清理（安装包侧）
+- [x] 卸载清理（NSIS 钩子：默认删除账号数据，可勾选保留）
+- [x] 数据目录跟随安装目录（旧版首次启动自动迁移）
 
 当前状态与新对话接手说明见 `progress.md`；需求逐条对照见 `docs/SPEC.md`，
 重大取舍见 `DECISIONS.md`。

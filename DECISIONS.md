@@ -165,10 +165,17 @@ Android 用 Keystore。程序自己不保管密钥，也不设第二把锁。
 
 **决定**：卸载时清理程序、令牌库、配置、日志、自启项、计划任务、数据目录；
 卸载前弹一次确认，默认「不保留账号数据」，用户可勾选保留。
+卸载确认页的复选框文案改为「保留账号数据（不勾选则删除）」；
+静默卸载没有交互，按默认（删除）处理。
 
 **「干净」的判定标准**（可复现）：卸载后以下位置不再有 PointHub 相关文件/键值：
-`%LOCALAPPDATA%\PointHub`、`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`、
+`<安装目录>\data`、`%LOCALAPPDATA%\PointHub`（旧位置与指针文件）、
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`、
 计划任务、开始菜单快捷方式、安装目录。
+
+**只删白名单**：账号数据只清 `accounts.json` / `settings.json` / `vault.bin` /
+历史 / 日志 / `browser-profile` / `history.jsonl.bak-*` 等已知文件，
+不做整目录删除——数据目录可能被用户指到 `D:\` 或和程序文件混在一起。
 
 ---
 
@@ -296,6 +303,24 @@ SQLite/解密依赖，需权衡体积。**边界**：只读、不改客户端文
 
 **代价**：Trae / Qoder 的普通令牌不是 JWT，只有整串相同才能识别；
 令牌轮换后重复导入仍可能新建，等拿到真实令牌结构再补。
+
+---
+
+## D20 数据目录跟随可执行文件
+
+**决定**（2026-11-26 用户确认）：
+- 发行版默认数据目录 = `<exe 所在目录>\data`；安装到别的盘、便携版换位置，数据都跟着走。
+- 首次启动若新目录没有数据、旧位置 `%LOCALAPPDATA%\PointHub` 有数据：
+  先复制到同盘临时目录，整体改名成功后再清空旧位置；失败则继续用旧位置，
+  避免账号看起来「消失」。
+- 调试版仍用 `%LOCALAPPDATA%\PointHub`，避免一键预览把真实账号搬进 `target\debug`。
+- 指针文件 `location.json` 仍固定在 `%LOCALAPPDATA%\PointHub`，只在用户显式
+  「更换数据目录」时写入。
+
+**代价 / 边界**：
+- 不同位置的 exe 各用各的 `data`，不再共享账号；`phctl` 默认用自己的 `data`，
+  要与桌面端共用需 `--data-dir "<安装目录>\data"`。
+- 换安装目录不会自动搬旧安装目录里的 `data`，需要用户自己把 `data` 一起带走。
 
 ---
 

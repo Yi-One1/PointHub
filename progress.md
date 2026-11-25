@@ -1,7 +1,7 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-25，版本 **v0.4.2**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.4.2**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`，已与本地同步）。
 
@@ -30,6 +30,10 @@
   雷电模拟器实测启动正常。release 包 **7.4 MB**，`dist/积分枢纽PointHub_v0.4.2.apk`。
 - **安卓双模式（组 2）**：本机模式自行导入签到；连接电脑模式经持久设备配对拉取
   电脑账号/快照/历史/活动并远程签到，凭据不出电脑；`crates/ph-client` 承载协议。
+- **本机导入（组 3）**：读取 `%USERPROFILE%\.workbuddy\checkin-rt.json` 里的
+  Offline 刷新令牌（只读），导入前刷新+采样验证，通过才落库；Trae / Qoder 如实标注
+  暂不支持。三种导入方式统一按 JWT `sub` upsert，同一账号只保留一条，
+  旧重复记录在下次导入时合并；非 JWT 令牌按整串相同识别（D19）。
 - **Android 17 真机**：Redmi K80 Pro 初始连接超时，根因是 Android 17「本地网络保护」
   对 targetSdk 37 应用静默丢弃局域网 TCP；`scripts/patch-android-gradle.ps1` 固定
   `targetSdk = 36` 后真机配对、远程签到通过。
@@ -64,7 +68,6 @@
 
 - [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
       Trae 的 ExchangeToken 需设备私钥签名样本（见 `DECISIONS.md` P01/P02）。
-- [ ] **本机导入**（组 3）：读取本机客户端登录态，仅 Windows，只读（D16 / ADR 0003）。
 - [ ] **自动更新**：Windows updater + Android 下载 APK 自装，可配置源（D08）。
 - [ ] **卸载清理**：安装包侧清理脚本（便携版本身不写注册表）。
 - [ ] **Windows 防火墙**：首次监听 47821 若是局域网连不上，需手动放行入站（需管理员权限）。

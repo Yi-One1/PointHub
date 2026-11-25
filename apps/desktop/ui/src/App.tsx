@@ -1466,9 +1466,17 @@ function SettingsPage({
             )}
             {updateMsg && <div className="row-desc">{updateMsg}</div>}
           </div>
-          <button className="btn" onClick={checkUpdate} disabled={checking}>
-            {checking ? "查询中…" : "检查"}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button
+              className="btn"
+              onClick={() => api.updateOpenPage().catch((e) => notify(String(e), "warn"))}
+            >
+              手动下载
+            </button>
+            <button className="btn primary" onClick={checkUpdate} disabled={checking}>
+              {checking ? "查询中…" : "检查"}
+            </button>
+          </div>
         </div>
 
         {update?.latest && (
@@ -1481,21 +1489,13 @@ function SettingsPage({
                   : "下载完成后自动打开安装程序"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <button
-                className="btn"
-                onClick={() => api.updateOpenPage().catch((e) => notify(String(e), "warn"))}
-              >
-                手动下载
-              </button>
-              <button
-                className="btn primary"
-                onClick={applyUpdate}
-                disabled={applying || !update.latest.asset}
-              >
-                {applying ? "处理中…" : "下载"}
-              </button>
-            </div>
+            <button
+              className="btn primary"
+              onClick={applyUpdate}
+              disabled={applying || !update.latest.asset}
+            >
+              {applying ? "处理中…" : "下载"}
+            </button>
           </div>
         )}
       </section>

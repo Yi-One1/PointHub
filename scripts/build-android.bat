@@ -54,6 +54,7 @@ if /I "%~1"=="release" (
   REM  release is the CLI default; only --debug has to be passed explicitly
   set "MODE="
   set "EXTRA=%2 %3 %4"
+  set "IS_RELEASE=1"
 )
 pushd "%APP_DIR%"
 call npx @tauri-apps/cli android build %MODE% --apk %EXTRA%
@@ -68,5 +69,8 @@ if not "%RC%"=="0" (
 
 echo.
 echo BUILD OK
+if "%IS_RELEASE%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0copy-android-release.ps1"
+)
 for /r "%APP_DIR%\src-tauri\gen\android\app\build\outputs\apk" %%f in (*.apk) do echo   %%f
 endlocal

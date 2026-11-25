@@ -52,7 +52,7 @@ debug 包（148 MB）能装但太大。改用 release 构建后 **7.4 MB**（缩
   `scripts/patch-android-gradle.ps1`，每次构建前幂等打补丁（含去重清理）
 - 构建命令：`scripts\build-android.bat release --target aarch64`
 
-产物：`dist\积分枢纽PointHub_v0.4.2_arm64.apk`（7.4 MB）。
+产物：`dist\积分枢纽PointHub_v0.4.2.apk`（7.4 MB）。
 模拟器复验：安装成功、进程存活、`mCurrentFocus` 为本应用，
 0 条 FATAL / UnsatisfiedLinkError，`Rust_onPageLoaded` 出现 1 次。
 

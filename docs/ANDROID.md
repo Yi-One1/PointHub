@@ -73,6 +73,9 @@ REM  debug 大包（181 MB，带调试信息，排障时用）
 scripts\build-android.bat --target aarch64
 ```
 
+release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.apk`，
+和 Windows 包同名同版本（只是扩展名不同）；已存在的产物不会被覆盖。
+
 `gen/` 整个目录被 git 忽略，`tauri android init` 也会重新生成
 `app/build.gradle.kts`。构建脚本会在编译前调用
 `scripts/patch-android-gradle.ps1`，幂等地写入两条配置：
@@ -84,7 +87,7 @@ scripts\build-android.bat --target aarch64
 
 ## 最近一次构建
 
-- 2026-11-25，`dist\积分枢纽PointHub_v0.4.2_arm64.apk`，**7.4 MB**
+- 2026-11-25，`dist\积分枢纽PointHub_v0.4.2.apk`，**7.4 MB**
   （release / arm64-v8a / debug keystore 签名 / `apksigner verify` 通过）
 - 同版本的 debug 包 `dist\积分枢纽PointHub_v0.4.2_arm64-debug.apk` 为 181 MB，
   仅排障用

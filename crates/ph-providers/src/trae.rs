@@ -108,7 +108,7 @@ impl Provider for TraeCnProvider {
         let data = body.get("data").cloned().unwrap_or_else(|| body.clone());
 
         let mut snap = VendorSnapshot::empty(account, chrono::Local::now().timestamp());
-        snap.balance = http::pick_i64(&data, http::BALANCE_KEYS);
+        snap.balance = http::pick_f64(&data, http::BALANCE_KEYS);
         snap.checked_in_today = http::pick_bool(
             &data,
             &["today_checked_in", "checked_in", "has_checked_in", "todayCheckedIn"],

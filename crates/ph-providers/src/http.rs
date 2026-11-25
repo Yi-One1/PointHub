@@ -57,6 +57,27 @@ pub fn pick_i64(v: &Value, keys: &[&str]) -> Option<i64> {
             if let Ok(n) = s.trim().parse::<i64>() {
                 return Some(n);
             }
+            // 接口偶尔给 "204.62" 这种字符串小数，取整比直接丢掉更有用
+            if let Ok(f) = s.trim().parse::<f64>() {
+                return Some(f as i64);
+            }
+        }
+    }
+    None
+}
+
+/// 取浮点数。接口里的积分**经常是字符串小数**（如 `"204.62000029"`），
+/// 只按 i64 解析会一路返回 None，最后显示成「未知」。
+pub fn pick_f64(v: &Value, keys: &[&str]) -> Option<f64> {
+    for k in keys {
+        let Some(x) = v.get(*k) else { continue };
+        if let Some(f) = x.as_f64() {
+            return Some(f);
+        }
+        if let Some(s) = x.as_str() {
+            if let Ok(f) = s.trim().parse::<f64>() {
+                return Some(f);
+            }
         }
     }
     None

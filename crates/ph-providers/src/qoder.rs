@@ -110,7 +110,7 @@ impl Provider for QoderCnProvider {
         }
         let data = body.get("data").cloned().unwrap_or_else(|| body.clone());
         let mut snap = VendorSnapshot::empty(account, chrono::Local::now().timestamp());
-        snap.balance = http::pick_i64(&data, http::BALANCE_KEYS);
+        snap.balance = http::pick_f64(&data, http::BALANCE_KEYS);
         snap.note = Some("Qoder 余额来自自定义端点，字段按通用候选名解析".into());
         Ok(snap)
     }

@@ -253,7 +253,9 @@ async fn cmd_status(dir: Option<PathBuf>, opts: &HashMap<String, String>) -> Res
                 println!(
                     "{:<10} 余额 {:<8} 今日签到 {:<6} 连签 {:<4} 今日新增 {}",
                     label,
-                    s.balance.map(|b| b.to_string()).unwrap_or_else(|| "未知".into()),
+                    s.balance
+                        .map(ph_providers::workbuddy::fmt_credits)
+                        .unwrap_or_else(|| "未知".into()),
                     match s.checked_in_today {
                         Some(true) => "已签",
                         Some(false) => "未签",

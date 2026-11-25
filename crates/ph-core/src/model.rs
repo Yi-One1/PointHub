@@ -272,7 +272,7 @@ pub struct VendorSnapshot {
     pub captured_at: i64,
     /// 积分余额；拿不到就是 None，**不要填 0**，0 和「未知」是两件事。
     #[serde(default)]
-    pub balance: Option<i64>,
+    pub balance: Option<f64>,
     #[serde(default)]
     pub checked_in_today: Option<bool>,
     #[serde(default)]
@@ -281,7 +281,7 @@ pub struct VendorSnapshot {
     pub daily_credit: Option<i64>,
     /// 今日新得积分，由引擎按前后两次余额差推算。
     #[serde(default)]
-    pub today_gain: Option<i64>,
+    pub today_gain: Option<f64>,
     #[serde(default)]
     pub travel: Option<TravelSnapshot>,
     /// 平台返回的原话或异常说明，便于排查。

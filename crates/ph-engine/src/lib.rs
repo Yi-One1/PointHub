@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 /// 汇总视图，给悬浮球与总览页用。
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Aggregate {
-    pub total_balance: i64,
+    pub total_balance: f64,
     pub account_count: usize,
     /// 今天还没签到的账号数。
     pub pending_count: usize,
@@ -36,11 +36,11 @@ pub struct DayPoint {
     /// 本地日期，形如 `11-25`。
     pub date: String,
     /// 当天最后一次采样时各账号余额之和。
-    pub total: i64,
+    pub total: f64,
     /// 当天有余额数据的账号数（用于提示合计覆盖了几个号）。
     pub known: usize,
     /// 相对前一天的新增（余额差）。前一天没有数据时为 None，**不要填 0**。
-    pub gain: Option<i64>,
+    pub gain: Option<f64>,
 }
 
 pub struct Engine {
@@ -271,7 +271,7 @@ impl Engine {
     }
 
     /// 用「上一次余额」推算今日新增。拿不到就是 None，不硬算。
-    fn estimate_gain(&self, account_id: &str, now_balance: Option<i64>) -> Option<i64> {
+    fn estimate_gain(&self, account_id: &str, now_balance: Option<f64>) -> Option<f64> {
         let now = now_balance?;
         let history = self.store.load_snapshots(4000).ok()?;
         // 找该账号今天之前的最后一条
@@ -288,7 +288,7 @@ impl Engine {
             })
             .and_then(|s| s.balance)?;
         let diff = now - prev;
-        if diff >= 0 {
+        if diff >= 0.0 {
             Some(diff)
         } else {
             None
@@ -482,7 +482,7 @@ impl Engine {
             account_count: self.accounts.len(),
             ..Default::default()
         };
-        let mut total = 0i64;
+        let mut total = 0f64;
         for a in &self.accounts {
             if !a.enabled {
                 continue;
@@ -521,7 +521,7 @@ impl Engine {
         let today = chrono::Local::now().date_naive();
         let from = today - chrono::Duration::days(days.max(1) - 1);
         // date -> account_id -> 当天最后余额
-        let mut per_day: BTreeMap<chrono::NaiveDate, BTreeMap<String, i64>> = BTreeMap::new();
+        let mut per_day: BTreeMap<chrono::NaiveDate, BTreeMap<String, f64>> = BTreeMap::new();
 
         if let Ok(snaps) = self.store.load_snapshots(20000) {
             for s in snaps {
@@ -540,10 +540,10 @@ impl Engine {
         }
 
         let mut out = Vec::with_capacity(days.max(1) as usize);
-        let mut prev: Option<(i64, usize)> = None;
+        let mut prev: Option<(f64, usize)> = None;
         for i in (0..days.max(1)).rev() {
             let d = today - chrono::Duration::days(i);
-            let mut total = 0i64;
+            let mut total = 0f64;
             let mut known = 0usize;
             if let Some(m) = per_day.get(&d) {
                 for a in &self.accounts {

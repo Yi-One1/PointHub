@@ -9,7 +9,7 @@
 //! 「已签到」是幂等结果，不是错误——必须映射成 `AlreadyDone`，
 //! 否则每天第二次点击都会弹一个吓人的红字。
 
-use crate::http::{self, BALANCE_KEYS};
+use crate::http;
 use crate::{Capabilities, Provider, TravelAction};
 use async_trait::async_trait;
 use ph_core::{
@@ -31,6 +31,8 @@ const BROWSER_UA: &str =
 const DEFAULT_SIGNIN_DOMAIN: &str = "www.codebuddy.cn";
 /// 派猫猫旅行域名（与签到不同，无 /v2 前缀）。
 const TRAVEL_BASE: &str = "https://www.workbuddy.cn";
+/// 积分汇总：**账户可用积分**的正主（注意这个路径没有 /v2）。
+const SUMMARY_PATH: &str = "/billing/meter/get-user-resource-summary";
 
 pub struct WorkBuddyProvider {
     client: reqwest::Client,
@@ -64,6 +66,23 @@ pub enum AuthPoll {
     Ready(AuthCredential),
     /// 会话已作废（超时或被用过），只能重新发起。
     Expired,
+}
+
+/// 积分展示：整数不带小数点，有小数就保留两位（如 `204.62`）。
+pub fn fmt_credits(v: f64) -> String {
+    if (v - v.round()).abs() < 0.005 {
+        format!("{}", v.round() as i64)
+    } else {
+        format!("{v:.2}")
+    }
+}
+
+/// 账户积分总量（汇总口径）。
+#[derive(Debug, Clone, Copy)]
+pub struct CreditTotals {
+    pub granted: f64,
+    pub used: f64,
+    pub remaining: f64,
 }
 
 /// `expiresAt` 常见是毫秒，`expiresIn` 是秒；统一折算成 epoch 秒。
@@ -172,6 +191,46 @@ impl WorkBuddyProvider {
             expires_at: expiry_secs(&payloads),
             domain: pick(&["domain"]),
         }))
+    }
+
+    /// 账户可用积分。
+    ///
+    /// 必须走汇总接口：签到活动返回的 `total_credits` 是**本季活动累计得分**
+    /// （实测连签 36 天 = 3600，而账户实际可用是另一个数），拿它当余额会显示成
+    /// 一个越来越大的假数字。
+    async fn credit_totals(&self, cred: &mut Credential) -> Result<CreditTotals> {
+        self.ensure_token(cred).await?;
+        let base = Self::signin_base(cred);
+        let token = cred.access_token.clone().unwrap_or_default();
+        let resp = with_ua(
+            self.client.post(format!("{base}{SUMMARY_PATH}")).bearer_auth(token),
+            cred,
+        )
+        .json(&json!({}))
+        .send()
+        .await?;
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        if let Some(e) = http::map_status(status, &body) {
+            return Err(e);
+        }
+        let data = body.get("data").cloned().unwrap_or(Value::Null);
+        // TotalCredits 就是「剩余可用」，与官网口径一致。
+        let remaining = http::pick_f64(&data, &["TotalCredits", "total_credits"])
+            .ok_or_else(|| Error::Upstream("积分汇总接口没有返回 TotalCredits".into()))?;
+        let mut granted = 0f64;
+        let mut used = 0f64;
+        if let Some(groups) = data.get("CreditGroups").and_then(Value::as_array) {
+            for g in groups {
+                granted += http::pick_f64(g, &["CycleTotalCapacity"]).unwrap_or(0.0);
+                used += http::pick_f64(g, &["CycleUsedCapacity"]).unwrap_or(0.0);
+            }
+        }
+        Ok(CreditTotals {
+            granted,
+            used,
+            remaining,
+        })
     }
 
     fn signin_base(cred: &Credential) -> String {
@@ -302,13 +361,16 @@ impl Provider for WorkBuddyProvider {
         let data = body.get("data").cloned().unwrap_or_else(|| body.clone());
 
         let mut snap = VendorSnapshot::empty(account, chrono::Local::now().timestamp());
-        snap.balance = http::pick_i64(&data, BALANCE_KEYS).or_else(|| http::pick_i64(&body, BALANCE_KEYS));
         snap.checked_in_today = http::pick_bool(&data, &["today_checked_in", "checked_in_today", "todayCheckedIn"]);
         snap.streak_days = http::pick_i64(&data, &["streak_days", "streakDays", "continuous_days"]);
         snap.daily_credit = http::pick_i64(&data, &["daily_credit", "dailyCredit", "today_credit"]);
 
-        if snap.balance.is_none() {
-            snap.note = Some("平台未返回余额字段（可能是改版），可稍后重试".into());
+        // 余额单独取一次：签到活动的 total_credits 是活动累计得分，不能当余额。
+        match self.credit_totals(&mut cred).await {
+            Ok(t) => snap.balance = Some(t.remaining),
+            Err(e) => {
+                snap.note = Some(format!("读取积分余额失败：{}", e.user_message()));
+            }
         }
         Ok(snap)
     }

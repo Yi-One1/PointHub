@@ -300,7 +300,7 @@ function Overview({
       <div className="kpis">
         <div className="kpi">
           <div className="klabel">积分合计</div>
-          <div className="kval">{view.aggregate.total_balance.toLocaleString("zh-CN")}</div>
+          <div className="kval">{credits(view.aggregate.total_balance)}</div>
           <div className="prog" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
             <i style={{ width: `${pct}%` }} />
           </div>
@@ -316,7 +316,7 @@ function Overview({
         <div className="kpi">
           <div className="klabel">今日新增</div>
           <div className="kval">
-            {todayGain === null ? "—" : `${todayGain >= 0 ? "+" : ""}${todayGain.toLocaleString("zh-CN")}`}
+            {todayGain === null ? "—" : `${todayGain >= 0 ? "+" : ""}${credits(todayGain)}`}
           </div>
           <div className="kfoot">较昨日余额</div>
         </div>
@@ -349,7 +349,7 @@ function Overview({
                 <span className="pname">{g.display}</span>
                 {!g.verified && <span className="tag tag-muted">端点待实测</span>}
                 <span className="psub">
-                  {g.accounts.length} 账号 · 小计 {g.subtotal.toLocaleString("zh-CN")}
+                  {g.accounts.length} 账号 · 小计 {credits(g.subtotal)}
                   {g.unknown > 0 ? ` · ${g.unknown} 个未知` : ""}
                 </span>
               </div>
@@ -376,7 +376,7 @@ function Overview({
                         <span className="rnum-none">—</span>
                       ) : (
                         <>
-                          {a.balance.toLocaleString("zh-CN")}
+                          {credits(a.balance)}
                           <small>分</small>
                         </>
                       )}
@@ -644,7 +644,7 @@ function AccountsPage({
                     </div>
                   </div>
                   <div className="acct-balance">
-                    {a.balance === null ? "—" : a.balance.toLocaleString("zh-CN")}
+                    {a.balance === null ? "—" : credits(a.balance)}
                   </div>
                   <button className="icon-btn" title="删除" onClick={() => setTarget(a)} disabled={busy !== null}>
                     <IconTrash />
@@ -1160,6 +1160,12 @@ function IconClose() {
       <path d="M5 5l10 10M15 5L5 15" />
     </svg>
   );
+}
+
+/// 积分展示：最多两位小数，整数不带小数点（`204.62` / `3,600`）。
+/// 上游会给出 `204.62000029` 这种字符串小数，直接显示会带一串噪声。
+function credits(n: number): string {
+  return n.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
 function clock(ts: number): string {

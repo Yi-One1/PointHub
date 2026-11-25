@@ -81,7 +81,7 @@
       Trae 的 ExchangeToken 需设备私钥签名样本（P01 / P02）。
 - [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要等下一版发布时真跑一次。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
-- [ ] **清理大体积构建产物**（待用户授权，删除前列清单）：
+- [ ] **清理大体积构建产物**（2026-11-26 用户选择暂不清理；需要腾空间时再确认）：
       `target/`（约 4.1 GB）、`apps/desktop/src-tauri/target/`（约 14 GB）、
       `apps/desktop/src-tauri/gen/android/app/build/`（约 3.5 GB，含 181 MB debug APK）、
       `.design/`（约 179 MB 内部日志）、`.workbuddy/`、空的 `.screenshots/`。

@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "PointHub 主窗口与悬浮球所需的默认能力",
-  "windows": ["main", "ball"],
+  "description": "桌面端主窗口与悬浮球所需能力（自启与托盘只有桌面有）",
+  "windows": [
+    "main",
+    "ball"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -16,5 +19,10 @@
     "core:window:allow-set-focus",
     "notification:default",
     "autostart:default"
+  ],
+  "platforms": [
+    "windows",
+    "macOS",
+    "linux"
   ]
 }

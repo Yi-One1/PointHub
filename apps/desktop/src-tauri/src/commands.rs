@@ -5,6 +5,7 @@
 //! - 任何用户可见的错误都返回人话，不把 Rust 错误类型漏给前端；
 //! - 需要通知用户的动作（签到完成/失败）在这里统一发系统通知。
 
+#[cfg_attr(mobile, allow(unused_imports))]
 use crate::{close_ball, open_ball, SharedState};
 use ph_core::{Credential, Settings, Vendor};
 use ph_engine::Aggregate;
@@ -366,7 +367,8 @@ pub async fn save_settings(
         .minimize_to_tray
         .store(settings.minimize_to_tray, Ordering::Relaxed);
 
-    // 自启状态对齐
+    // 自启状态对齐（仅桌面；安卓没有这个机制）
+    #[cfg(desktop)]
     {
         use tauri_plugin_autostart::ManagerExt;
         let manager = app.autolaunch();
@@ -395,10 +397,17 @@ pub fn set_ball(app: AppHandle, enabled: bool) -> Result<(), String> {
 pub fn apply_ball(app: &AppHandle, enabled: bool) -> Result<(), String> {
     let state = app.state::<SharedState>();
     state.ball_enabled.store(enabled, Ordering::Relaxed);
-    if enabled {
-        open_ball(app).map_err(|e| format!("悬浮球创建失败：{e}"))?;
-    } else {
-        close_ball(app);
+    #[cfg(desktop)]
+    {
+        if enabled {
+            open_ball(app).map_err(|e| format!("悬浮球创建失败：{e}"))?;
+        } else {
+            close_ball(app);
+        }
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (open_ball, close_ball, enabled);
     }
     // 记住开关，下次启动沿用
     let engine_locked = state.engine.try_lock();
@@ -480,11 +489,7 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path, count: &mut usize) -> 
 
 #[tauri::command]
 pub fn show_main(app: AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+    crate::bring_main_window(&app);
 }
 
 #[tauri::command]

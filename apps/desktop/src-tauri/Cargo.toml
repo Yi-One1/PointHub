@@ -16,7 +16,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-notification = "2"
-tauri-plugin-autostart = "2"
 
 ph-core = { path = "../../../crates/ph-core" }
 ph-engine = { path = "../../../crates/ph-engine" }
@@ -27,6 +26,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 chrono = "0.4"
+
+# 自启是纯桌面机制，安卓上这个 crate 根本不该被编译
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
 
 [features]
 default = ["custom-protocol"]

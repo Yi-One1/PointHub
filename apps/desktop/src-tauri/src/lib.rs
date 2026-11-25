@@ -1,18 +1,19 @@
-//! 积分枢纽 PointHub —— 桌面端装配层。
+//! 积分枢纽 PointHub —— 桌面端 / 移动端共用的外壳。
 //!
-//! 这一层只做三件事：把引擎装进状态、把能力暴露成命令、把窗口/托盘/悬浮球摆好。
+//! 这一层只做三件事：把引擎装进状态、把能力暴露成命令、把窗口摆好。
 //! 业务判断一律在 `ph-engine` 里，这里不写「签到该怎么重试」这类逻辑。
+//!
+//! **平台差异集中在这里**：托盘、悬浮球、开机自启只有桌面有；
+//! 安卓没有「关窗口到托盘」这个概念。用 `cfg(desktop)` / `cfg(mobile)`
+//! 显式分叉，而不是靠运行时判断——编不过就早点暴露，别等到用户手机上白屏。
 
 pub mod commands;
 
+#[cfg_attr(mobile, allow(unused_imports))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
-};
-use tauri_plugin_autostart::MacosLauncher;
+#[cfg_attr(mobile, allow(unused_imports))]
+use tauri::Manager;
 
 use ph_engine::Engine;
 
@@ -29,9 +30,9 @@ pub struct AppState {
 
 pub type SharedState = Arc<AppState>;
 
+#[cfg_attr(mobile, allow(unused_variables))]
 pub fn run() {
     let engine = Engine::open(None).unwrap_or_else(|e| {
-        // 数据目录打不开是致命问题，但也不能直接闪退——把原因打出来再退出。
         eprintln!("初始化失败：{}", e.user_message());
         std::process::exit(1);
     });
@@ -41,15 +42,13 @@ pub fn run() {
     let state: SharedState = Arc::new(AppState {
         engine: tokio::sync::Mutex::new(engine),
         minimize_to_tray: AtomicBool::new(minimize),
+        // 移动端没有悬浮球，标志位保留但不起作用。
         ball_enabled: AtomicBool::new(ball),
     });
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--autostart"]),
-        ))
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
@@ -67,31 +66,50 @@ pub fn run() {
             commands::quit_app,
         ])
         .setup(|app| {
-            build_tray(app.handle())?;
-            // 悬浮球：默认开启，但失败不能让主窗口起不来。
-            if app.state::<SharedState>().ball_enabled.load(Ordering::Relaxed) {
-                if let Err(e) = open_ball(app.handle()) {
-                    eprintln!("悬浮球创建失败（不影响主窗口）：{e}");
+            #[cfg(desktop)]
+            {
+                build_tray(app.handle())?;
+                if app.state::<SharedState>().ball_enabled.load(Ordering::Relaxed) {
+                    if let Err(e) = open_ball(app.handle()) {
+                        // 悬浮球失败不能拖垮主窗口。
+                        eprintln!("悬浮球创建失败（不影响主窗口）：{e}");
+                    }
                 }
+                sync_autostart(app.handle());
             }
-            // 开机自启状态与设置对齐（用户可能在别处改过）。
-            sync_autostart(app.handle());
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let state = window.state::<SharedState>();
-                if window.label() == "main" && state.minimize_to_tray.load(Ordering::Relaxed) {
-                    api.prevent_close();
-                    let _ = window.hide();
+        });
+
+    #[cfg(desktop)]
+    {
+        builder = builder
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec!["--autostart"]),
+            ))
+            .on_window_event(|window, event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    let state = window.state::<SharedState>();
+                    if window.label() == "main" && state.minimize_to_tray.load(Ordering::Relaxed) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
-            }
-        })
+            });
+    }
+
+    builder
         .run(tauri::generate_context!())
         .expect("Tauri 启动失败");
 }
 
+// ------------------------------------------------------------------ 桌面专属
+
+#[cfg(desktop)]
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
     let show = MenuItem::with_id(app, "show", "打开主窗口", true, None::<&str>)?;
     let checkin = MenuItem::with_id(app, "checkin", "一键全部签到", true, None::<&str>)?;
     let ball = MenuItem::with_id(app, "ball", "显示/隐藏悬浮球", true, None::<&str>)?;
@@ -137,7 +155,8 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn bring_main_window(app: &tauri::AppHandle) {
+#[cfg(desktop)]
+pub fn bring_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -145,8 +164,16 @@ fn bring_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// 打开（或聚焦）悬浮球窗口。
+#[cfg(mobile)]
+pub fn bring_main_window(_app: &tauri::AppHandle) {
+    // 移动端只有一个窗口，且总是前台。
+}
+
+/// 打开（或聚焦）悬浮球窗口。移动端无此概念，调用即为空操作。
+#[cfg(desktop)]
 pub fn open_ball(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
     if let Some(w) = app.get_webview_window("ball") {
         let _ = w.show();
         return Ok(());
@@ -175,12 +202,22 @@ pub fn open_ball(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(mobile)]
+pub fn open_ball(_app: &tauri::AppHandle) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(desktop)]
 pub fn close_ball(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("ball") {
         let _ = w.close();
     }
 }
 
+#[cfg(mobile)]
+pub fn close_ball(_app: &tauri::AppHandle) {}
+
+#[cfg(desktop)]
 fn sync_autostart(app: &tauri::AppHandle) {
     use tauri_plugin_autostart::ManagerExt;
     let state = app.state::<SharedState>();

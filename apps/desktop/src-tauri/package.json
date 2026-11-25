@@ -1,0 +1,9 @@
+{
+  "name": "pointhub-shell",
+  "private": true,
+  "version": "0.1.0",
+  "description": "薄壳：只为满足 Tauri 安卓 Gradle 插件 `npm run tauri android android-studio-script` 的调用约定",
+  "scripts": {
+    "tauri": "node -e \"process.exit(0)\""
+  }
+}

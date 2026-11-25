@@ -1,0 +1,8 @@
+# .bat 必须是 CRLF：cmd.exe 不认纯 LF，会把一行拆成几条命令（实测会把
+# `echo ... >nul` 拆成 `echo` / `>nul` 两条，报「系统找不到指定的路径」）。
+# .ps1 保持 CRLF 也便于在记事本里看。
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell 脚本反过来必须 LF，否则 WSL/Git Bash 里会因为 \r 报错。
+*.sh text eol=lf

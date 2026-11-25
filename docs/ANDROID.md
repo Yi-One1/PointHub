@@ -54,6 +54,19 @@ scripts\build-android.bat
 - 发布包的做法：`--release` + 只出 `aarch64`，并在 `Cargo.toml` 里保留
   `strip = true` 与 `lto = true`，预计在 10 MB 量级（尚未实测）。
 
+## 界面适配（v0.4.0）
+
+移动端布局已适配，页面本身不用另做一套：
+
+- 侧栏在 ≤760px 时收成**底部标签栏**（此前是 `display:none`，等于把导航弄丢了）
+- 单列布局、KPI 两列、按钮 ≥40px、输入框 16px（防 WebView 聚焦放大）
+- `safe-area-inset-bottom` 留白给手势条，`100dvh` 适配地址栏收起
+- 三档视口实测（390×844 / 360×640 / 844×390 横屏）三个页面均无横向溢出
+
+## 最近一次构建
+
+- 2026-11-25，`app-universal-debug.apk`，**577 MB**（4 个 ABI 全带、未剥符号）
+
 ## 待办
 
 - [ ] 发布版 APK 实测体积

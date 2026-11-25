@@ -11,6 +11,8 @@ pub mod browser_login;
 pub mod lan;
 pub mod commands;
 pub mod login;
+#[cfg(target_os = "android")]
+pub mod android_worker;
 #[cfg(all(desktop, windows))]
 pub mod purge;
 
@@ -135,6 +137,10 @@ pub fn run() {
 
             // 双端都要：发现新版本发一条系统通知，不自动安装。
             spawn_update_check(app.handle().clone());
+
+            // 安卓没有常驻调度循环：打开 App 时补一次今天漏掉的签到（D17）。
+            #[cfg(mobile)]
+            spawn_mobile_catchup(app.handle().clone());
 
             #[cfg(desktop)]
             {
@@ -391,6 +397,50 @@ fn sync_autostart(app: &tauri::AppHandle) {
 
 // ------------------------------------------------------------------ 常驻调度
 
+/// 今天该签、且已过执行时间的账号 id。
+///
+/// 桌面常驻循环与安卓「打开时补签」共用这一条规则，
+/// 避免两边对「补签窗口」的理解慢慢分叉。
+fn due_ids(engine: &ph_engine::Engine, now: chrono::NaiveDateTime) -> Vec<String> {
+    let s = engine.settings();
+    if !s.scheduler_enabled || s.mode != ph_core::AppMode::Local {
+        return Vec::new();
+    }
+    let catch_up = s.catch_up_missed;
+    engine
+        .due_accounts(now)
+        .into_iter()
+        .filter(|a| {
+            if catch_up {
+                return true;
+            }
+            // 不补签时只认「刚过点 30 分钟内」的窗口。
+            let slot = a.schedule.slot_on(now.date(), &a.id);
+            now.signed_duration_since(slot) <= chrono::Duration::minutes(30)
+        })
+        .map(|a| a.id)
+        .collect()
+}
+
+/// 安卓启动补签：没有常驻循环，打开 App 时补一次今天漏掉的（D17）。
+#[cfg(mobile)]
+fn spawn_mobile_catchup(app: tauri::AppHandle) {
+    use std::time::Duration;
+
+    tauri::async_runtime::spawn(async move {
+        // 首屏先读数据；补签晚十几秒没有影响。
+        tokio::time::sleep(Duration::from_secs(12)).await;
+        let ids = {
+            let state = app.state::<SharedState>();
+            let engine = state.engine.lock().await;
+            due_ids(&engine, chrono::Local::now().naive_local())
+        };
+        if !ids.is_empty() {
+            let _ = commands::run_checkin_inner(&app, Some(ids)).await;
+        }
+    });
+}
+
 /// 后台签到循环。
 ///
 /// 设计取舍：
@@ -412,25 +462,7 @@ fn spawn_scheduler(app: tauri::AppHandle) {
             let ids: Vec<String> = {
                 let state = app.state::<SharedState>();
                 let engine = state.engine.lock().await;
-                let s = engine.settings();
-                if !s.scheduler_enabled {
-                    Vec::new()
-                } else {
-                    let catch_up = s.catch_up_missed;
-                    engine
-                        .due_accounts(now)
-                        .into_iter()
-                        .filter(|a| {
-                            if catch_up {
-                                return true;
-                            }
-                            // 不补签时只认「刚过点 30 分钟内」的窗口。
-                            let slot = a.schedule.slot_on(now.date(), &a.id);
-                            now.signed_duration_since(slot) <= chrono::Duration::minutes(30)
-                        })
-                        .map(|a| a.id)
-                        .collect()
-                }
+                due_ids(&engine, now)
             };
 
             if !ids.is_empty() {

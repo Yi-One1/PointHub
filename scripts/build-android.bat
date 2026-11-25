@@ -35,6 +35,10 @@ echo   JAVA_HOME=%JAVA_HOME%
 echo   NDK_HOME=%NDK_HOME%
 echo   TARGET_DIR=%CARGO_TARGET_DIR%
 
+echo [1/3] sync version
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0sync-version.ps1"
+if errorlevel 1 ( echo   ERROR: version sync failed & exit /b 1 )
+
 echo [2/3] build frontend
 pushd "%APP_DIR%\ui"
 call npm run build
@@ -44,6 +48,10 @@ popd
 echo [2/3] gradle patch (tracked; gen/ is gitignored)
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0patch-android-gradle.ps1"
 if errorlevel 1 ( echo   ERROR: gradle patch failed & exit /b 1 )
+
+echo [2/3] android sources patch (WorkManager worker + notification)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0patch-android-sources.ps1"
+if errorlevel 1 ( echo   ERROR: android sources patch failed & exit /b 1 )
 
 echo [3/3] build apk
 REM   first arg "release" switches to a release build (smaller, stripped)

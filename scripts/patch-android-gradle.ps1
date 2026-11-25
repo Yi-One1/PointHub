@@ -3,10 +3,13 @@ param(
 )
 
 # Tauri regenerates gen/android on `tauri android init`, and gen/ is gitignored.
-# Keep the two build tweaks here (tracked) so a fresh checkout still builds a
+# Keep the three build tweaks here (tracked) so a fresh checkout still builds a
 # small, installable release APK:
 #   1) release uses the debug keystore (self-distribution; no private key to manage)
 #   2) native debug symbols are stripped (keeping them inflates the APK ~2x)
+#   3) targetSdk pinned to 36: Android 17 (API 37) blocks local-network TCP unless
+#      the app holds ACCESS_LOCAL_NETWORK. Targeting 36 keeps the implicit grant
+#      via INTERNET, which is what the PC<->phone LAN pairing relies on.
 $marker = '// PointHub: self-distribution patch (scripts/patch-android-gradle.ps1)'
 $signLine = '            signingConfig = signingConfigs.getByName("debug")'
 
@@ -21,7 +24,7 @@ $lines = $text -split "`n"
 # Fast path: patch already in place and no stale symbol/dup lines to clean.
 $pattern = '(?s)getByName\("release"\)\s*\{\s*// PointHub: self-distribution patch[^\r\n]*\s*signingConfig = signingConfigs\.getByName\("debug"\)'
 $signCount = ([regex]::Matches($text, 'signingConfig = signingConfigs\.getByName\("debug"\)')).Count
-if ($text -match $pattern -and $text -notmatch 'jniLibs\.keepDebugSymbols\.add' -and $signCount -eq 1) {
+if ($text -match $pattern -and $text -notmatch 'jniLibs\.keepDebugSymbols\.add' -and $signCount -eq 1 -and $text -match 'targetSdk\s*=\s*36\b') {
     Write-Host '  gradle patch already applied'
     exit 0
 }
@@ -73,8 +76,16 @@ if (-not $hadSign) {
 }
 
 if ($changed) {
-    [System.IO.File]::WriteAllText($GradlePath, ($out -join "`n"))
-    Write-Host '  gradle patched: release signing + stripped native symbols'
+    $newText = $out -join "`n"
+    $newText = [regex]::Replace($newText, 'targetSdk\s*=\s*\d+', 'targetSdk = 36')
+    [System.IO.File]::WriteAllText($GradlePath, $newText)
+    Write-Host '  gradle patched: release signing + stripped native symbols + targetSdk 36'
 } else {
-    Write-Host '  gradle patch already applied'
+    $newText = [regex]::Replace($text, 'targetSdk\s*=\s*\d+', 'targetSdk = 36')
+    if ($newText -ne $text) {
+        [System.IO.File]::WriteAllText($GradlePath, $newText)
+        Write-Host '  gradle patched: targetSdk 36'
+    } else {
+        Write-Host '  gradle patch already applied'
+    }
 }

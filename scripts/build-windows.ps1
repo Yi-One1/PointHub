@@ -71,6 +71,15 @@ foreach ($t in $syncTargets) {
     }
 }
 
+# The desktop crate is outside the workspace, so it does not inherit the version.
+$desktopToml = Join-Path $root "apps/desktop/src-tauri/Cargo.toml"
+$raw = Get-Content $desktopToml -Raw -Encoding UTF8
+$new = [regex]::Replace($raw, '(?m)^(version\s*=\s*")[^"]+(")', ('${1}' + $version + '${2}'))
+if ($new -ne $raw) {
+    [System.IO.File]::WriteAllText($desktopToml, $new, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  synced version in desktop Cargo.toml" -ForegroundColor DarkGray
+}
+
 # --- 1. tests ---------------------------------------------------------------
 if (-not $SkipTests) {
     Write-Host "[1/4] Running tests..." -ForegroundColor Cyan

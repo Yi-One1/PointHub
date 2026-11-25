@@ -9,17 +9,23 @@ use std::path::{Path, PathBuf};
 /// 数据目录定位。
 ///
 /// 规则（对应需求「数据存放位置可自定义」）：
-/// 1. 显式指定 > 指针文件 > 系统默认；
-/// 2. 指针文件永远放在系统默认位置，所以「改了目录」这件事本身可被找回；
-/// 3. 目录不可写时向上抛错，**不静默退回默认**——静默退回会让用户以为改成功了。
+/// 1. 显式指定 > 指针文件 > 默认目录；
+/// 2. 发行版的默认目录是 `<exe 所在目录>\data`，所以安装到 D 盘、便携版换位置，
+///    数据都跟着程序走；调试版仍用 `%LOCALAPPDATA%\PointHub`，避免把开发时的
+///    真实账号搬进 `target\debug`；
+/// 3. 指针文件永远放在旧的固定位置 `%LOCALAPPDATA%\PointHub`，所以「改了目录」
+///    这件事本身可被找回；
+/// 4. 指针和显式路径都不可写时向上抛错，**不静默退回默认**——静默退回会让用户
+///    以为改成功了。
 pub mod locate {
     use super::*;
+    use std::ffi::OsStr;
     use std::path::PathBuf;
 
     pub(crate) const POINTER: &str = "location.json";
 
-    /// 系统默认数据目录（不含自定义）。
-    pub fn default_dir() -> PathBuf {
+    /// 旧版固定数据目录，也是指针文件永远所在的位置。
+    pub fn legacy_dir() -> PathBuf {
         #[cfg(windows)]
         {
             if let Some(p) = std::env::var_os("LOCALAPPDATA") {
@@ -30,7 +36,6 @@ pub mod locate {
         #[cfg(target_os = "android")]
         {
             // 安卓上壳层会用 `app_data_dir()` 显式传进来，正常走不到这里。
-            // 留着是为了万一有人漏传时有个能看懂的路径，而不是拼出一个不存在的目录。
             // 注意必须与 tauri.conf.json 的 identifier 一致，否则 create_dir_all 会失败。
             PathBuf::from("/data/data/cn.pointhub.desktop/files")
         }
@@ -43,21 +48,41 @@ pub mod locate {
         }
     }
 
+    /// exe 同目录下的 `data`。
+    pub fn data_dir_for_exe(exe: &Path) -> PathBuf {
+        exe.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("data")
+    }
+
+    /// 默认数据目录。
+    ///
+    /// 发行版跟着 exe 走；调试版保持旧位置，否则一键预览会把真实账号搬到构建目录。
+    pub fn default_dir() -> PathBuf {
+        #[cfg(all(not(debug_assertions), not(target_os = "android")))]
+        {
+            if let Ok(exe) = std::env::current_exe() {
+                return data_dir_for_exe(&exe);
+            }
+        }
+        legacy_dir()
+    }
+
     fn pointer_path() -> PathBuf {
-        default_dir().join(POINTER)
+        legacy_dir().join(POINTER)
     }
 
     /// 读取指针文件里记录的自定义目录。
     pub fn read_pointer() -> Option<PathBuf> {
-        read_pointer_in(&default_dir())
+        read_pointer_in(&legacy_dir())
     }
 
-    /// 从指定的默认目录读取指针文件。
+    /// 从指定目录读取指针文件。
     ///
-    /// 单独开一个带参数的版本：卸载清理时默认目录可能马上要被删掉，
+    /// 单独开一个带参数的版本：卸载清理时旧目录可能马上要被删掉，
     /// 必须先把指针读出来；测试也不能依赖真实的 `%LOCALAPPDATA%`。
-    pub fn read_pointer_in(default: &Path) -> Option<PathBuf> {
-        let raw = std::fs::read_to_string(default.join(POINTER)).ok()?;
+    pub fn read_pointer_in(dir: &Path) -> Option<PathBuf> {
+        let raw = std::fs::read_to_string(dir.join(POINTER)).ok()?;
         let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
         v.get("data_dir")
             .and_then(|s| s.as_str())
@@ -93,7 +118,131 @@ pub mod locate {
         if let Some(d) = read_pointer() {
             return d;
         }
-        default_dir()
+        let target = default_dir();
+        let legacy = legacy_dir();
+        if target == legacy {
+            return target;
+        }
+        match migrate_legacy(&legacy, &target) {
+            Ok(_) => target,
+            // 迁不动就先用旧目录，别让账号看起来「丢了」。
+            Err(_) => legacy,
+        }
+    }
+
+    /// 把旧固定目录里的数据搬到新目录；`Ok(false)` 表示没有需要搬的。
+    ///
+    /// 先复制到同盘的临时目录，再整体改名，成功后才删旧文件：
+    /// 中途失败时旧数据仍然完整，下一次启动还能重试。
+    pub(crate) fn migrate_legacy(legacy: &Path, target: &Path) -> Result<bool> {
+        if target == legacy || has_data(target) || !has_data(legacy) {
+            return Ok(false);
+        }
+        let parent = target.parent().ok_or_else(|| {
+            Error::Io(format!("数据目录没有父目录：{}", target.display()))
+        })?;
+        let staging = parent.join(".point-hub-migrating");
+        if staging.exists() {
+            std::fs::remove_dir_all(&staging).map_err(|e| Error::Io(e.to_string()))?;
+        }
+        std::fs::create_dir_all(&staging).map_err(|e| Error::Io(e.to_string()))?;
+
+        let mut moved: Vec<std::ffi::OsString> = Vec::new();
+        let entries = std::fs::read_dir(legacy).map_err(|e| Error::Io(e.to_string()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| Error::Io(e.to_string()))?;
+            let name = entry.file_name();
+            if skip_migration_entry(&name) {
+                continue;
+            }
+            let src = entry.path();
+            let dst = staging.join(&name);
+            let copied = if src.is_dir() {
+                copy_recursive(&src, &dst)
+            } else {
+                std::fs::copy(&src, &dst)
+                    .map(|_| ())
+                    .map_err(|e| Error::Io(e.to_string()))
+            };
+            if let Err(e) = copied {
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(e);
+            }
+            moved.push(name);
+        }
+        if moved.is_empty() {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Ok(false);
+        }
+
+        if target.exists() {
+            let empty = std::fs::read_dir(target)
+                .map(|mut it| it.next().is_none())
+                .unwrap_or(false);
+            if !empty {
+                let _ = std::fs::remove_dir_all(&staging);
+                return Ok(false);
+            }
+            std::fs::remove_dir(target).map_err(|e| Error::Io(e.to_string()))?;
+        }
+        std::fs::rename(&staging, target).map_err(|e| Error::Io(e.to_string()))?;
+
+        // 新位置已经落盘，再清旧文件；清理失败只会留下重复文件，不影响使用。
+        for name in &moved {
+            let p = legacy.join(name);
+            if p.is_dir() {
+                let _ = std::fs::remove_dir_all(&p);
+            } else {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+        let _ = std::fs::remove_file(legacy.join(POINTER));
+        // 极早期尝试留下的 data 子目录；默认安装时 target 就是它，不能删。
+        if target != legacy.join("data") {
+            let _ = std::fs::remove_dir_all(legacy.join("data"));
+        }
+        let _ = std::fs::remove_dir(legacy);
+        Ok(true)
+    }
+
+    /// 迁移时跳过程序文件：默认安装目录可能和旧数据目录是同一层。
+    fn skip_migration_entry(name: &OsStr) -> bool {
+        let n = name.to_string_lossy().to_ascii_lowercase();
+        n == POINTER
+            || n == "pointhub.exe"
+            || n == "uninstall.exe"
+            || n.ends_with(".dll")
+            || n == "resources"
+            || n == "data"
+            || n == ".point-hub-migrating"
+    }
+
+    fn has_data(dir: &Path) -> bool {
+        [
+            files::ACCOUNTS,
+            files::SETTINGS,
+            files::VAULT,
+            files::HISTORY,
+            files::EVENTS,
+        ]
+        .iter()
+        .any(|n| dir.join(n).is_file())
+    }
+
+    fn copy_recursive(src: &Path, dst: &Path) -> Result<()> {
+        std::fs::create_dir_all(dst).map_err(|e| Error::Io(e.to_string()))?;
+        let entries = std::fs::read_dir(src).map_err(|e| Error::Io(e.to_string()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| Error::Io(e.to_string()))?;
+            let from = entry.path();
+            let to = dst.join(entry.file_name());
+            if from.is_dir() {
+                copy_recursive(&from, &to)?;
+            } else {
+                std::fs::copy(&from, &to).map_err(|e| Error::Io(e.to_string()))?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -115,11 +264,9 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
 /// 安装包的 NSIS 钩子会在删除程序文件前调用 `pointhub.exe --purge-data`，
 /// 这里负责判断「要删哪些目录、目录里哪些文件属于账号数据」。
 ///
-/// 为什么不把整个数据目录 `remove_dir_all`：安装包的默认安装目录是
-/// `%LOCALAPPDATA%\PointHub`，和默认数据目录是同一个路径。删整个目录会
-/// 把正在运行的 `pointhub.exe` 自己也删掉，`remove_dir_all` 中途失败，
-/// 后面的账号文件反而可能留下。只删白名单里的数据文件，程序文件留给卸载器，
-/// 顺序才是确定的。
+/// 只删白名单里的数据文件，不做整目录 `remove_dir_all`：
+/// 数据目录可能被用户改成 `D:\` 之类的自定义位置，也可能和安装目录相邻，
+/// 白名单能保证账号文件删干净、无关文件（甚至程序文件）不误伤。
 pub mod purge {
     use super::*;
     use std::path::{Path, PathBuf};
@@ -131,16 +278,18 @@ pub mod purge {
         pub failed: Vec<(PathBuf, String)>,
     }
 
-    /// 要清理的数据目录，顺序固定：先指针指向的自定义目录，再默认目录，最后额外目录。
+    /// 要清理的数据目录，顺序固定：指针指向的自定义目录、当前默认目录、
+    /// 旧固定目录、最后是额外目录。
     ///
-    /// 必须在默认目录还在时读指针；把默认目录删了再读就找不到自定义位置了。
-    pub fn data_dirs(default_dir: &Path, extra: &[PathBuf]) -> Vec<PathBuf> {
+    /// 必须在旧目录还在时读指针；把旧目录删了再读就找不到自定义位置了。
+    pub fn data_dirs(pointer_dir: &Path, default_dir: &Path, extra: &[PathBuf]) -> Vec<PathBuf> {
         let mut out: Vec<PathBuf> = Vec::new();
         // 盘符根目录/空路径不能删：自定义目录可能被填成 `D:\`。
-        if let Some(custom) = super::locate::read_pointer_in(default_dir) {
+        if let Some(custom) = super::locate::read_pointer_in(pointer_dir) {
             push_unique(&mut out, custom);
         }
         push_unique(&mut out, default_dir.to_path_buf());
+        push_unique(&mut out, pointer_dir.to_path_buf());
         for e in extra {
             push_unique(&mut out, e.clone());
         }
@@ -193,9 +342,34 @@ pub mod purge {
                 Err(e) => r.failed.push((p, e.to_string())),
             }
         }
+        // 历史文件的滚动备份（history.jsonl.bak-20261125 之类）不在固定名单里。
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !DATA_BACKUP_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                    continue;
+                }
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                match std::fs::remove_file(&p) {
+                    Ok(()) => r.removed += 1,
+                    Err(e) => r.failed.push((p, e.to_string())),
+                }
+            }
+        }
         // 只删空目录：默认目录同时也是安装目录时，exe 还在，这里会失败且不应算错。
         let _ = std::fs::remove_dir(dir);
     }
+
+    /// 数据文件的滚动备份前缀，卸载时一并清掉，避免留下半份历史。
+    const DATA_BACKUP_PREFIXES: &[&str] = &[
+        "history.jsonl.bak",
+        "events.jsonl.bak",
+        "accounts.json.bak",
+        "settings.json.bak",
+    ];
 
     /// 账号数据的文件名。新增数据文件时记得同步这里，否则卸载会留下它。
     const DATA_FILES: &[&str] = &[
@@ -708,6 +882,7 @@ mod tests {
         // 模拟「安装目录 = 默认数据目录」：程序文件和数据文件混在一起。
         std::fs::write(default.join("accounts.json"), "{}").unwrap();
         std::fs::write(default.join("settings.broken.json"), "{}").unwrap();
+        std::fs::write(default.join("history.jsonl.bak-20261125"), "x").unwrap();
         std::fs::write(default.join("pointhub.exe"), "binary").unwrap();
         std::fs::create_dir(default.join("logs")).unwrap();
         std::fs::write(default.join("logs/a.log"), "x").unwrap();
@@ -717,7 +892,7 @@ mod tests {
         std::fs::write(custom.join("history.jsonl"), "x").unwrap();
         std::fs::write(custom.join("notes.txt"), "用户的其它文件").unwrap();
 
-        let dirs = purge::data_dirs(&default, &[]);
+        let dirs = purge::data_dirs(&default, &default, &[]);
         assert_eq!(dirs.len(), 2, "默认目录与指针目录都要清");
         assert_eq!(dirs[0], custom, "先清自定义目录，再清默认目录");
 
@@ -725,6 +900,7 @@ mod tests {
         assert!(r.failed.is_empty(), "{:?}", r.failed);
         assert!(!default.join("accounts.json").exists());
         assert!(!default.join("settings.broken.json").exists());
+        assert!(!default.join("history.jsonl.bak-20261125").exists());
         assert!(!default.join("location.json").exists());
         assert!(!default.join("logs").exists());
         // 程序文件不归这里删：卸载器还要用它清理，删了会删到正在运行的自己。
@@ -735,7 +911,7 @@ mod tests {
         assert!(custom.join("notes.txt").exists());
 
         // 幂等：第二次没有可删的东西，也不报错。
-        let again = purge::purge_data_dirs(&purge::data_dirs(&default, &[]));
+        let again = purge::purge_data_dirs(&purge::data_dirs(&default, &default, &[]));
         assert!(again.failed.is_empty());
         assert_eq!(again.removed, 0);
 
@@ -746,13 +922,96 @@ mod tests {
     #[test]
     fn purge_refuses_drive_root_and_dedups() {
         let root = std::path::Path::new(if cfg!(windows) { "C:\\" } else { "/" });
-        assert!(purge::data_dirs(root, &[]).is_empty(), "盘符根目录不能作为清理目标");
+        assert!(
+            purge::data_dirs(root, root, &[]).is_empty(),
+            "盘符根目录不能作为清理目标"
+        );
 
         let dir = tmpdir("purge-dedup");
         let extra = vec![dir.clone(), dir.clone()];
-        let dirs = purge::data_dirs(&dir, &extra);
+        let dirs = purge::data_dirs(&dir, &dir, &extra);
         assert_eq!(dirs.len(), 1);
         assert_eq!(dirs[0], dir);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn data_dir_follows_exe() {
+        let dir = tmpdir("exe-dir");
+        let exe = dir.join("pointhub.exe");
+        assert_eq!(locate::data_dir_for_exe(&exe), dir.join("data"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migrates_legacy_data_and_keeps_program_files() {
+        let base = tmpdir("migrate");
+        let legacy = base.join("legacy");
+        let target = base.join("install").join("data");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("accounts.json"), "{}").unwrap();
+        std::fs::write(legacy.join("vault.bin"), "v").unwrap();
+        std::fs::create_dir_all(legacy.join("logs")).unwrap();
+        std::fs::write(legacy.join("logs/a.log"), "x").unwrap();
+        std::fs::create_dir_all(legacy.join("browser-profile")).unwrap();
+        std::fs::write(legacy.join("browser-profile/cookie"), "c").unwrap();
+        std::fs::write(legacy.join("history.jsonl.bak-1"), "h").unwrap();
+        std::fs::write(legacy.join("pointhub.exe"), "binary").unwrap();
+        std::fs::write(legacy.join("location.json"), "broken").unwrap();
+
+        assert!(locate::migrate_legacy(&legacy, &target).unwrap());
+        assert!(target.join("accounts.json").is_file());
+        assert!(target.join("vault.bin").is_file());
+        assert!(target.join("logs/a.log").is_file());
+        assert!(target.join("browser-profile/cookie").is_file());
+        assert!(target.join("history.jsonl.bak-1").is_file());
+        assert!(!target.join("pointhub.exe").exists());
+        assert!(!target.join("location.json").exists());
+
+        assert!(!legacy.join("accounts.json").exists());
+        assert!(!legacy.join("location.json").exists());
+        assert!(legacy.join("pointhub.exe").is_file(), "程序文件必须留在原处");
+
+        // 第二次没有可搬的，直接返回 false。
+        assert!(!locate::migrate_legacy(&legacy, &target).unwrap());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn migrates_into_data_subdir_when_exe_is_in_legacy_dir() {
+        let base = tmpdir("migrate-subdir");
+        let legacy = base.join("legacy");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("accounts.json"), "{}").unwrap();
+        std::fs::write(legacy.join("pointhub.exe"), "exe").unwrap();
+        let target = legacy.join("data");
+
+        assert!(locate::migrate_legacy(&legacy, &target).unwrap());
+        assert!(target.join("accounts.json").is_file());
+        assert!(legacy.join("pointhub.exe").is_file());
+        assert!(!legacy.join("accounts.json").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn migration_does_not_overwrite_existing_target() {
+        let base = tmpdir("migrate-existing");
+        let legacy = base.join("legacy");
+        let target = base.join("data");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(legacy.join("accounts.json"), "old").unwrap();
+        std::fs::write(target.join("accounts.json"), "new").unwrap();
+
+        assert!(!locate::migrate_legacy(&legacy, &target).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(target.join("accounts.json")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            std::fs::read_to_string(legacy.join("accounts.json")).unwrap(),
+            "old"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -54,7 +54,13 @@ pub fn run(mode: Mode) -> i32 {
         if let Some(p) = std::env::var_os("APPDATA") {
             extra.push(PathBuf::from(p).join("PointHub"));
         }
-        let dirs = ph_store::purge::data_dirs(&ph_store::locate::default_dir(), &extra);
+        // 三个位置都要清：当前安装目录下的 data、旧固定目录、
+        // 以及用户通过「更换数据目录」指到别处的那个目录。
+        let dirs = ph_store::purge::data_dirs(
+            &ph_store::locate::legacy_dir(),
+            &ph_store::locate::default_dir(),
+            &extra,
+        );
         let report = ph_store::purge::purge_data_dirs(&dirs);
         for (p, e) in report.failed {
             failures.push(format!("删除 {} 失败：{e}", p.display()));

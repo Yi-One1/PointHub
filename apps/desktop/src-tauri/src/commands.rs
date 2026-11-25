@@ -89,7 +89,7 @@ pub struct OutcomeView {
     pub credit: Option<i64>,
 }
 
-fn build_state(engine: &ph_engine::Engine) -> StateView {
+pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
     let latest = engine.latest_snapshots();
     let accounts = engine
         .accounts()
@@ -450,6 +450,65 @@ fn unique_label(engine: &ph_engine::Engine, vendor: Vendor, base: &str) -> Strin
         }
     }
     format!("{base} {}", chrono::Local::now().timestamp())
+}
+
+// ------------------------------------------------------------------ 局域网
+
+/// 手机访问面板要的信息：地址、配对码、还剩多久。
+#[derive(Serialize)]
+pub struct LanInfo {
+    /// 设置里的总开关。
+    pub enabled: bool,
+    /// 服务是否真的在跑（端口被占用时会启动失败）。
+    pub running: bool,
+    pub url: Option<String>,
+    pub port: u16,
+    pub code: Option<String>,
+    /// 配对码剩余有效秒数。
+    pub code_left_secs: u64,
+    pub allow_checkin: bool,
+}
+
+#[tauri::command]
+pub async fn lan_info(state: State<'_, SharedState>) -> Result<LanInfo, String> {
+    use std::sync::atomic::Ordering;
+
+    let (enabled, port) = (
+        state.sync_enabled.load(Ordering::Relaxed),
+        state.sync_port.load(Ordering::Relaxed),
+    );
+    let allow_checkin = {
+        let engine = state.engine.lock().await;
+        engine.settings().sync.allow_remote_checkin
+    };
+
+    // 配对码只在服务真的起来之后才有意义
+    let ctx = state
+        .lan
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|c| (c.current_code(), c.code_left_secs(), c.port)));
+
+    Ok(match ctx {
+        Some((code, left, real_port)) => LanInfo {
+            enabled,
+            running: true,
+            url: crate::lan::lan_ip().map(|ip| format!("http://{ip}:{real_port}")),
+            port: real_port,
+            code: Some(code),
+            code_left_secs: left,
+            allow_checkin,
+        },
+        None => LanInfo {
+            enabled,
+            running: false,
+            url: None,
+            port,
+            code: None,
+            code_left_secs: 0,
+            allow_checkin,
+        },
+    })
 }
 
 // ------------------------------------------------------------------ 设置

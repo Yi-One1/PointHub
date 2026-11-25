@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { OutcomeView, Settings, StateView } from "./types";
+import type { LanInfo, OutcomeView, Settings, StateView } from "./types";
 
 // 所有后端调用集中在这里：前端组件不直接写命令名，
 // 命令改名时只改这一处。
 
 export const api = {
   bootstrap: () => invoke<StateView>("bootstrap"),
+  lanInfo: () => invoke<LanInfo>("lan_info"),
   refreshAll: () => invoke<StateView>("refresh_all"),
   checkin: (ids?: string[]) => invoke<OutcomeView[]>("checkin", { ids: ids ?? null }),
   travel: (id: string, action: "auto" | "status" | "claim" | "depart" = "auto", location?: number) =>

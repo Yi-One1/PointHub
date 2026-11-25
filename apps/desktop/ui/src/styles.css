@@ -375,6 +375,26 @@ html[data-theme="dark"] .prog {
   letter-spacing: 0.02em;
 }
 
+/* 配对码：等宽大字，方便照着在手机上敲 */
+.pin {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 6px 12px 6px 14px;
+  flex: none;
+}
+
+.pnote {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent);
+}
+
 .psub {
   font-size: 11px;
   color: var(--faint);
@@ -1367,21 +1387,147 @@ html[data-window="ball"] body {
   }
 }
 
+/* 手机（安卓竖屏为主）：侧栏收成底部标签栏，内容单列。
+   隐藏侧栏等于把导航弄没了，所以这里不是 display:none，而是换一种排法。 */
 @media (max-width: 760px) {
   .app {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: 100vh;
+    height: 100dvh; /* 移动端地址栏收起来时不留空白 */
   }
+
+  /* ---- 底部标签栏 ---- */
   .rail {
+    flex-direction: row;
+    align-items: stretch;
+    order: 2;
+    gap: 6px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-right: none;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  /* 品牌区、版本脚注在手机上没地方放，也不必要 */
+  .brand,
+  .afoot {
     display: none;
   }
+
+  .rail nav {
+    flex: 1;
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .nav {
+    position: relative;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 50px;
+    padding: 8px 6px;
+    font-size: 12.5px;
+    text-align: center;
+  }
+
+  /* 徽标挪到右上角，竖排时不再挤在文字后面 */
+  .nav .cnt {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    margin-left: 0;
+    font-size: 10px;
+  }
+
+  main {
+    order: 1;
+    padding: 16px 14px 18px;
+  }
+
+  /* ---- 触控尺寸：手指不是鼠标 ---- */
+  .btn {
+    height: 40px;
+    padding: 0 16px;
+  }
+
+  .head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .acts {
+    width: 100%;
+  }
+
+  .acts .btn {
+    flex: 1;
+  }
+
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .kpi {
+    padding: 11px 13px 12px;
+  }
+
+  /* 账号行：名称一行，右侧状态与操作换到下一行 */
   .arow {
     grid-template-columns: minmax(0, 1fr) 92px;
     row-gap: 6px;
+    padding: 12px;
   }
+
   .pill {
     grid-column: 1;
   }
+
   .tf {
     grid-column: 2;
+  }
+
+  /* 16px 是分界线：小于它，WebView 聚焦输入框时会自动放大页面 */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+    min-height: 40px;
+  }
+
+  /* 弹窗本身已经是 min(420px, 100%)，窄屏只需让遮罩留白小一点、内容可滚 */
+  .modal-mask {
+    padding: 12px;
+  }
+
+  .modal {
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+
+  th,
+  td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+/* 横屏手机：侧栏压窄，但矮屏上仍要给手指留够高度 */
+@media (min-width: 761px) and (max-width: 860px) and (orientation: landscape) {
+  .app {
+    grid-template-columns: 172px minmax(0, 1fr);
+  }
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .btn {
+    height: 38px;
+  }
+  main {
+    padding: 14px 18px 16px;
   }
 }

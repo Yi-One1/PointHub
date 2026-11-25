@@ -20,6 +20,16 @@ export interface SyncSettings {
   allow_remote_checkin: boolean;
 }
 
+export interface LanInfo {
+  enabled: boolean;
+  running: boolean;
+  url: string | null;
+  port: number;
+  code: string | null;
+  code_left_secs: number;
+  allow_checkin: boolean;
+}
+
 export interface Settings {
   theme: ThemeMode;
   autostart: boolean;

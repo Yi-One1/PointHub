@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f6f8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b111c" />
+    <title>积分枢纽 · 手机</title>
+    <style>
+      :root {
+        --bg: #f5f6f8;
+        --surface: #fff;
+        --line: #e5e8ee;
+        --text: #0e1626;
+        --muted: #697586;
+        --faint: #98a2b3;
+        --accent: #16a34a;
+        --accent-w: #eafaf0;
+        --warn: #b45309;
+        --warn-w: #fff7e6;
+        --danger: #b42318;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b111c;
+          --surface: #111a28;
+          --line: #1f2b3d;
+          --text: #e8eef8;
+          --muted: #93a2b8;
+          --faint: #6b7b92;
+          --accent: #34d399;
+          --accent-w: #0c2e22;
+          --warn: #fbbf24;
+          --warn-w: #2a2010;
+          --danger: #f87171;
+        }
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.55 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        padding: 16px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+        max-width: 560px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .sub {
+        margin: 3px 0 16px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        padding: 14px 15px;
+        margin-bottom: 11px;
+      }
+      .total {
+        font-size: 32px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+      }
+      .total small {
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--muted);
+        margin-left: 6px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 0;
+        border-top: 1px solid var(--line);
+      }
+      .row:first-of-type {
+        border-top: none;
+        padding-top: 2px;
+      }
+      .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+      .bal {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .meta {
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .tag {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 6px;
+        background: var(--accent-w);
+        color: var(--accent);
+        flex: none;
+      }
+      .tag.warn {
+        background: var(--warn-w);
+        color: var(--warn);
+      }
+      .tag.err {
+        background: transparent;
+        color: var(--danger);
+        border: 1px solid var(--danger);
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
+      .btn {
+        width: 100%;
+        height: 48px;
+        border-radius: 11px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 15px;
+      }
+      .btn.primary {
+        background: var(--text);
+        color: var(--surface);
+        border-color: var(--text);
+        font-weight: 500;
+      }
+      .btn:disabled {
+        opacity: 0.55;
+      }
+      input {
+        width: 100%;
+        height: 52px;
+        font-size: 24px;
+        letter-spacing: 0.4em;
+        text-align: center;
+        border-radius: 11px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+        margin-bottom: 11px;
+      }
+      input::placeholder {
+        letter-spacing: 0;
+        font-size: 15px;
+        color: var(--faint);
+      }
+      .hint {
+        font-size: 12.5px;
+        color: var(--muted);
+        line-height: 1.65;
+        margin: 10px 0 0;
+      }
+      .foot {
+        text-align: center;
+        font-size: 11.5px;
+        color: var(--faint);
+        margin-top: 18px;
+      }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        transform: translateX(-50%) translateY(12px);
+        background: var(--text);
+        color: var(--surface);
+        padding: 10px 16px;
+        border-radius: 10px;
+        font-size: 13.5px;
+        opacity: 0;
+        pointer-events: none;
+        transition: 0.18s ease;
+        max-width: calc(100vw - 40px);
+      }
+      .toast.on {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      .hide {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 配对 -->
+    <section id="pair">
+      <h1>连接到电脑</h1>
+      <p class="sub">在电脑的「设置 → 手机访问」里看 6 位配对码</p>
+      <div class="card">
+        <input id="code" inputmode="numeric" maxlength="6" placeholder="输入 6 位配对码" autocomplete="one-time-code" />
+        <button class="btn primary" id="pairBtn">配对</button>
+        <p class="hint">
+          配对码 5 分钟内有效、只能用一次。配对成功后这台手机会记住凭据，
+          之后打开就是账本，不用再输。
+        </p>
+      </div>
+    </section>
+
+    <!-- 账本 -->
+    <section id="main" class="hide">
+      <h1>积分枢纽</h1>
+      <p class="sub" id="subline">正在读取…</p>
+      <div class="card">
+        <div class="total"><span id="total">—</span><small>积分合计</small></div>
+        <div class="meta" id="pending"></div>
+      </div>
+      <div class="card" id="list"></div>
+      <button class="btn primary" id="checkinBtn">一键签到</button>
+      <p class="foot">
+        数据由你自己的电脑提供，不经过任何服务器<br />
+        <span id="version"></span>
+      </p>
+    </section>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      var TOKEN_KEY = "pointhub.lan.token";
+      var token = localStorage.getItem(TOKEN_KEY) || "";
+      var busy = false;
+
+      function $(id) { return document.getElementById(id); }
+
+      function toast(msg) {
+        var t = $("toast");
+        t.textContent = msg;
+        t.classList.add("on");
+        clearTimeout(t._h);
+        t._h = setTimeout(function () { t.classList.remove("on"); }, 2200);
+      }
+
+      function credits(n) {
+        if (n === null || n === undefined) return "—";
+        return n.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+      }
+
+      function showPair() {
+        $("pair").classList.remove("hide");
+        $("main").classList.add("hide");
+      }
+
+      function showMain() {
+        $("pair").classList.add("hide");
+        $("main").classList.remove("hide");
+      }
+
+      async function post(url, body, withToken) {
+        var headers = { "Content-Type": "application/json" };
+        if (withToken && token) headers["Authorization"] = "Bearer " + token;
+        var r = await fetch(url, { method: "POST", headers: headers, body: JSON.stringify(body || {}) });
+        return r;
+      }
+
+      async function load() {
+        if (!token) { showPair(); return; }
+        var r = await fetch("/api/state", { headers: { Authorization: "Bearer " + token } });
+        if (r.status === 401) {
+          token = "";
+          localStorage.removeItem(TOKEN_KEY);
+          showPair();
+          return;
+        }
+        var d = await r.json();
+        showMain();
+        $("total").textContent = credits(d.total_balance);
+        $("version").textContent = "v" + d.version + " · 手机端只读副本";
+        $("subline").textContent = d.checked_in + " / " + d.accounts.length + " 个账号今日已签";
+        var left = d.accounts.length - d.checked_in;
+        $("pending").textContent = left > 0 ? "还有 " + left + " 个没签" : "今天都签完了";
+        $("checkinBtn").classList.toggle("hide", !d.can_checkin);
+        $("checkinBtn").disabled = left === 0;
+
+        var html = "";
+        for (var i = 0; i < d.accounts.length; i++) {
+          var a = d.accounts[i];
+          var tag = a.checked_in_today ? '<span class="tag">已签</span>'
+                  : '<span class="tag warn">待签</span>';
+          if (a.last_error) tag = '<span class="tag err">异常</span>';
+          var meta = [];
+          if (a.streak_days) meta.push("连签 " + a.streak_days + " 天");
+          if (a.today_gain) meta.push("+" + credits(a.today_gain));
+          html += '<div class="row"><div class="name">' + a.label +
+                  (meta.length ? '<div class="meta">' + meta.join(" · ") + "</div>" : "") +
+                  '</div><div class="bal">' + credits(a.balance) + "</div>" + tag + "</div>";
+        }
+        $("list").innerHTML = html || '<div class="meta">还没有账号</div>';
+      }
+
+      $("pairBtn").onclick = async function () {
+        var code = ($("code").value || "").trim();
+        if (code.length !== 6) { toast("配对码是 6 位数字"); return; }
+        this.disabled = true;
+        try {
+          var r = await post("/api/pair", { code: code });
+          var d = await r.json();
+          if (!r.ok) { toast(d.error || "配对失败"); return; }
+          token = d.token;
+          localStorage.setItem(TOKEN_KEY, token);
+          $("code").value = "";
+          await load();
+          toast("已连接");
+        } catch (e) {
+          toast("连不上电脑，检查是否在同一 Wi-Fi");
+        } finally {
+          this.disabled = false;
+        }
+      };
+
+      $("checkinBtn").onclick = async function () {
+        if (busy) return;
+        busy = true;
+        this.disabled = true;
+        this.textContent = "正在签到…";
+        try {
+          var r = await post("/api/checkin", {}, true);
+          var d = await r.json();
+          if (!r.ok) { toast(d.error || "签到失败"); return; }
+          var ok = d.results.filter(function (x) { return x.status === "claimed"; }).length;
+          toast(ok > 0 ? "签到完成，" + ok + " 个成功" : "签到已执行");
+          await load();
+        } catch (e) {
+          toast("请求失败");
+        } finally {
+          busy = false;
+          this.textContent = "一键签到";
+        }
+      };
+
+      // 页面回到前台就刷新一次；后台不轮询，省电
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) load().catch(function () {});
+      });
+
+      load().catch(function () { showPair(); });
+    </script>
+  </body>
+</html>

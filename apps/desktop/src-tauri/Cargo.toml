@@ -1,6 +1,6 @@
 [package]
 name = "pointhub"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "积分枢纽 PointHub 桌面端"
 authors = ["Yi-One1"]
@@ -25,8 +25,9 @@ ph-providers = { path = "../../../crates/ph-providers" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util"] }
 chrono = "0.4"
+rand = "0.8"
 
 # 自启是纯桌面机制，安卓上这个 crate 根本不该被编译
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

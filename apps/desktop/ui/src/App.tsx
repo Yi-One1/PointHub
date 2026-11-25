@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { useTheme } from "./theme";
-import type { AccountView, DayPoint, Settings, StateView, ThemeMode } from "./types";
+import type { LanInfo, AccountView, DayPoint, Settings, StateView, ThemeMode } from "./types";
 
 type Tab = "overview" | "accounts" | "settings";
 
@@ -826,6 +826,28 @@ function SettingsPage({
 }) {
   const [draft, setDraft] = useState<Settings>(view.settings);
   const [newDir, setNewDir] = useState("");
+  // 配对码会过期，隔一会儿拉一次；界面停留时保持最新
+  const [lan, setLan] = useState<LanInfo | null>(null);
+  // 安卓端自己就是手机，再显示「手机访问」没有意义
+  const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  useEffect(() => {
+    let alive = true;
+    const pull = () => {
+      api
+        .lanInfo()
+        .then((v) => {
+          if (alive) setLan(v);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const timer = setInterval(pull, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const patch = (p: Partial<Settings>) => setDraft({ ...draft, ...p });
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.settings);
@@ -846,6 +868,86 @@ function SettingsPage({
           </button>
         </div>
       </div>
+
+      {!isPhone && (
+      <section className="panel">
+        <div className="phead">
+          <span className="pname">手机访问</span>
+          {lan?.running && <span className="pnote">同一 Wi-Fi 下可用</span>}
+        </div>
+
+        <div className="row">
+          <div>
+            <div className="row-title">局域网访问</div>
+            <div className="row-desc">
+              手机和电脑连同一个 Wi-Fi，用手机浏览器打开地址即可；改了开关要重启应用才生效
+            </div>
+          </div>
+          <Switch
+            checked={draft.sync.enabled}
+            onChange={(v) => patch({ sync: { ...draft.sync, enabled: v } })}
+            label="局域网访问"
+          />
+        </div>
+
+        {lan?.running ? (
+          <>
+            <div className="row">
+              <div>
+                <div className="row-title">访问地址</div>
+                <div className="row-desc">{lan.url ?? "没取到本机内网地址，检查是否连着 Wi-Fi"}</div>
+              </div>
+              {lan.url && (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(lan.url!).then(
+                      () => notify("地址已复制", "ok"),
+                      () => notify("复制失败，手动抄一下", "warn"),
+                    );
+                  }}
+                >
+                  复制
+                </button>
+              )}
+            </div>
+
+            <div className="row">
+              <div>
+                <div className="row-title">配对码</div>
+                <div className="row-desc">
+                  {`手机上输这 6 位数字即可连接；约 ${Math.max(
+                    1,
+                    Math.round((lan.code_left_secs || 0) / 60),
+                  )} 分钟后换新码，配对过的手机不受影响`}
+                </div>
+              </div>
+              <div className="pin">{lan.code ?? "······"}</div>
+            </div>
+          </>
+        ) : (
+          <div className="row">
+            <div className="row-desc">
+              {lan?.enabled
+                ? `服务没起来，端口 ${lan.port} 可能被别的程序占了`
+                : "局域网访问已关闭，打开开关并重启应用后生效"}
+            </div>
+          </div>
+        )}
+
+        <div className="row">
+          <div>
+            <div className="row-title">允许手机签到</div>
+            <div className="row-desc">关掉后手机只能看账本，不能替你点签到</div>
+          </div>
+          <Switch
+            checked={draft.sync.allow_remote_checkin}
+            onChange={(v) => patch({ sync: { ...draft.sync, allow_remote_checkin: v } })}
+            label="允许手机签到"
+          />
+        </div>
+      </section>
+      )}
 
       <section className="panel">
         <div className="phead">

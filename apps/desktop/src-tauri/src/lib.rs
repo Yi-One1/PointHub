@@ -8,6 +8,7 @@
 //! 显式分叉，而不是靠运行时判断——编不过就早点暴露，别等到用户手机上白屏。
 
 pub mod browser_login;
+pub mod lan;
 pub mod commands;
 pub mod login;
 
@@ -30,6 +31,11 @@ pub struct AppState {
     pub data_dir: std::path::PathBuf,
     pub minimize_to_tray: AtomicBool,
     pub ball_enabled: AtomicBool,
+    /// 局域网服务开关与端口（从设置里同步过来，供同步上下文的 setup 读取）。
+    pub sync_enabled: AtomicBool,
+    pub sync_port: std::sync::atomic::AtomicU16,
+    /// 运行中的局域网服务；未启动时为 None。
+    pub lan: std::sync::Mutex<Option<Arc<lan::LanCtx>>>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -43,6 +49,8 @@ pub fn run() {
     let data_dir = engine.data_dir().to_path_buf();
     let minimize = engine.settings().minimize_to_tray;
     let ball = engine.settings().ball.enabled;
+    let sync_enabled = engine.settings().sync.enabled;
+    let sync_port = engine.settings().sync.port;
 
     let state: SharedState = Arc::new(AppState {
         engine: tokio::sync::Mutex::new(engine),
@@ -50,6 +58,9 @@ pub fn run() {
         minimize_to_tray: AtomicBool::new(minimize),
         // 移动端没有悬浮球，标志位保留但不起作用。
         ball_enabled: AtomicBool::new(ball),
+        sync_enabled: AtomicBool::new(sync_enabled),
+        sync_port: std::sync::atomic::AtomicU16::new(sync_port),
+        lan: std::sync::Mutex::new(None),
     });
 
     #[allow(unused_mut)]
@@ -73,6 +84,7 @@ pub fn run() {
             commands::set_ball_account,
             commands::show_main,
             commands::quit_app,
+            commands::lan_info,
         ])
         .setup(|app| {
             #[cfg(desktop)]
@@ -86,6 +98,18 @@ pub fn run() {
                 }
                 sync_autostart(app.handle());
                 spawn_scheduler(app.handle().clone());
+
+                // 局域网服务：手机和电脑同一个 Wi-Fi 时，手机浏览器就能看账本。
+                if app.state::<SharedState>().sync_enabled.load(Ordering::Relaxed) {
+                    match lan::start(app.handle().clone()) {
+                        Ok(ctx) => {
+                            if let Ok(mut slot) = app.state::<SharedState>().lan.lock() {
+                                *slot = Some(ctx);
+                            }
+                        }
+                        Err(e) => eprintln!("局域网服务未启动：{e}"),
+                    }
+                }
 
                 // 调试入口：`--login workbuddy` 启动即发起浏览器授权。
                 // 界面自动化要按坐标点按钮，窗口位置一变就会点空；直接给个入口，

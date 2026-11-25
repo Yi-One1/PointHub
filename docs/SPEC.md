@@ -106,9 +106,15 @@ VendorSnapshot     一次采样
 
 ---
 
-## 五、双端互通协议（已实现）
+## 五、双端互通（已实现）
 
 **拓扑**：PC 服务端 + 手机客户端，局域网内直连，不经第三方。
+
+安卓 App 有两种模式：
+
+- **本机模式**：账号导入、签到、历史都在手机上；
+- **连接电脑**：配对电脑后拉取电脑的账号与积分、请求电脑代签；
+  凭据始终留在电脑，不跨设备（D15）。
 
 ```
 手机                      PC
@@ -116,10 +122,15 @@ VendorSnapshot     一次采样
  │  POST /api/pair         │  提交 6 位配对码 → 换 session token
  │  GET  /api/state        │  账号 + 最新快照 + 汇总
  │  POST /api/checkin      │  { ids?: [] } → 结果列表
+ │  GET  /api/sync/pull    │  账号元数据 + 快照 + 历史 + 活动（不含凭据）
+ │  POST /api/sync/push    │  手机侧变更上行合并
 ```
 
-**实现要点**：`apps/desktop/src-tauri/src/lan.rs` + `assets/lan.html`（单文件页面，
-编译期嵌入）。手机端**不需要装 App**，用浏览器打开即可。
+**实现要点**：PC 侧 `apps/desktop/src-tauri/src/lan.rs` + `assets/lan.html`
+（浏览器入口，编译期嵌入）；手机侧 `crates/ph-client` 与 `commands.rs` 的 remote 分支。
+
+**配对持久化**：配对成功后 PC 发持久设备令牌，手机存本地，重启后自动重连；
+配对码仍是 6 位、5 分钟有效、用一次即换新。手机浏览器入口保留，不装 App 也能用。
 
 **安全要求与实际做法**：
 
@@ -147,7 +158,8 @@ VendorSnapshot     一次采样
 - [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
 - [x] 发布版体积实测：exe 4.6 MB / APK 7.4 MB
 - [x] 安卓出包，并在模拟器上验证安装与启动
-- [ ] Redmi K80 Pro / Android 15 真机验证
+- [x] Redmi K80 Pro / Android 17 真机验证（targetSdk 36 后可连局域网）
+- [x] 安卓 App 配对电脑、远程查看与远程签到真机跑通
 
 ---
 

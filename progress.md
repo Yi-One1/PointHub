@@ -28,6 +28,11 @@
 - **安卓端**：工程可出包；曾两次闪退，均已定位修复（数据目录写死错误包名 +
   `run()` 缺 `#[cfg_attr(mobile, tauri::mobile_entry_point)]` 导致 JNI 符号缺失）；
   雷电模拟器实测启动正常。release 包 **7.4 MB**，`dist/积分枢纽PointHub_v0.4.2.apk`。
+- **安卓双模式（组 2）**：本机模式自行导入签到；连接电脑模式经持久设备配对拉取
+  电脑账号/快照/历史/活动并远程签到，凭据不出电脑；`crates/ph-client` 承载协议。
+- **Android 17 真机**：Redmi K80 Pro 初始连接超时，根因是 Android 17「本地网络保护」
+  对 targetSdk 37 应用静默丢弃局域网 TCP；`scripts/patch-android-gradle.ps1` 固定
+  `targetSdk = 36` 后真机配对、远程签到通过。
 - **产物**：`dist/` 内 v0.1.0 ~ v0.4.2 的 exe 与 APK 并存，脚本不覆盖历史产物。
 - **GitHub**：代码、文档、脚本已推送；`.design/`、`dist/`、`target/`、
   `.workbuddy/` 等均被 `.gitignore` 排除。
@@ -37,7 +42,7 @@
 ## 关键决策
 
 1. **不做云端**：凭据在 PC，签到必须在 PC 执行；上云等于把账号钥匙交给第三方。
-   手机端用浏览器访问局域网服务，不装 App。
+   手机端通过局域网配对（App 或浏览器）使用 PC 的账号，凭据不跨设备。
 2. **不读浏览器 localStorage / Cookie**：实测 WorkBuddy 网页存储全是埋点键，
    真凭证是轮换的 HttpOnly `session` cookie，拷出来很快失效；改用官方插件授权换 refresh token。
 3. **SemVer 严格判定**：修用户可见故障 = PATCH（0.3.0→0.3.1、0.3.1→0.3.2、
@@ -57,9 +62,9 @@
 
 ## 未完成的待办
 
-- [ ] **真机验证**：Redmi K80 Pro / Android 15 安装 v0.4.2 APK（模拟器已过，真机未测）。
 - [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
       Trae 的 ExchangeToken 需设备私钥签名样本（见 `DECISIONS.md` P01/P02）。
+- [ ] **本机导入**（组 3）：读取本机客户端登录态，仅 Windows，只读（D16 / ADR 0003）。
 - [ ] **自动更新**：Windows updater + Android 下载 APK 自装，可配置源（D08）。
 - [ ] **卸载清理**：安装包侧清理脚本（便携版本身不写注册表）。
 - [ ] **Windows 防火墙**：首次监听 47821 若是局域网连不上，需手动放行入站（需管理员权限）。

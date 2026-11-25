@@ -94,9 +94,19 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 - 雷电模拟器（x86_64 + ARM 翻译层 / Android 9）实测：安装、启动、
   页面加载正常，0 条崩溃日志
 
+## targetSdk 固定为 36（Android 17 本地网络保护）
+
+Android 17（API 37）对 targetSdk 37 的应用启用「本地网络保护」：访问局域网 TCP
+需要 `ACCESS_LOCAL_NETWORK` 权限，否则连接被**静默丢弃**——表现是超时，
+不是权限报错，极难排查（真机 Redmi K80 Pro 实测踩到）。
+
+`scripts/patch-android-gradle.ps1` 会把 `targetSdk` 固定为 `36`，
+沿用 INTERNET 权限下的隐式局域网许可。**不要**手工改回 37；
+`gen/` 重新生成后由脚本幂等补回。
+
 ## 待办
 
 - [x] 发布版 APK 实测体积（7.4 MB）
 - [x] 签名配置（自用分发用 debug keystore，无需正式 keystore）
 - [x] 模拟器安装验证（雷电，见上）
-- [ ] 真机安装验证（Redmi K80 Pro / Android 15）
+- [x] 真机安装验证（Redmi K80 Pro / Android 17，targetSdk 36 后可连局域网）

@@ -12,7 +12,7 @@
 //! Trae CN / Qoder CN 的登录态在各自客户端的加密库里（需要先退出客户端再解密），
 //! 本版不提供，扫描结果里会如实标注，界面据此提示改用手动令牌。
 
-use base64::Engine as _;
+use crate::identity::jwt_payload;
 use chrono::TimeZone as _;
 use ph_core::{Credential, Error, Result, Vendor};
 use serde_json::Value;
@@ -157,21 +157,6 @@ fn workbuddy_credential(home: &Path) -> Result<LocalCredential> {
     })
 }
 
-/// 取出 JWT 的 payload。只解析、**不验签**——这里只用它读过期时间与昵称，
-/// 真正能不能用会在导入前的联网验证里证明。
-fn jwt_payload(token: &str) -> Option<Value> {
-    let mut parts = token.split('.');
-    let _header = parts.next()?;
-    let payload = parts.next()?;
-    if parts.next().is_none() {
-        return None;
-    }
-    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload.trim_end_matches('='))
-        .ok()?;
-    serde_json::from_slice(&raw).ok()
-}
-
 fn fmt_time(epoch: i64) -> String {
     chrono::Local
         .timestamp_opt(epoch, 0)
@@ -196,6 +181,7 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine as _;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_home(tag: &str) -> PathBuf {

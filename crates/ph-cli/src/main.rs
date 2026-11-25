@@ -205,15 +205,29 @@ fn cmd_account_add(dir: Option<PathBuf>, opts: &HashMap<String, String>) -> Resu
         return Err("至少要给 --refresh-token 或 --access-token".into());
     }
     let label = opts.get("label").cloned().unwrap_or_default();
-    let acc = eng
-        .add_account(vendor, label, cred)
+    let (acc, updated, merged) = eng
+        .upsert_account(vendor, label, cred)
         .map_err(|e| e.user_message())?;
-    println!(
-        "已添加：{} / {}（id {}）",
-        acc.vendor.display(),
-        acc.label,
-        acc.id
-    );
+    if updated {
+        println!(
+            "该账号已存在，已更新凭据：{} / {}（id {}{}）",
+            acc.vendor.display(),
+            acc.label,
+            acc.id,
+            if merged > 0 {
+                format!("，合并 {merged} 条重复")
+            } else {
+                String::new()
+            }
+        );
+    } else {
+        println!(
+            "已添加：{} / {}（id {}）",
+            acc.vendor.display(),
+            acc.label,
+            acc.id
+        );
+    }
     println!("下一步：`phctl status --id {}` 验证凭据是否可用。", acc.id);
     Ok(0)
 }

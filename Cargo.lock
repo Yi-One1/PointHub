@@ -752,6 +752,7 @@ dependencies = [
 name = "ph-engine"
 version = "0.4.2"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "ph-core",
  "ph-providers",

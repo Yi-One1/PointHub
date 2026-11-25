@@ -639,7 +639,7 @@ function AccountsPage({
 
   const submit = async () => {
     try {
-      await api.addAccount({
+      const msg = await api.addAccount({
         vendor,
         label: label || `${cap?.display ?? vendor} 账号`,
         secret,
@@ -652,7 +652,7 @@ function AccountsPage({
       setDeviceId("");
       setDomain("");
       onChanged(await api.bootstrap());
-      notify("账号已添加");
+      notify(msg);
     } catch (e) {
       notify(String(e), "warn");
     }
@@ -821,7 +821,7 @@ function AccountsPage({
                         <li>只读取本机已登录客户端的登录态，<strong>不改动</strong>客户端文件</li>
                         <li>导入前会联网验证一次余额；验证不过不会留下账号</li>
                         <li>导入后由本应用负责签到，同一账号不要在两处同时签到</li>
-                        <li>如果这个账号之前已导入过，先删掉旧记录再导入，避免两条重复</li>
+                        <li>同一个账号重复导入会自动更新凭据，不会出现两条记录</li>
                       </ol>
                       <button
                         className="btn primary block"

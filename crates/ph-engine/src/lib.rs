@@ -297,16 +297,105 @@ impl Engine {
         Ok(account)
     }
 
+    /// 按平台账号身份 upsert：同一平台、同一用户只保留一条记录。
+    ///
+    /// 身份来自凭据 JWT 的 `sub`（见 `ph_providers::identity`），不按令牌片段猜。
+    /// 已有账号时**更新凭据**而不是新建；老账号没有身份的，会先用本机凭据补齐再比对。
+    /// 返回 `(账号, 是否更新了已有账号, 合并掉的重复条数)`。
+    pub fn upsert_account(
+        &mut self,
+        vendor: Vendor,
+        label: impl Into<String>,
+        cred: Credential,
+    ) -> Result<(Account, bool, usize)> {
+        let uid = ph_providers::identity::platform_uid(&cred);
+        if let Some(uid) = uid.as_deref() {
+            self.backfill_platform_uid(vendor)?;
+            let matches: Vec<Account> = self
+                .accounts
+                .iter()
+                .filter(|a| a.vendor == vendor && a.platform_uid.as_deref() == Some(uid))
+                .cloned()
+                .collect();
+            if !matches.is_empty() {
+                let Some(keeper) = matches
+                    .iter()
+                    .find(|a| self.is_local_executor(a))
+                    .cloned()
+                else {
+                    return Err(Error::Unsupported(format!(
+                        "账号「{}」由另一台设备执行，本机不能同时持有一份凭据。请先在手机上处理该账号后再导入。",
+                        matches[0].label
+                    )));
+                };
+                self.update_credential(&keeper.id, cred)?;
+                // 此前重复导入留下的其它记录：同一平台同一用户，合并成一条。
+                let mut merged = 0;
+                for dup in matches.iter().filter(|a| a.id != keeper.id) {
+                    self.remove_account(&dup.id)?;
+                    merged += 1;
+                }
+                let acc = self
+                    .accounts
+                    .iter()
+                    .find(|a| a.id == keeper.id)
+                    .cloned()
+                    .unwrap_or(keeper);
+                return Ok((acc, true, merged));
+            }
+        }
+
+        let mut account = self.add_account(vendor, label, cred)?;
+        if let Some(uid) = uid {
+            account.platform_uid = Some(uid);
+            if let Some(a) = self.accounts.iter_mut().find(|a| a.id == account.id) {
+                a.platform_uid = account.platform_uid.clone();
+            }
+            self.store.save_accounts(&self.accounts)?;
+        }
+        Ok((account, false, 0))
+    }
+
+    /// 老数据补齐身份：早期导入的账号没有 `platform_uid`，但凭据里其实带 JWT。
+    /// 补不齐就保持 `None`，不猜。
+    fn backfill_platform_uid(&mut self, vendor: Vendor) -> Result<()> {
+        let pending: Vec<String> = self
+            .accounts
+            .iter()
+            .filter(|a| a.vendor == vendor && a.platform_uid.is_none())
+            .map(|a| a.id.clone())
+            .collect();
+        let mut found: Vec<(String, String)> = Vec::new();
+        for id in pending {
+            if let Some(uid) = self
+                .vault
+                .get(&id)
+                .and_then(ph_providers::identity::platform_uid)
+            {
+                found.push((id, uid));
+            }
+        }
+        if found.is_empty() {
+            return Ok(());
+        }
+        for (id, uid) in found {
+            if let Some(a) = self.accounts.iter_mut().find(|a| a.id == id) {
+                a.platform_uid = Some(uid);
+            }
+        }
+        self.store.save_accounts(&self.accounts)
+    }
+
     /// 带验证的导入：先用临时账号刷新 + 采样，全部通过才落库。
     ///
     /// 本机导入专用。凭据来自客户端存储，先验一次能避免「导入成功但根本用不了」，
-    /// 也符合 ADR-0003「验证通过才落库」。验证过程中轮换的新令牌会随账号一起存入。
-    pub async fn add_account_verified(
+    /// 也符合 ADR-0003「验证通过才落库」。同一账号已存在时更新凭据，不新建。
+    pub async fn upsert_account_verified(
         &mut self,
         vendor: Vendor,
         label: impl Into<String>,
         mut cred: Credential,
-    ) -> Result<(Account, VendorSnapshot)> {
+    ) -> Result<(Account, VendorSnapshot, bool, usize)> {
         let label = label.into();
         let label = if label.trim().is_empty() {
             format!("{} 账号", vendor.display())
@@ -318,8 +407,8 @@ impl Engine {
         let provider = provider_for(vendor);
         provider.refresh(&mut cred).await?;
         let snap = provider.snapshot(&probe, &cred).await?;
-        let account = self.add_account(vendor, label, cred)?;
-        Ok((account, snap))
+        let (account, updated, merged) = self.upsert_account(vendor, label, cred)?;
+        Ok((account, snap, updated, merged))
     }
 
     /// 替换某账号的凭据（重新导入 / 换 token）。
@@ -1060,6 +1149,17 @@ mod tests {
         p
     }
 
+    /// 造一个带 `sub` 的 JWT（不验签，仅测试身份识别）。
+    fn jwt_sub(sub: &str) -> String {
+        use base64::Engine as _;
+        let enc = |v: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v);
+        format!(
+            "{}.{}.sig",
+            enc(br#"{"alg":"RS256","typ":"JWT"}"#),
+            enc(serde_json::json!({ "sub": sub }).to_string().as_bytes())
+        )
+    }
+
     #[test]
     fn payload_never_carries_credentials() {
         let dir = tmpdir("nocred");
@@ -1182,7 +1282,7 @@ mod tests {
         let mut e = Engine::open(Some(dir.clone())).unwrap();
         // Qoder 的刷新未实现：验证必然失败，账号不能落库。
         let err = e
-            .add_account_verified(
+            .upsert_account_verified(
                 Vendor::QoderCn,
                 "q",
                 Credential::from_access_token("whatever"),
@@ -1191,6 +1291,131 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)));
         assert!(e.accounts().is_empty(), "验证失败不能留下账号");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_subject_updates_instead_of_duplicating() {
+        let dir = tmpdir("dedup");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let token = jwt_sub("user-42");
+
+        let (first, updated, merged) = e
+            .upsert_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token(&token),
+            )
+            .unwrap();
+        assert!(!updated);
+        assert_eq!(merged, 0);
+        assert_eq!(first.platform_uid.as_deref(), Some("user-42"));
+
+        // 同一用户换个导入方式 / 换个别名再来一次：更新凭据，不新建。
+        let (again, updated, merged) = e
+            .upsert_account(
+                Vendor::WorkBuddy,
+                "另一个名字",
+                Credential::from_refresh_token(&token),
+            )
+            .unwrap();
+        assert!(updated, "同一平台同一用户应识别为已存在");
+        assert_eq!(merged, 0);
+        assert_eq!(again.id, first.id);
+        assert_eq!(again.label, "主号", "已有账号的别名不应被覆盖");
+        assert_eq!(e.accounts().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn backfills_identity_for_old_account() {
+        let dir = tmpdir("backfill");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let token = jwt_sub("legacy-1");
+
+        // 旧版本导入：账号没有 platform_uid。
+        let old = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "老账号",
+                Credential::from_refresh_token(&token),
+            )
+            .unwrap();
+        assert!(old.platform_uid.is_none());
+
+        let (acc, updated, merged) = e
+            .upsert_account(
+                Vendor::WorkBuddy,
+                "重导",
+                Credential::from_refresh_token(&token),
+            )
+            .unwrap();
+        assert!(updated, "应能从旧凭据补齐身份并认成同一账号");
+        assert_eq!(merged, 0);
+        assert_eq!(acc.id, old.id);
+        assert_eq!(e.accounts().len(), 1);
+        assert_eq!(e.accounts()[0].platform_uid.as_deref(), Some("legacy-1"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merges_duplicates_left_by_earlier_imports() {
+        let dir = tmpdir("merge-dups");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let token = jwt_sub("user-7");
+        // 旧版本重复导入留下的两条同账号记录（都没有身份字段）。
+        e.add_account(
+            Vendor::WorkBuddy,
+            "重复 A",
+            Credential::from_refresh_token(&token),
+        )
+        .unwrap();
+        e.add_account(
+            Vendor::WorkBuddy,
+            "重复 B",
+            Credential::from_refresh_token(&token),
+        )
+        .unwrap();
+        assert_eq!(e.accounts().len(), 2);
+
+        let (acc, updated, merged) = e
+            .upsert_account(
+                Vendor::WorkBuddy,
+                "再导一次",
+                Credential::from_refresh_token(&token),
+            )
+            .unwrap();
+        assert!(updated);
+        assert_eq!(merged, 1, "应合并掉多余的一条");
+        assert_eq!(e.accounts().len(), 1);
+        assert_eq!(e.accounts()[0].id, acc.id);
+        assert_eq!(e.accounts()[0].platform_uid.as_deref(), Some("user-7"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refuses_to_take_over_remote_executor_account() {
+        let dir = tmpdir("remote-takeover");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let phone = DeviceInfo::new("Pixel", "android");
+        let mut remote = Account::new(Vendor::WorkBuddy, "远端账号", "hint");
+        remote.id = "remote-9".into();
+        remote.platform_uid = Some("user-9".into());
+        remote.executor = Some(phone.id.clone());
+        remote.origin_device = Some(phone.id.clone());
+        let mut payload = SyncPayload::new(&phone, 0);
+        payload.accounts = vec![remote];
+        e.sync_merge(&payload).unwrap();
+
+        let err = e
+            .upsert_account(
+                Vendor::WorkBuddy,
+                "本机导入",
+                Credential::from_refresh_token(&jwt_sub("user-9")),
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::Unsupported(_)));
+        assert_eq!(e.accounts().len(), 1, "不能给远端执行的账号在本机再存一份凭据");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

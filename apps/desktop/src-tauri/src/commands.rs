@@ -593,10 +593,19 @@ pub async fn add_account(
     cred.cookie = payload.cookie.filter(|s| !s.trim().is_empty());
 
     let mut engine = state.engine.lock().await;
-    let acc = engine
-        .add_account(vendor, payload.label, cred)
+    let (acc, updated, merged) = engine
+        .upsert_account(vendor, payload.label, cred)
         .map_err(|e| e.user_message())?;
-    Ok(acc.id)
+    Ok(if updated {
+        let tail = if merged > 0 {
+            format!("，并合并了 {merged} 条重复记录")
+        } else {
+            String::new()
+        };
+        format!("该账号已存在，已更新凭据「{}」{tail}", acc.label)
+    } else {
+        format!("已添加账号「{}」", acc.label)
+    })
 }
 
 // ------------------------------------------------------------------ 本机导入
@@ -637,15 +646,15 @@ pub async fn local_import(
     let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
     let found = ph_providers::local_import::import(v).map_err(|e| e.user_message())?;
 
-    let (label, snap) = {
+    let (label, snap, updated, merged) = {
         let mut engine = state.engine.lock().await;
         let base = format!("{} 本机", v.display());
         let label = unique_label(&engine, v, &base);
-        let (acc, snap) = engine
-            .add_account_verified(v, label, found.credential)
+        let (acc, snap, updated, merged) = engine
+            .upsert_account_verified(v, label, found.credential)
             .await
             .map_err(|e| e.user_message())?;
-        (acc.label, snap)
+        (acc.label, snap, updated, merged)
     };
 
     let bal = snap
@@ -657,7 +666,16 @@ pub async fn local_import(
         Some(false) => "，今日待签",
         None => "",
     };
-    let message = format!("已从本机导入「{label}」：余额 {bal}{done}");
+    let message = if updated {
+        let tail = if merged > 0 {
+            format!("，并合并了 {merged} 条重复记录")
+        } else {
+            String::new()
+        };
+        format!("该账号已存在，已用本机登录态更新「{label}」{tail}：余额 {bal}{done}")
+    } else {
+        format!("已从本机导入「{label}」：余额 {bal}{done}")
+    };
     let _ = app.emit("ph://login", &message);
     let _ = app.emit("ph://changed", ());
     Ok(message)
@@ -708,18 +726,19 @@ pub async fn import_from_browser(
     let cred = crate::login::build_credential(vendor, &auth);
     let state = app.state::<SharedState>();
 
-    let (account_id, label) = {
+    let (account_id, label, updated, merged) = {
         let mut engine = state.engine.lock().await;
         let base = format!("{} 网页", vendor.display());
         let label = unique_label(&engine, vendor, &base);
-        let acc = engine
-            .add_account(vendor, label.clone(), cred)
+        let (acc, updated, merged) = engine
+            .upsert_account(vendor, label, cred)
             .map_err(|e| e.user_message())?;
-        (acc.id, acc.label)
+        (acc.id, acc.label, updated, merged)
     };
 
     let message = {
         let mut engine = state.engine.lock().await;
+        let verb = if updated { "已更新" } else { "已导入" };
         match engine.snapshot_one(&account_id).await {
             Ok(s) => {
                 let bal = s
@@ -731,9 +750,18 @@ pub async fn import_from_browser(
                     Some(false) => "，今日待签",
                     None => "",
                 };
-                format!("已导入「{label}」：余额 {bal}{done}")
+                if updated {
+                    let tail = if merged > 0 {
+                        format!("，并合并了 {merged} 条重复记录")
+                    } else {
+                        String::new()
+                    };
+                    format!("该账号已存在，{verb}凭据「{label}」{tail}：余额 {bal}{done}")
+                } else {
+                    format!("{verb}「{label}」：余额 {bal}{done}")
+                }
             }
-            Err(e) => format!("已导入「{label}」，但读取余额失败：{}", e.user_message()),
+            Err(e) => format!("{verb}「{label}」，但读取余额失败：{}", e.user_message()),
         }
     };
 

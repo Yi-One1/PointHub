@@ -37,6 +37,11 @@
 - **Android 17 真机**：Redmi K80 Pro 初始连接超时，根因是 Android 17「本地网络保护」
   对 targetSdk 37 应用静默丢弃局域网 TCP；`scripts/patch-android-gradle.ps1` 固定
   `targetSdk = 36` 后真机配对、远程签到通过。
+- **自动更新（组 4）**：`crates/ph-update` 查 `releases/latest`、按语义化版本比较、
+  选当前平台安装包并校验大小；设置页「更新」面板可检查 / 下载 / 手动下载；
+  Windows 下载 `_Setup.exe` 后启动安装向导，安卓跳浏览器下载 APK；
+  源可切镜像前缀，启动时自动检查（只发通知，不自动装）。不接 Tauri updater（D08）。
+  仓库尚未发布 Release，所以现在检查会显示「更新源里还没有发布记录」。
 - **产物**：`dist/` 内 v0.1.0 ~ v0.4.2 的 exe 与 APK 并存，脚本不覆盖历史产物。
 - **GitHub**：代码、文档、脚本已推送；`.design/`、`dist/`、`target/`、
   `.workbuddy/` 等均被 `.gitignore` 排除。
@@ -68,7 +73,8 @@
 
 - [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
       Trae 的 ExchangeToken 需设备私钥签名样本（见 `DECISIONS.md` P01/P02）。
-- [ ] **自动更新**：Windows updater + Android 下载 APK 自装，可配置源（D08）。
+- [ ] **发布 0.5.0**：升版本、出双端产物、打 tag 并发布 GitHub Release；
+  发布后自动更新的「发现新版本 → 下载」才能真跑一遍。
 - [ ] **卸载清理**：安装包侧清理脚本（便携版本身不写注册表）。
 - [ ] **Windows 防火墙**：首次监听 47821 若是局域网连不上，需手动放行入站（需管理员权限）。
 - [ ] 清理旧的大体积 debug APK（148 / 181 MB）以腾地方——**未擅自删除**。

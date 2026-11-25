@@ -10,6 +10,10 @@
 
 ### 新增
 
+- **自动更新**：设置页新增「更新」面板——检查 GitHub Releases、下载安装包、
+  手动下载兜底；Windows 下载 `_Setup.exe` 后打开安装向导，安卓跳浏览器下载 APK；
+  更新源可切镜像前缀；启动时自动检查（只发通知，不自动安装）。
+  版本比较与安装包选择在 `crates/ph-update`。
 - **本机导入（仅 Windows）**：直接读取本机已登录的 WorkBuddy 客户端登录态
   （`%USERPROFILE%\.workbuddy\checkin-rt.json`），只读、不改客户端文件；
   导入前联网验证一次余额，验证不过不落库。Trae / Qoder 如实标注暂不支持。

@@ -22,6 +22,46 @@ export interface SyncSettings {
   allow_remote_checkin: boolean;
 }
 
+/** 更新来源：直连 GitHub / 走镜像前缀 */
+export type UpdateSource = "github" | "mirror";
+
+export interface UpdateSettings {
+  enabled: boolean;
+  source: UpdateSource;
+  /** 镜像前缀，拼在完整 GitHub 地址前面 */
+  mirror: string;
+}
+
+/** 发布里当前平台的安装包 */
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number | null;
+}
+
+export interface ReleaseInfo {
+  version: string;
+  notes: string;
+  page_url: string;
+  published_at: string | null;
+  asset: ReleaseAsset | null;
+}
+
+export interface UpdateCheck {
+  current: string;
+  /** null = 已是最新 */
+  latest: ReleaseInfo | null;
+  source: UpdateSource;
+}
+
+export interface UpdateApply {
+  /** latest | installer | downloaded | browser */
+  action: string;
+  detail: string;
+  version: string;
+  path: string | null;
+}
+
 export interface LanInfo {
   enabled: boolean;
   running: boolean;
@@ -43,6 +83,7 @@ export interface Settings {
   sync: SyncSettings;
   scheduler_enabled: boolean;
   catch_up_missed: boolean;
+  update: UpdateSettings;
 }
 
 export interface Aggregate {

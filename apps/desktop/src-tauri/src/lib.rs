@@ -67,6 +67,7 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::refresh_all,
@@ -90,6 +91,9 @@ pub fn run() {
             commands::client_status,
             commands::client_pair,
             commands::client_unpair,
+            commands::update_check,
+            commands::update_apply,
+            commands::update_open_page,
         ])
         .setup(|app| {
             // 数据目录：命令行指定 > 安卓应用私有目录 > 各平台默认。
@@ -119,6 +123,9 @@ pub fn run() {
                 engine: tokio::sync::Mutex::new(engine),
             });
             app.manage(state);
+
+            // 双端都要：发现新版本发一条系统通知，不自动安装。
+            spawn_update_check(app.handle().clone());
 
             #[cfg(desktop)]
             {
@@ -409,6 +416,42 @@ fn spawn_scheduler(app: tauri::AppHandle) {
                 let _ = app.emit("ph://changed", ());
             }
             tokio::time::sleep(Duration::from_secs(45)).await;
+        }
+    });
+}
+
+// ------------------------------------------------------------------ 更新提示
+
+/// 启动后查一次更新。
+///
+/// 只发通知、不自动下载：装不装由用户决定。失败不打扰用户（写 stderr 即可），
+/// 因为断网、GitHub 被墙都属于日常情况，弹窗只会制造噪音。
+pub fn spawn_update_check(app: tauri::AppHandle) {
+    use std::time::Duration;
+
+    tauri::async_runtime::spawn(async move {
+        // 让首屏把本地数据读完；更新不是启动链路的一部分。
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        let settings = {
+            let state = app.state::<SharedState>();
+            let engine = state.engine.lock().await;
+            engine.settings().update.clone()
+        };
+        if !settings.enabled {
+            return;
+        }
+        match ph_update::check(ph_core::VERSION, &settings).await {
+            Ok(Some(r)) => {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("积分枢纽 · 发现新版本")
+                    .body(format!("v{} 已发布，打开「设置 → 更新」下载", r.version))
+                    .show();
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("更新检查失败：{}", e.user_message()),
         }
     });
 }

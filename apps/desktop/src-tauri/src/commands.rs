@@ -1069,6 +1069,147 @@ pub fn apply_ball(app: &AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+// ------------------------------------------------------------------ 更新
+
+#[derive(Serialize)]
+pub struct UpdateCheckView {
+    pub current: String,
+    /// 有更新时才是 `Some`。
+    pub latest: Option<ph_update::ReleaseInfo>,
+    /// `github` | `mirror`
+    pub source: String,
+}
+
+#[derive(Serialize)]
+pub struct UpdateApplyView {
+    /// `latest` | `installer` | `downloaded` | `browser`
+    pub action: String,
+    pub detail: String,
+    pub version: String,
+    /// 安装包落盘路径；安卓走浏览器下载时为空。
+    pub path: Option<String>,
+}
+
+/// 更新设置与数据目录。**锁只在函数内持有**：后面要发网络请求，
+/// 把锁带过去会把签到/刷新一起堵住。
+async fn update_ctx(state: &SharedState) -> (ph_core::UpdateSettings, std::path::PathBuf) {
+    let engine = state.engine.lock().await;
+    (
+        engine.settings().update.clone(),
+        engine.data_dir().to_path_buf(),
+    )
+}
+
+fn update_source_str(s: ph_core::UpdateSource) -> &'static str {
+    match s {
+        ph_core::UpdateSource::Github => "github",
+        ph_core::UpdateSource::Mirror => "mirror",
+    }
+}
+
+#[tauri::command]
+pub async fn update_check(state: State<'_, SharedState>) -> Result<UpdateCheckView, String> {
+    let (u, _) = update_ctx(state.inner()).await;
+    let current = ph_core::VERSION.to_string();
+    let latest = ph_update::check(&current, &u)
+        .await
+        .map_err(|e| e.user_message())?;
+    Ok(UpdateCheckView {
+        current,
+        latest,
+        source: update_source_str(u.source).to_string(),
+    })
+}
+
+/// 下载并交给系统安装。
+///
+/// Windows：下载 NSIS 安装包并启动它（没有安装包时退回便携版，提示手动替换）。
+/// 安卓：应用内无法直接调起安装器，交给系统浏览器下载 APK，用户点开安装。
+#[tauri::command]
+pub async fn update_apply(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<UpdateApplyView, String> {
+    let (u, data_dir) = update_ctx(state.inner()).await;
+    let current = ph_core::VERSION.to_string();
+
+    let Some(release) = ph_update::check(&current, &u)
+        .await
+        .map_err(|e| e.user_message())?
+    else {
+        return Ok(UpdateApplyView {
+            action: "latest".into(),
+            detail: "已经是最新版本".into(),
+            version: current,
+            path: None,
+        });
+    };
+
+    let Some(asset) = release.asset.clone() else {
+        return Err(format!(
+            "v{} 还没有上传本平台的安装包，可点「手动下载」到发布页自取",
+            release.version
+        ));
+    };
+
+    // 两个平台分支各自只用其中一部分参数；显式消费掉，避免编译告警。
+    let _ = (&app, &data_dir);
+
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_url(asset.url.clone(), None::<&str>)
+            .map_err(|e| format!("打不开浏览器：{e}"))?;
+        return Ok(UpdateApplyView {
+            action: "browser".into(),
+            detail: "已在浏览器打开 APK 下载；下载完成后点通知栏里的安装包，按提示允许安装未知应用"
+                .into(),
+            version: release.version,
+            path: None,
+        });
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let dir = data_dir.join(ph_core::files::UPDATES_DIR);
+        let path = ph_update::download(&asset, &dir)
+            .await
+            .map_err(|e| e.user_message())?;
+        if asset.name.to_ascii_lowercase().ends_with("_setup.exe") {
+            std::process::Command::new(&path)
+                .spawn()
+                .map_err(|e| format!("安装程序启动失败：{e}"))?;
+            Ok(UpdateApplyView {
+                action: "installer".into(),
+                detail: "安装程序已打开；按向导完成后重新启动应用".into(),
+                version: release.version,
+                path: Some(path.display().to_string()),
+            })
+        } else {
+            Ok(UpdateApplyView {
+                action: "downloaded".into(),
+                detail: "已下载便携版；请退出本程序后用它替换旧文件".into(),
+                version: release.version,
+                path: Some(path.display().to_string()),
+            })
+        }
+    }
+}
+
+/// 手动下载兜底：在系统浏览器里打开 Releases 页面。
+#[tauri::command]
+pub async fn update_open_page(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let (u, _) = update_ctx(state.inner()).await;
+    app.opener()
+        .open_url(ph_update::releases_page(&u), None::<&str>)
+        .map_err(|e| format!("打开浏览器失败：{e}"))
+}
+
 // ------------------------------------------------------------------ 目录 / 退出
 
 #[tauri::command]

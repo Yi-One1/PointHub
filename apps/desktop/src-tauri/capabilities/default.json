@@ -18,6 +18,7 @@
     "core:window:allow-minimize",
     "core:window:allow-set-focus",
     "notification:default",
+    "opener:default",
     "autostart:default"
   ],
   "platforms": [

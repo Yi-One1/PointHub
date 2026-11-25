@@ -122,6 +122,45 @@ impl Default for SyncSettings {
     }
 }
 
+/// 更新来源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateSource {
+    /// 直连 GitHub Releases。
+    Github,
+    /// 走镜像前缀（拼在 GitHub 地址前面）。
+    Mirror,
+}
+
+impl Default for UpdateSource {
+    fn default() -> Self {
+        UpdateSource::Github
+    }
+}
+
+/// 自动更新设置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSettings {
+    /// 启动时自动检查（只提示，不自动装）。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub source: UpdateSource,
+    /// 镜像前缀，例如 `https://ghfast.top/`；会拼在完整 GitHub 地址前面。
+    #[serde(default)]
+    pub mirror: String,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            source: UpdateSource::Github,
+            mirror: String::new(),
+        }
+    }
+}
+
 /// 全局设置。整体落盘为 `settings.json`。
 ///
 /// 注意：数据目录本身不在这里——它由 `ph-store` 的定位逻辑决定，
@@ -155,6 +194,9 @@ pub struct Settings {
     /// 错过当天窗口后，启动时是否补签。
     #[serde(default = "default_true")]
     pub catch_up_missed: bool,
+    /// 自动更新。
+    #[serde(default)]
+    pub update: UpdateSettings,
 }
 
 impl Default for Settings {
@@ -170,6 +212,7 @@ impl Default for Settings {
             sync: SyncSettings::default(),
             scheduler_enabled: true,
             catch_up_missed: true,
+            update: UpdateSettings::default(),
         }
     }
 }
@@ -185,5 +228,9 @@ mod tests {
         assert_eq!(s.theme, ThemeMode::Dark);
         assert!(s.ball.enabled);
         assert_eq!(s.sync.port, 47821);
+        // 老设置里没有 update 段，也要能补出默认值
+        assert!(s.update.enabled);
+        assert_eq!(s.update.source, UpdateSource::Github);
+        assert!(s.update.mirror.is_empty());
     }
 }

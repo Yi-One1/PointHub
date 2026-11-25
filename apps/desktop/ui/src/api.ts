@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ClientStatus, LanInfo, LocalImportStatus, OutcomeView, Settings, StateView } from "./types";
+import type {
+  ClientStatus,
+  LanInfo,
+  LocalImportStatus,
+  OutcomeView,
+  Settings,
+  StateView,
+  UpdateApply,
+  UpdateCheck,
+} from "./types";
 
 // 所有后端调用集中在这里：前端组件不直接写命令名，
 // 命令改名时只改这一处。
@@ -45,4 +54,10 @@ export const api = {
     invoke<ClientStatus>("client_pair", { baseUrl, code }),
   /** 远程模式：断开并回到本机模式 */
   clientUnpair: () => invoke<ClientStatus>("client_unpair"),
+  /** 查最新版本；latest 为 null 表示已是最新 */
+  updateCheck: () => invoke<UpdateCheck>("update_check"),
+  /** 下载并交给系统安装（安卓走浏览器） */
+  updateApply: () => invoke<UpdateApply>("update_apply"),
+  /** 手动下载兜底：打开 Releases 页面 */
+  updateOpenPage: () => invoke<void>("update_open_page"),
 };

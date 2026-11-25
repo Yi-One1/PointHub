@@ -15,7 +15,7 @@ pub use model::{
     SyncPayload, Tombstone, TravelSnapshot, TravelState, Vendor, VendorSnapshot, SYNC_PROTOCOL,
 };
 pub use schedule::AccountSchedule;
-pub use settings::{AppMode, Settings};
+pub use settings::{AppMode, Settings, UpdateSettings, UpdateSource};
 
 /// 当前程序版本，取自 Cargo.toml，避免手写漂移。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -36,4 +36,6 @@ pub mod files {
     pub const TOMBSTONES: &str = "tombstones.json";
     /// 客户端（手机）保存的配对信息。
     pub const CLIENT: &str = "client.json";
+    /// 下载的更新安装包。
+    pub const UPDATES_DIR: &str = "updates";
 }

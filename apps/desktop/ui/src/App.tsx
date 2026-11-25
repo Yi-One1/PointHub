@@ -10,6 +10,7 @@ import type {
   Settings,
   StateView,
   ThemeMode,
+  UpdateCheck,
 } from "./types";
 
 type Tab = "overview" | "accounts" | "settings";
@@ -957,6 +958,38 @@ function SettingsPage({
   const [code, setCode] = useState("");
   const [connecting, setConnecting] = useState(false);
 
+  // 更新：检查结果与下载状态。来源改了要先保存，命令读的是已落盘的设置。
+  const [update, setUpdate] = useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+
+  const checkUpdate = async () => {
+    setChecking(true);
+    setUpdateMsg(null);
+    try {
+      setUpdate(await api.updateCheck());
+    } catch (e) {
+      setUpdateMsg(String(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const applyUpdate = async () => {
+    setApplying(true);
+    setUpdateMsg(null);
+    try {
+      const r = await api.updateApply();
+      setUpdateMsg(r.detail);
+      if (r.action === "latest") setUpdate((u) => (u ? { ...u, latest: null } : u));
+    } catch (e) {
+      setUpdateMsg(String(e));
+    } finally {
+      setApplying(false);
+    }
+  };
+
   useEffect(() => {
     if (!isPhone) return;
     api
@@ -1356,6 +1389,115 @@ function SettingsPage({
             </button>
           </div>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="phead">
+          <span className="pname">更新</span>
+          <span className="pnote">当前 v{view.version}</span>
+        </div>
+
+        <div className="row">
+          <div>
+            <div className="row-title">启动时检查更新</div>
+            <div className="row-desc">发现新版本只弹通知，不会自动安装</div>
+          </div>
+          <Switch
+            checked={draft.update.enabled}
+            onChange={(v) => patch({ update: { ...draft.update, enabled: v } })}
+            label="自动检查"
+          />
+        </div>
+
+        <div className="row">
+          <div>
+            <div className="row-title">更新来源</div>
+            <div className="row-desc">直连 GitHub 慢时可换镜像；改完先保存，再点检查</div>
+          </div>
+          <div className="seg">
+            <button
+              className={`seg-item ${draft.update.source === "github" ? "active" : ""}`}
+              onClick={() => patch({ update: { ...draft.update, source: "github" } })}
+            >
+              GitHub
+            </button>
+            <button
+              className={`seg-item ${draft.update.source === "mirror" ? "active" : ""}`}
+              onClick={() => patch({ update: { ...draft.update, source: "mirror" } })}
+            >
+              镜像
+            </button>
+          </div>
+        </div>
+
+        {draft.update.source === "mirror" && (
+          <div className="field">
+            <label>镜像前缀</label>
+            <input
+              value={draft.update.mirror}
+              onChange={(e) => patch({ update: { ...draft.update, mirror: e.target.value } })}
+              placeholder="https://ghfast.top/"
+              spellCheck={false}
+            />
+            <p className="hint">
+              会拼在完整 GitHub 地址前面；查询版本和下载安装包走同一条规则
+            </p>
+          </div>
+        )}
+
+        <div className="row">
+          <div>
+            <div className="row-title">检查最新版本</div>
+            <div className="row-desc">
+              {checking
+                ? "正在查询…"
+                : update === null
+                  ? "点右侧按钮查询发布记录"
+                  : update.latest
+                    ? `发现 v${update.latest.version}`
+                    : "已是最新版本"}
+            </div>
+            {update?.latest && (
+              <div className="row-desc">
+                {update.latest.asset
+                  ? `安装包：${update.latest.asset.name}`
+                  : "这个版本没有本平台的安装包，请用「手动下载」"}
+              </div>
+            )}
+            {updateMsg && <div className="row-desc">{updateMsg}</div>}
+          </div>
+          <button className="btn" onClick={checkUpdate} disabled={checking}>
+            {checking ? "查询中…" : "检查"}
+          </button>
+        </div>
+
+        {update?.latest && (
+          <div className="row">
+            <div>
+              <div className="row-title">下载并安装</div>
+              <div className="row-desc">
+                {isPhone
+                  ? "跳到浏览器下载 APK，下载完点开按提示安装"
+                  : "下载完成后自动打开安装程序"}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <button
+                className="btn"
+                onClick={() => api.updateOpenPage().catch((e) => notify(String(e), "warn"))}
+              >
+                手动下载
+              </button>
+              <button
+                className="btn primary"
+                onClick={applyUpdate}
+                disabled={applying || !update.latest.asset}
+              >
+                {applying ? "处理中…" : "下载"}
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel">

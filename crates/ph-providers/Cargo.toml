@@ -13,4 +13,5 @@ async-trait.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
 rand.workspace = true
+base64.workspace = true
 tracing.workspace = true

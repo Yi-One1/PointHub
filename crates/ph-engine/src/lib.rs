@@ -297,6 +297,31 @@ impl Engine {
         Ok(account)
     }
 
+    /// 带验证的导入：先用临时账号刷新 + 采样，全部通过才落库。
+    ///
+    /// 本机导入专用。凭据来自客户端存储，先验一次能避免「导入成功但根本用不了」，
+    /// 也符合 ADR-0003「验证通过才落库」。验证过程中轮换的新令牌会随账号一起存入。
+    pub async fn add_account_verified(
+        &mut self,
+        vendor: Vendor,
+        label: impl Into<String>,
+        mut cred: Credential,
+    ) -> Result<(Account, VendorSnapshot)> {
+        let label = label.into();
+        let label = if label.trim().is_empty() {
+            format!("{} 账号", vendor.display())
+        } else {
+            label.trim().to_string()
+        };
+        // 只用于验证，不落库；id 与真实账号无关。
+        let probe = Account::new(vendor, label.clone(), cred.hint());
+        let provider = provider_for(vendor);
+        provider.refresh(&mut cred).await?;
+        let snap = provider.snapshot(&probe, &cred).await?;
+        let account = self.add_account(vendor, label, cred)?;
+        Ok((account, snap))
+    }
+
     /// 替换某账号的凭据（重新导入 / 换 token）。
     pub fn update_credential(&mut self, account_id: &str, cred: Credential) -> Result<()> {
         let hint = cred.hint();
@@ -1148,6 +1173,24 @@ mod tests {
             b.latest_snapshots().get("remote-1").and_then(|s| s.balance),
             Some(88.5)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verified_import_rolls_back_when_verification_fails() {
+        let dir = tmpdir("verify-fail");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        // Qoder 的刷新未实现：验证必然失败，账号不能落库。
+        let err = e
+            .add_account_verified(
+                Vendor::QoderCn,
+                "q",
+                Credential::from_access_token("whatever"),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Unsupported(_)));
+        assert!(e.accounts().is_empty(), "验证失败不能留下账号");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

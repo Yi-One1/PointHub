@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ClientStatus, LanInfo, OutcomeView, Settings, StateView } from "./types";
+import type { ClientStatus, LanInfo, LocalImportStatus, OutcomeView, Settings, StateView } from "./types";
 
 // 所有后端调用集中在这里：前端组件不直接写命令名，
 // 命令改名时只改这一处。
@@ -21,6 +21,10 @@ export const api = {
     cookie?: string;
   }) => invoke<string>("add_account", { payload }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+  /** 扫描本机客户端登录态（只读、不联网） */
+  localImportScan: () => invoke<LocalImportStatus[]>("local_import_scan"),
+  /** 从本机客户端登录态导入；后端先验证余额再落库 */
+  localImport: (vendor: string) => invoke<string>("local_import", { vendor }),
   /** 打开该平台官方登录页；登录成功后后端自动建账号并发 ph://login 事件 */
   browserLogin: (vendor: string) => invoke<void>("browser_login", { vendor }),
   setAccountEnabled: (id: string, enabled: boolean) =>

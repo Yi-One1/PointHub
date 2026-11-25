@@ -123,6 +123,14 @@ export interface StateView {
   remote: RemoteLink | null;
 }
 
+/** 本机导入：某平台在当前电脑上的可用性 */
+export interface LocalImportStatus {
+  vendor: string;
+  display: string;
+  available: boolean;
+  detail: string;
+}
+
 /** 远程模式下的连接信息 */
 export interface RemoteLink {
   paired: boolean;

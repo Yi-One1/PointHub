@@ -6,6 +6,7 @@ import type {
   ClientStatus,
   DayPoint,
   LanInfo,
+  LocalImportStatus,
   Settings,
   StateView,
   ThemeMode,
@@ -560,7 +561,10 @@ function AccountsPage({
   onOpenSettings: () => void;
 }) {
   const [vendor, setVendor] = useState("workbuddy");
-  const [mode, setMode] = useState<"browser" | "token">("browser");
+  const [mode, setMode] = useState<"browser" | "local" | "token">("browser");
+  const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const [local, setLocal] = useState<LocalImportStatus[]>([]);
+  const [importing, setImporting] = useState(false);
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
   const [kind, setKind] = useState<"refresh" | "access">("refresh");
@@ -592,6 +596,33 @@ function AccountsPage({
   }, []);
 
   const cap = view.platforms.find((p) => p.vendor === vendor);
+  const localStatus = local.find((l) => l.vendor === vendor);
+
+  // 本机导入只在电脑上探测；手机上没有客户端，也不该多一次 IPC。
+  useEffect(() => {
+    if (isPhone) return;
+    let alive = true;
+    api
+      .localImportScan()
+      .then((rows) => alive && setLocal(rows))
+      .catch(() => alive && setLocal([]));
+    return () => {
+      alive = false;
+    };
+  }, [isPhone]);
+
+  const startLocalImport = async () => {
+    setImporting(true);
+    try {
+      const msg = await api.localImport(vendor);
+      onChanged(await api.bootstrap());
+      notify(msg);
+    } catch (e) {
+      notify(String(e), "warn");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const startBrowserLogin = async () => {
     setOpening(true);
@@ -739,6 +770,14 @@ function AccountsPage({
                 >
                   浏览器授权（推荐）
                 </button>
+                {!isPhone && (
+                  <button
+                    className={`seg-item ${mode === "local" ? "active" : ""}`}
+                    onClick={() => setMode("local")}
+                  >
+                    本机导入
+                  </button>
+                )}
                 <button className={`seg-item ${mode === "token" ? "active" : ""}`} onClick={() => setMode("token")}>
                   手动令牌
                 </button>
@@ -771,6 +810,38 @@ function AccountsPage({
                   走的是官方插件授权：软件只拿到一个由你本人确认过的长效令牌，加密存在本机；
                   不读取你浏览器的任何数据，也不用另开一个专用浏览器。
                 </p>
+              </>
+            ) : mode === "local" ? (
+              <>
+                {localStatus ? (
+                  localStatus.available ? (
+                    <>
+                      <p className="hint">{localStatus.detail}</p>
+                      <ol className="steps">
+                        <li>只读取本机已登录客户端的登录态，<strong>不改动</strong>客户端文件</li>
+                        <li>导入前会联网验证一次余额；验证不过不会留下账号</li>
+                        <li>导入后由本应用负责签到，同一账号不要在两处同时签到</li>
+                        <li>如果这个账号之前已导入过，先删掉旧记录再导入，避免两条重复</li>
+                      </ol>
+                      <button
+                        className="btn primary block"
+                        onClick={startLocalImport}
+                        disabled={importing || busy !== null}
+                      >
+                        {importing ? "正在导入…" : `从本机导入 ${cap?.display ?? vendor}`}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="hint warn">{localStatus.detail}</p>
+                      <button className="link-btn" onClick={() => setMode("token")}>
+                        改用手动令牌
+                      </button>
+                    </>
+                  )
+                ) : (
+                  <p className="hint">正在检查本机客户端…</p>
+                )}
               </>
             ) : (
               <>

@@ -73,6 +73,8 @@ pub fn run() {
             commands::checkin,
             commands::travel,
             commands::add_account,
+            commands::local_import_scan,
+            commands::local_import,
             commands::browser_login,
             commands::remove_account,
             commands::set_account_enabled,

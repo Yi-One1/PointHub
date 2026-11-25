@@ -9,6 +9,7 @@
 //! - 所有错误向上抛 [`ph_core::Error`]，由引擎决定是否重试。
 
 pub mod http;
+pub mod local_import;
 pub mod qoder;
 pub mod trae;
 pub mod workbuddy;

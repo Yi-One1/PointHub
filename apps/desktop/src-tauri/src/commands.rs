@@ -599,6 +599,70 @@ pub async fn add_account(
     Ok(acc.id)
 }
 
+// ------------------------------------------------------------------ 本机导入
+
+#[derive(Serialize)]
+pub struct LocalImportView {
+    pub vendor: String,
+    pub display: String,
+    pub available: bool,
+    pub detail: String,
+}
+
+/// 扫描本机客户端登录态（只读、不联网）。手机端恒为空列表。
+#[tauri::command]
+pub async fn local_import_scan(
+    state: State<'_, SharedState>,
+) -> Result<Vec<LocalImportView>, String> {
+    remote_guard(state.inner()).await?;
+    Ok(ph_providers::local_import::scan()
+        .into_iter()
+        .map(|s| LocalImportView {
+            vendor: s.vendor.id().to_string(),
+            display: s.vendor.display().to_string(),
+            available: s.available,
+            detail: s.detail,
+        })
+        .collect())
+}
+
+/// 读取本机客户端登录态并导入：先联网验证余额，通过后才落库。
+#[tauri::command]
+pub async fn local_import(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    vendor: String,
+) -> Result<String, String> {
+    remote_guard(state.inner()).await?;
+    let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
+    let found = ph_providers::local_import::import(v).map_err(|e| e.user_message())?;
+
+    let (label, snap) = {
+        let mut engine = state.engine.lock().await;
+        let base = format!("{} 本机", v.display());
+        let label = unique_label(&engine, v, &base);
+        let (acc, snap) = engine
+            .add_account_verified(v, label, found.credential)
+            .await
+            .map_err(|e| e.user_message())?;
+        (acc.label, snap)
+    };
+
+    let bal = snap
+        .balance
+        .map(|b| b.to_string())
+        .unwrap_or_else(|| "未知".into());
+    let done = match snap.checked_in_today {
+        Some(true) => "，今日已签",
+        Some(false) => "，今日待签",
+        None => "",
+    };
+    let message = format!("已从本机导入「{label}」：余额 {bal}{done}");
+    let _ = app.emit("ph://login", &message);
+    let _ = app.emit("ph://changed", ());
+    Ok(message)
+}
+
 #[tauri::command]
 pub async fn remove_account(state: State<'_, SharedState>, id: String) -> Result<(), String> {
     remote_guard(state.inner()).await?;

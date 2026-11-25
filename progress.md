@@ -41,17 +41,23 @@
   选当前平台安装包并校验大小；设置页「更新」面板可检查 / 下载 / 手动下载；
   Windows 下载 `_Setup.exe` 后启动安装向导，安卓跳浏览器下载 APK；
   源可切镜像前缀，启动时自动检查（只发通知，不自动装）。不接 Tauri updater（D08）。
-  仓库尚未发布 Release，所以现在检查会显示「更新源里还没有发布记录」。
+  v0.5.0 已发布 Release，检查更新能读到最新版本。
 - **卸载清理（组 5）**：安装包 NSIS 钩子在删程序前调用 `pointhub.exe --purge-data`；
   默认删除账号、令牌、日志、自启、快捷方式、计划任务、WebView2 缓存，
   勾选「保留账号数据」则只删程序痕迹。只删白名单数据文件，不误伤程序文件。
 - **数据跟随安装目录（0.5.0）**：发行版默认 `<exe 所在目录>\data`（安装版即
   `安装目录\data`），便携版换位置也跟随；首次启动把 `%LOCALAPPDATA%\PointHub`
   的旧数据搬过去并清空原位置，迁移失败则继续用旧目录。调试版仍用旧目录。
-- **产物**：`dist/` 内 v0.1.0 ~ v0.4.2 的 exe 与 APK、v0.4.2 与 v0.5.0 的
+- **产物**：`dist/` 内 v0.1.0 ~ v0.4.2 的 exe 与 APK、v0.5.0 的便携 exe / APK /
   `_Setup.exe` 并存，脚本不覆盖历史产物。
 - **GitHub**：代码、文档、脚本已推送；`.design/`、`dist/`、`target/`、
   `.workbuddy/` 等均被 `.gitignore` 排除。
+- **发布（组 6）**：tag `v0.5.0` 已推送，GitHub Release 公开可见：
+  <https://github.com/Yi-One1/PointHub/releases/tag/v0.5.0>，上传三个包
+  （Setup 2.0 MB / 便携 exe 5.0 MB / APK 7.8 MB）。
+  注意：GitHub 会把资产名里的非 ASCII 去掉，仓库上的名字是
+  `PointHub_v0.5.0_Setup.exe` 等（少了「积分枢纽」前缀），不影响自动更新——
+  选择逻辑只按 `_Setup.exe` / `.apk` 后缀匹配。
 
 ---
 
@@ -81,8 +87,8 @@
 
 - [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
       Trae 的 ExchangeToken 需设备私钥签名样本（见 `DECISIONS.md` P01/P02）。
-- [ ] **发布 0.5.0**：版本已升到 0.5.0、Windows Setup 已出；还差便携 exe、APK、
-      打 tag 并发布 GitHub Release。发布后自动更新的「发现新版本 → 下载」才能真跑一遍。
+- [x] **发布 0.5.0**：便携 exe + Setup + APK 已上传到 GitHub Release，tag `v0.5.0`。
+      自动更新的「发现新版本」已可用；「下载 → 安装」还待下一版发布时真跑一遍。
 - [x] **卸载清理**：安装包 NSIS 钩子 + `--purge-data` / `--purge-app`（组 5）。
 - [ ] **Windows 防火墙**：首次监听 47821 若是局域网连不上，需手动放行入站（需管理员权限）。
 - [ ] 清理旧的大体积 debug APK（148 / 181 MB）以腾地方——**未擅自删除**。
@@ -95,8 +101,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.4.2.exe`（4.6 MB）；`dist/积分枢纽PointHub_v0.5.0_Setup.exe` |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.4.2.apk`（7.4 MB，arm64） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.5.0.exe`（5.0 MB）、`dist/积分枢纽PointHub_v0.5.0_Setup.exe`（2.0 MB） |
+| Android 正式包 | `dist/积分枢纽PointHub_v0.5.0.apk`（7.8 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`（安装版为 `安装目录\data`）；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
 | 预览启动 | 双击 `1. 一键启动预览.bat`（按文件时间增量编译，无改动秒开） |

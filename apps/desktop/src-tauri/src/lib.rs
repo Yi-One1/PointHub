@@ -41,32 +41,28 @@ pub struct AppState {
 pub type SharedState = Arc<AppState>;
 
 #[cfg_attr(mobile, allow(unused_variables))]
+/// 安卓上的数据目录。
+///
+/// 必须问系统要（`app_data_dir()` 返回应用私有目录）。早期版本写死了
+/// `/data/data/com.pointhub.app/files`——包名其实是 `cn.pointhub.desktop`，
+/// 目录建不出来，`Engine::open` 失败后直接 `exit(1)`，表现就是**一打开就闪退**。
+fn mobile_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    #[cfg(mobile)]
+    {
+        return app.path().app_data_dir().ok();
+    }
+    #[cfg(desktop)]
+    {
+        let _ = app;
+        None
+    }
+}
+
+#[cfg_attr(mobile, allow(unused_variables))]
 pub fn run() {
-    let engine = Engine::open(data_dir_arg()).unwrap_or_else(|e| {
-        eprintln!("初始化失败：{}", e.user_message());
-        std::process::exit(1);
-    });
-    let data_dir = engine.data_dir().to_path_buf();
-    let minimize = engine.settings().minimize_to_tray;
-    let ball = engine.settings().ball.enabled;
-    let sync_enabled = engine.settings().sync.enabled;
-    let sync_port = engine.settings().sync.port;
-
-    let state: SharedState = Arc::new(AppState {
-        engine: tokio::sync::Mutex::new(engine),
-        data_dir,
-        minimize_to_tray: AtomicBool::new(minimize),
-        // 移动端没有悬浮球，标志位保留但不起作用。
-        ball_enabled: AtomicBool::new(ball),
-        sync_enabled: AtomicBool::new(sync_enabled),
-        sync_port: std::sync::atomic::AtomicU16::new(sync_port),
-        lan: std::sync::Mutex::new(None),
-    });
-
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::refresh_all,
@@ -87,6 +83,28 @@ pub fn run() {
             commands::lan_info,
         ])
         .setup(|app| {
+            // 数据目录：命令行指定 > 安卓应用私有目录 > 各平台默认。
+            // 引擎放在这里建，是因为安卓的目录只有拿到 AppHandle 才问得到。
+            let engine = match Engine::open(data_dir_arg().or_else(|| mobile_data_dir(app.handle()))) {
+                Ok(e) => e,
+                Err(e) => {
+                    let msg = format!("数据目录初始化失败：{}", e.user_message());
+                    eprintln!("{msg}");
+                    return Err(msg.into());
+                }
+            };
+            let state: SharedState = Arc::new(AppState {
+                data_dir: engine.data_dir().to_path_buf(),
+                minimize_to_tray: AtomicBool::new(engine.settings().minimize_to_tray),
+                // 移动端没有悬浮球，标志位保留但不起作用。
+                ball_enabled: AtomicBool::new(engine.settings().ball.enabled),
+                sync_enabled: AtomicBool::new(engine.settings().sync.enabled),
+                sync_port: std::sync::atomic::AtomicU16::new(engine.settings().sync.port),
+                lan: std::sync::Mutex::new(None),
+                engine: tokio::sync::Mutex::new(engine),
+            });
+            app.manage(state);
+
             #[cfg(desktop)]
             {
                 build_tray(app.handle())?;

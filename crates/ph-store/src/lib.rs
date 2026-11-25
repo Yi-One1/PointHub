@@ -29,8 +29,10 @@ pub mod locate {
         }
         #[cfg(target_os = "android")]
         {
-            // 安卓上由壳层通过 JNI 传入真实路径，这里仅作占位。
-            PathBuf::from("/data/data/com.pointhub.app/files")
+            // 安卓上壳层会用 `app_data_dir()` 显式传进来，正常走不到这里。
+            // 留着是为了万一有人漏传时有个能看懂的路径，而不是拼出一个不存在的目录。
+            // 注意必须与 tauri.conf.json 的 identifier 一致，否则 create_dir_all 会失败。
+            PathBuf::from("/data/data/cn.pointhub.desktop/files")
         }
         #[cfg(all(not(windows), not(target_os = "android")))]
         {

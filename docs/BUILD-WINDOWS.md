@@ -75,11 +75,21 @@ rm -rf apps/desktop/src-tauri/target/debug/incremental
 
 ## 不打包也能验收：`1. 一键启动预览.bat`
 
-项目根目录下双击即可。它做三件事：编前端 → 编 Rust（dev）→ 启动。
+项目根目录下双击即可。`.bat` 只是 6 行壳，真正逻辑在 `scripts/preview.ps1`。
+
+它按**文件时间**决定编不编，不是每次都全跑：
+
+| 情况 | 行为 | 实测耗时 |
+|---|---|---|
+| 什么都没改 | 直接运行 `target\debug\pointhub.exe` | 秒开 |
+| 只改界面 | `npm run build` → 编 Rust | 前端 1.4s + Rust 22s |
+| 改了 Rust | 只编 Rust | 约 22s |
+
+为什么改界面也要重编 Rust：Tauri 在前端产物在**编译期嵌入可执行文件**，
+不是运行时读目录。
 
 - **不产出、也不改动 `dist/`**，看的是当前源码
 - 那个黑窗口是日志窗口，**关掉窗口 = 退出程序**
-- 第一次要装前端依赖、全量编 Rust，慢；之后只改前端就很快
 
 ## 脚本文件必须是纯 ASCII（或带 BOM）
 

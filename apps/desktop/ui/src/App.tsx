@@ -673,16 +673,16 @@ function AccountsPage({
             {mode === "browser" ? (
               <>
                 <ol className="steps">
-                  <li>点下面的按钮，弹出该平台的官方登录页</li>
-                  <li>在弹窗里用你的账号登录（扫码或手机号都行）</li>
-                  <li>登录成功、页面进到站点后，窗口会自动关闭并导入</li>
+                  <li>点下面的按钮，会打开你电脑上的浏览器（Edge / Chrome）</li>
+                  <li>在浏览器里用你的账号登录（扫码或手机号都行），窗口别关</li>
+                  <li>登录成功后自动导入；导入完浏览器会自动关闭</li>
                 </ol>
                 <button className="btn primary block" onClick={startBrowserLogin} disabled={opening}>
-                  {opening ? "正在打开…" : `打开 ${cap?.display ?? "平台"} 登录页`}
+                  {opening ? "正在打开…" : `用浏览器登录 ${cap?.display ?? "平台"}`}
                 </button>
                 <p className="hint">
-                  只从该页面读它自己存的登录令牌，以及当时的浏览器标识；不经过任何服务器，
-                  令牌加密后只存在本机。
+                  用的是独立的浏览器配置，不碰你平时那个浏览器的登录状态；登录过一次会记住，
+                  下次不用重登。只从页面读它自己存的令牌与浏览器标识，不经过任何服务器。
                 </p>
               </>
             ) : (

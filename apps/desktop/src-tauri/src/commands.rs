@@ -384,7 +384,7 @@ pub async fn set_account_enabled(
 #[tauri::command]
 pub fn browser_login(app: AppHandle, vendor: String) -> Result<(), String> {
     let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
-    crate::login::start(&app, v)
+    crate::browser_login::start(app, v)
 }
 
 /// 浏览器授权成功后落库：建账号 -> 立刻读一次余额验证 -> 通知界面。

@@ -58,8 +58,10 @@ PointHub/
 
 ### 只想验收、还不打包：双击 `1. 一键启动预览.bat`
 
-项目根目录下的 `1. 一键启动预览.bat` 会**用当前源码**编译并启动，不产出、也不改动
-`dist/` 里的任何文件。第一次跑要装前端依赖 + 编 Rust，慢一些；之后只改前端就很快。
+项目根目录下的 `1. 一键启动预览.bat` 用**当前源码**启动，不产出、也不改动 `dist/`。
+
+它会先比对文件时间：**没改动的部分直接跳过编译**——什么都没改时是秒开；
+改了界面才跑前端构建（约 2 秒），改了 Rust 才编译（约 22 秒）。
 
 它的黑窗口是日志窗口，**关掉窗口 = 退出程序**。
 
@@ -84,7 +86,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 ```
 
-产物在 `dist/`，命名格式 `积分枢纽PointHub_v0.2.0.exe`。
+产物在 `dist/`，命名格式 `积分枢纽PointHub_v0.3.0.exe`。
 
 **`dist/` 里的文件视为已交付的历史版本，脚本不覆盖、不删除。** 要再出一版，
 先按语义化版本升 `Cargo.toml` 里 `[workspace.package] version`，再跑脚本；

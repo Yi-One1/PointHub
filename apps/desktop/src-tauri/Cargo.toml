@@ -1,6 +1,6 @@
 [package]
 name = "pointhub"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "积分枢纽 PointHub 桌面端"
 authors = ["Yi-One1"]
@@ -27,6 +27,8 @@ serde_json = "1"
 base64 = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 chrono = "0.4"
+# CDP 用得上：只连 127.0.0.1 的 ws://，不需要 TLS
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 
 # 自启是纯桌面机制，安卓上这个 crate 根本不该被编译
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

@@ -7,6 +7,7 @@
 //! 安卓没有「关窗口到托盘」这个概念。用 `cfg(desktop)` / `cfg(mobile)`
 //! 显式分叉，而不是靠运行时判断——编不过就早点暴露，别等到用户手机上白屏。
 
+pub mod browser_login;
 pub mod commands;
 pub mod login;
 
@@ -90,8 +91,8 @@ pub fn run() {
                 // 界面自动化要按坐标点按钮，窗口位置一变就会点空；直接给个入口，
                 // 排查「登录窗到底加载了什么」时不必先跟坐标较劲。
                 if let Some(v) = login_arg() {
-                    if let Err(e) = login::start(app.handle(), v) {
-                        eprintln!("打开登录窗口失败：{e}");
+                    if let Err(e) = browser_login::start(app.handle().clone(), v) {
+                        eprintln!("打开浏览器登录失败：{e}");
                     }
                 }
             }

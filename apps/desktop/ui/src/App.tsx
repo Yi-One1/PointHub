@@ -49,11 +49,14 @@ export default function App() {
 
         // 浏览器登录导入的结果：后端已经建好账号，这里只负责把它说出来。
         const unLogin = await listen<string>("ph://login", (e) => {
-          notify(e.payload ?? "浏览器登录完成", "ok");
+          const msg = e.payload ?? "浏览器登录完成";
+          const bad = msg.includes("失效") || msg.includes("失败") || msg.includes("超时");
+          notify(msg, bad ? "warn" : "ok");
           api.bootstrap().then(setView).catch(() => undefined);
         });
         if (alive) unlistenLogin = unLogin;
         else unLogin();
+
       } catch {
         /* 纯浏览器预览时没有 tauri 事件，忽略即可 */
       }
@@ -536,14 +539,37 @@ function AccountsPage({
   const [domain, setDomain] = useState("");
   const [target, setTarget] = useState<AccountView | null>(null);
   const [opening, setOpening] = useState(false);
+  // 授权链接：浏览器没被自动拉起来时的兜底入口
+  const [authUrl, setAuthUrl] = useState("");
+
+  // 后端把授权链接推过来，浏览器被拦或用户想换设备打开时还能手动复制
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let alive = true;
+    (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        const fn = await listen<string>("ph://auth-url", (e) => setAuthUrl(e.payload ?? ""));
+        if (alive) un = fn;
+        else fn();
+      } catch {
+        /* 纯浏览器预览时没有 tauri 事件 */
+      }
+    })();
+    return () => {
+      alive = false;
+      un?.();
+    };
+  }, []);
 
   const cap = view.platforms.find((p) => p.vendor === vendor);
 
   const startBrowserLogin = async () => {
     setOpening(true);
+    setAuthUrl("");
     try {
       await api.browserLogin(vendor);
-      notify(`已打开 ${cap?.display ?? vendor} 登录页，登录完成后会自动导入`);
+      notify(`已用你的浏览器打开 ${cap?.display ?? vendor} 授权页，授权完成后会自动导入`);
     } catch (e) {
       notify(String(e), "warn");
     } finally {
@@ -662,7 +688,7 @@ function AccountsPage({
                   className={`seg-item ${mode === "browser" ? "active" : ""}`}
                   onClick={() => setMode("browser")}
                 >
-                  浏览器登录（推荐）
+                  浏览器授权（推荐）
                 </button>
                 <button className={`seg-item ${mode === "token" ? "active" : ""}`} onClick={() => setMode("token")}>
                   手动令牌
@@ -672,17 +698,29 @@ function AccountsPage({
 
             {mode === "browser" ? (
               <>
+                {vendor !== "workbuddy" && (
+                  <p className="hint warn">
+                    {cap?.display ?? vendor} 还没接入官方授权流程，请切到「手动令牌」导入。
+                  </p>
+                )}
                 <ol className="steps">
-                  <li>点下面的按钮，会打开你电脑上的浏览器（Edge / Chrome）</li>
-                  <li>在浏览器里用你的账号登录（扫码或手机号都行），窗口别关</li>
-                  <li>登录成功后自动导入；导入完浏览器会自动关闭</li>
+                  <li>点下面的按钮，会在你<strong>平时用的浏览器</strong>里新开一个标签页（不是新窗口）</li>
+                  <li>登录并点「授权」，看到成功提示就可以关掉那个标签页</li>
+                  <li>这里会自动导入；导入完会显示余额，确认令牌真的能用</li>
                 </ol>
                 <button className="btn primary block" onClick={startBrowserLogin} disabled={opening}>
-                  {opening ? "正在打开…" : `用浏览器登录 ${cap?.display ?? "平台"}`}
+                  {opening ? "正在打开…" : `用浏览器授权 ${cap?.display ?? "平台"}`}
                 </button>
+                {authUrl && (
+                  <p className="hint">
+                    浏览器没自动打开？把这行地址复制到浏览器里：
+                    <br />
+                    <code style={{ wordBreak: "break-all", userSelect: "all" }}>{authUrl}</code>
+                  </p>
+                )}
                 <p className="hint">
-                  用的是独立的浏览器配置，不碰你平时那个浏览器的登录状态；登录过一次会记住，
-                  下次不用重登。只从页面读它自己存的令牌与浏览器标识，不经过任何服务器。
+                  走的是官方插件授权：软件只拿到一个由你本人确认过的长效令牌，加密存在本机；
+                  不读取你浏览器的任何数据，也不用另开一个专用浏览器。
                 </p>
               </>
             ) : (

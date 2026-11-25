@@ -3,11 +3,10 @@
 //! 为什么不读客户端登录态：WorkBuddy 5.6.2+ 把令牌换成 AES 信封，密钥由客户端
 //! 运行时提供、不落盘。要在本地解出来只能扫进程内存——既复杂又容易被安全软件拦。
 //!
-//! 所以走另一条：**用系统浏览器登录，从浏览器的 localStorage 里取令牌**。
-//! 具体实现在 `browser_login`（CDP 驱动，不需要 F12、不需要手动复制）。
-//!
-//! 令牌来自浏览器，部分网关会校验「会话与 UA 绑定」，所以抓取时的 UA 要一起存下、
-//! 请求时原样回放，否则会 401。
+//! 也不从网页登录态里抠令牌：实测网页版的登录凭证是 **HttpOnly 的 session cookie**，
+//! `localStorage` 里只有埋点数据，压根没有 JWT；而 cookie 是随请求轮换的短命会话，
+//! 拷出来用不了几次。所以改走 **官方插件授权**：换回来的是 refreshToken，能长期自续期。
+//! 具体实现在 `browser_login`，用的是你平时那个浏览器，不弹新窗口。
 
 use ph_core::{Credential, Vendor};
 use serde::{Deserialize, Serialize};
@@ -27,10 +26,16 @@ pub fn login_url(vendor: Vendor) -> &'static str {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapturedAuth {
-    /// 协议版本，方便以后改字段。
+    /// 协议版本：1 = 早期的网页 localStorage 抓取，2 = 官方插件授权。
     #[serde(default)]
     pub v: u32,
     pub token: String,
+    /// 长效令牌。有它才能长期自续期，才是一个能一直用的账号。
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    /// 短期令牌的过期时间（epoch 秒），0/None 表示未知。
+    #[serde(default)]
+    pub expires_at: Option<i64>,
     /// 抓取时的浏览器 UA，请求时必须原样回放。
     #[serde(default)]
     pub ua: String,
@@ -55,8 +60,25 @@ fn api_hosts(vendor: Vendor) -> &'static [&'static str] {
 /// 把抓到的令牌落成凭据。
 pub fn build_credential(vendor: Vendor, auth: &CapturedAuth) -> Credential {
     let mut cred = Credential::from_access_token(auth.token.trim());
+    // 长效令牌才是能长期用的那把钥匙：有它就存，后面靠它自续期。
+    if let Some(rt) = auth.refresh_token.as_deref().map(str::trim) {
+        if !rt.is_empty() {
+            cred.refresh_token = Some(rt.to_string());
+        }
+    }
+    if let Some(exp) = auth.expires_at.filter(|v| *v > 0) {
+        cred.expires_at = Some(exp);
+    }
     if !auth.ua.trim().is_empty() {
         cred.user_agent = Some(auth.ua.trim().to_string());
+    }
+    // 授权换来的令牌没有绑定浏览器 UA，但网关认浏览器 UA；留空就用适配器默认值。
+    if cred.user_agent.is_none() && vendor == Vendor::WorkBuddy {
+        cred.user_agent = Some(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
+             Chrome/126.0.0.0 Safari/537.36"
+                .into(),
+        );
     }
     let host = auth
         .origin
@@ -107,8 +129,10 @@ mod tests {
     fn keeps_ua_and_only_trusts_known_api_hosts() {
         // 登录站就是 API 站：域名落进凭据
         let a = CapturedAuth {
-            v: 1,
+            v: 2,
             token: "t".into(),
+            refresh_token: Some("r".into()),
+            expires_at: Some(123),
             ua: "UA/1.0".into(),
             origin: "https://www.codebuddy.cn".into(),
         };

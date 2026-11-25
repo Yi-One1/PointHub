@@ -87,9 +87,9 @@ pub fn run() {
                 sync_autostart(app.handle());
                 spawn_scheduler(app.handle().clone());
 
-                // 调试入口：`--login workbuddy` 启动即打开登录窗口。
+                // 调试入口：`--login workbuddy` 启动即发起浏览器授权。
                 // 界面自动化要按坐标点按钮，窗口位置一变就会点空；直接给个入口，
-                // 排查「登录窗到底加载了什么」时不必先跟坐标较劲。
+                // 排查「授权到底卡在哪一步」时不必先跟坐标较劲。
                 if let Some(v) = login_arg() {
                     if let Err(e) = browser_login::start(app.handle().clone(), v) {
                         eprintln!("打开浏览器登录失败：{e}");

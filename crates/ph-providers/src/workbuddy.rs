@@ -21,6 +21,12 @@ use serde_json::{json, Value};
 
 /// 长效令牌刷新网关（与签到域名无关，固定地址）。
 const REFRESH_URL: &str = "https://copilot.tencent.com/v2/plugin/auth/token/refresh";
+/// 插件授权网关：客户端插件登录走的就是这套，换出来的是**长效**令牌。
+const AUTH_BASE: &str = "https://copilot.tencent.com";
+/// 网关会校验 UA，非浏览器 UA 直接 401。
+const BROWSER_UA: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
+     Chrome/126.0.0.0 Safari/537.36";
 /// 签到默认域名，仅当凭据里没有 domain 时兜底。
 const DEFAULT_SIGNIN_DOMAIN: &str = "www.codebuddy.cn";
 /// 派猫猫旅行域名（与签到不同，无 /v2 前缀）。
@@ -28,6 +34,53 @@ const TRAVEL_BASE: &str = "https://www.workbuddy.cn";
 
 pub struct WorkBuddyProvider {
     client: reqwest::Client,
+}
+
+// ---------------------------------------------------------------- 授权登录
+
+/// 发起授权的返回：`auth_url` 给用户点，`state` 用来轮询结果。
+#[derive(Debug, Clone)]
+pub struct AuthStart {
+    pub state: String,
+    pub auth_url: String,
+}
+
+/// 授权换回来的凭据。`refresh_token` 才是长期能用的那把钥匙。
+#[derive(Debug, Clone)]
+pub struct AuthCredential {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    /// access_token 过期时间（epoch 秒）。
+    pub expires_at: Option<i64>,
+    pub domain: Option<String>,
+}
+
+/// 一次轮询的结果。
+#[derive(Debug, Clone)]
+pub enum AuthPoll {
+    /// 用户还没在浏览器里点授权。
+    Pending,
+    /// 拿到了凭据。
+    Ready(AuthCredential),
+    /// 会话已作废（超时或被用过），只能重新发起。
+    Expired,
+}
+
+/// `expiresAt` 常见是毫秒，`expiresIn` 是秒；统一折算成 epoch 秒。
+fn expiry_secs(payloads: &[&Value]) -> Option<i64> {
+    for p in payloads {
+        if let Some(n) = http::pick_i64(p, &["expiresAt", "expires_at"]) {
+            if n > 0 {
+                return Some(if n > 1_000_000_000_000 { n / 1000 } else { n });
+            }
+        }
+        if let Some(secs) = http::pick_i64(p, &["expiresIn", "expires_in"]) {
+            if secs > 0 {
+                return Some(chrono::Local::now().timestamp() + secs);
+            }
+        }
+    }
+    None
 }
 
 /// 浏览器授权拿到的令牌与 UA 绑定：抓取时用的 UA 必须原样回放，
@@ -44,6 +97,81 @@ impl WorkBuddyProvider {
         Self {
             client: http::build_client(None).expect("默认客户端一定可构建"),
         }
+    }
+
+    /// 发起插件授权：拿到要打开的授权页地址，以及用于轮询的 state。
+    ///
+    /// 这是客户端插件登录用的同一套流程。相比「读网页登录态」，好处是换回来的是
+    /// **长效令牌**（能自续期），而不是随请求轮换的网页会话。
+    pub async fn begin_auth(&self) -> Result<AuthStart> {
+        let resp = self
+            .client
+            .post(format!("{AUTH_BASE}/v2/plugin/auth/state?platform=workbuddy"))
+            .header("accept", "application/json")
+            .header("X-Domain", "copilot.tencent.com")
+            .header(reqwest::header::USER_AGENT, BROWSER_UA)
+            .json(&json!({}))
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        if let Some(e) = http::map_status(status, &body) {
+            return Err(e);
+        }
+        let data = body.get("data").cloned().unwrap_or(Value::Null);
+        let state = http::pick_str(&data, &["state"])
+            .or_else(|| http::pick_str(&body, &["state"]))
+            .ok_or_else(|| Error::Upstream("授权接口没有返回 state，平台可能改版".into()))?;
+        let auth_url = http::pick_str(&data, &["authUrl", "auth_url", "url"])
+            .or_else(|| http::pick_str(&body, &["authUrl"]))
+            .ok_or_else(|| Error::Upstream("授权接口没有返回授权地址，平台可能改版".into()))?;
+        Ok(AuthStart { state, auth_url })
+    }
+
+    /// 轮询一次授权结果。用户还没点授权时返回 `Pending`，不是错误。
+    pub async fn poll_auth(&self, state: &str) -> Result<AuthPoll> {
+        let resp = self
+            .client
+            .get(format!("{AUTH_BASE}/v2/plugin/auth/token"))
+            .query(&[("state", state)])
+            .header("accept", "application/json")
+            .header(reqwest::header::USER_AGENT, BROWSER_UA)
+            // 轮询时还没有身份，显式告诉网关「别按已登录校验」
+            .header("X-No-Authorization", "true")
+            .header("X-No-User-Id", "true")
+            .header("X-No-Enterprise-Id", "true")
+            .header("X-No-Department-Info", "true")
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        if status == 404 {
+            return Ok(AuthPoll::Expired);
+        }
+        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+
+        // 202 与 code=11217（"login ing..."）都表示还在等用户点授权。
+        if status == 202 || http::code_of(&body) == Some(11217) {
+            return Ok(AuthPoll::Pending);
+        }
+        if status >= 400 {
+            if let Some(e) = http::map_status(status, &body) {
+                return Err(e);
+            }
+        }
+
+        let payloads = [&body["data"]["data"], &body["data"], &body];
+        let pick = |keys: &[&str]| -> Option<String> {
+            payloads.iter().find_map(|d| http::pick_str(d, keys))
+        };
+        let Some(access_token) = pick(&["accessToken", "access_token", "token"]) else {
+            return Ok(AuthPoll::Pending);
+        };
+        Ok(AuthPoll::Ready(AuthCredential {
+            access_token,
+            refresh_token: pick(&["refreshToken", "refresh_token"]),
+            expires_at: expiry_secs(&payloads),
+            domain: pick(&["domain"]),
+        }))
     }
 
     fn signin_base(cred: &Credential) -> String {

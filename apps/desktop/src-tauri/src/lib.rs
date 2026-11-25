@@ -25,6 +25,8 @@ use ph_engine::Engine;
 /// 是这一层唯一允许的冗余。
 pub struct AppState {
     pub engine: tokio::sync::Mutex<Engine>,
+    /// 数据目录。发布版没有控制台，诊断信息要落到这里的 `logs/`。
+    pub data_dir: std::path::PathBuf,
     pub minimize_to_tray: AtomicBool,
     pub ball_enabled: AtomicBool,
 }
@@ -37,11 +39,13 @@ pub fn run() {
         eprintln!("初始化失败：{}", e.user_message());
         std::process::exit(1);
     });
+    let data_dir = engine.data_dir().to_path_buf();
     let minimize = engine.settings().minimize_to_tray;
     let ball = engine.settings().ball.enabled;
 
     let state: SharedState = Arc::new(AppState {
         engine: tokio::sync::Mutex::new(engine),
+        data_dir,
         minimize_to_tray: AtomicBool::new(minimize),
         // 移动端没有悬浮球，标志位保留但不起作用。
         ball_enabled: AtomicBool::new(ball),

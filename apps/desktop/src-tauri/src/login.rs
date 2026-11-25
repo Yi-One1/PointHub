@@ -160,6 +160,31 @@ pub struct DiagReport {
     pub keys: Vec<String>,
 }
 
+/// 登录流程的诊断日志。
+///
+/// 发布版是 `windows_subsystem = "windows"`，没有控制台，`eprintln!` 等于丢掉；
+/// 所以同时落一份到 `logs/login.log`。用户登录完没自动导入时，看这一行就知道
+/// 是「页面没引入站点」还是「令牌存在别的键名下」。
+fn logln(app: &AppHandle, msg: &str) {
+    eprintln!("{msg}");
+    let dir = app.state::<crate::SharedState>().data_dir.join(ph_core::files::LOGS_DIR);
+    if std::fs::create_dir_all(&dir).is_ok() {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("login.log"))
+        {
+            let _ = writeln!(
+                f,
+                "[{}] {}",
+                chrono::Local::now().format("%m-%d %H:%M:%S"),
+                msg
+            );
+        }
+    }
+}
+
 /// 打开登录窗口，并在后台等待凭据回传。
 pub fn start(app: &AppHandle, vendor: Vendor) -> Result<(), String> {
     if let Some(old) = app.get_webview_window(&window_label(vendor)) {
@@ -175,18 +200,17 @@ pub fn start(app: &AppHandle, vendor: Vendor) -> Result<(), String> {
         .min_inner_size(420.0, 560.0)
         .center()
         .initialization_script(EXTRACT_JS)
-        .on_page_load(|_w, payload| {
+        .on_page_load(|w, payload| {
             // 导航失败时 WebView2 只会给一片空白，不留错误页，所以把加载事件
-            // 打到 stderr，出问题时能直接看出是「没导航」还是「导航了但渲染空」。
-            eprintln!(
-                "[login] page_load event={:?} url={}",
-                payload.event(),
-                payload.url()
+            // 记下来，出问题时能直接看出是「没导航」还是「导航了但渲染空」。
+            logln(
+                &w.app_handle().clone(),
+                &format!("page_load event={:?} url={}", payload.event(), payload.url()),
             );
         })
         .build()
         .map_err(|e| format!("打开登录窗口失败：{e}"))?;
-    eprintln!("[login] window created for {url}");
+    logln(app, &format!("window created for {url}"));
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -206,7 +230,7 @@ pub fn start(app: &AppHandle, vendor: Vendor) -> Result<(), String> {
                     if last.as_deref() != Some(cur.as_str()) {
                         // 地址哈希里可能带整段 base64，日志只留前面一截。
                         let shown: String = cur.chars().take(110).collect();
-                        eprintln!("[login] url -> {shown}");
+                        logln(&app2, &format!("url -> {shown}"));
                         last = Some(cur);
                     }
                     if let Some(auth) = parse_url(&u) {
@@ -217,9 +241,9 @@ pub fn start(app: &AppHandle, vendor: Vendor) -> Result<(), String> {
                     if let Some(diag) = parse_diag(&u) {
                         if !diag_logged {
                             diag_logged = true;
-                            eprintln!(
-                                "[login] 未发现令牌；origin={} 存储键={:?}",
-                                diag.origin, diag.keys
+                            logln(
+                                &app2,
+                                &format!("未发现令牌；origin={} 存储键={:?}", diag.origin, diag.keys),
                             );
                         }
                     }

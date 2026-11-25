@@ -1,14 +1,18 @@
 <#
 .SYNOPSIS
-    构建积分枢纽 PointHub 的 Windows 产物。
+    Build the Windows artifacts for PointHub.
 
 .DESCRIPTION
-    默认只产出「便携 exe」（需求第 12 条：日常只要这一种）。
-    加 -Installer 才额外产出 NSIS 安装包。
+    Produces the portable exe by default. Add -Installer for an NSIS setup too.
 
-    产物命名遵循「中文名 + 英文名 + _v版本」(需求第 16 条)：
-      积分枢纽PointHub_v0.1.0.exe
-      积分枢纽PointHub_v0.1.0_Setup.exe   (仅 -Installer)
+    Output naming follows "PointHub_v<version>.exe".
+    Artifacts in dist\ are treated as shipped history: this script NEVER
+    overwrites or deletes them. To ship again, bump the version first
+    (Cargo.toml -> [workspace.package] version), then re-run.
+
+    NOTE: keep this file pure ASCII. Windows PowerShell 5.1 reads .ps1 files
+    with the system ANSI code page unless a BOM is present, so non-ASCII
+    comments can corrupt parsing (quotes get eaten by mangled multibyte pairs).
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
@@ -26,66 +30,107 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
-# --- 版本号单点来源：workspace.package.version ------------------------------
+# --- version: single source of truth = workspace.package.version -------------
 $cargoToml = Get-Content (Join-Path $root "Cargo.toml") -Raw
 if ($cargoToml -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
-    throw "无法从 Cargo.toml 读到版本号"
+    throw "Cannot read version from Cargo.toml"
 }
 $version = $Matches[1]
-$baseName = "积分枢纽PointHub_v$version"
-Write-Host "版本：$version" -ForegroundColor Cyan
+# Product Chinese name built from code points (U+79EF U+5206 U+67A2 U+7EBD)
+# so this script can stay pure ASCII: PS 5.1 mangles non-ASCII sources that
+# have no BOM, which silently produces a mojibake file name.
+$cnName = -join ([char[]](0x79EF, 0x5206, 0x67A2, 0x7EBD))
+$baseName = "${cnName}PointHub_v$version"
+Write-Host "Version: $version" -ForegroundColor Cyan
 
-# --- 1. 校验 ----------------------------------------------------------------
-if (-not $SkipTests) {
-    Write-Host "[1/4] 运行测试..." -ForegroundColor Cyan
-    cargo test --workspace --quiet
-    if ($LASTEXITCODE -ne 0) { throw "测试未通过，终止构建" }
-} else {
-    Write-Host "[1/4] 跳过测试（-SkipTests）" -ForegroundColor Yellow
+# --- keep the other version fields in sync ----------------------------------
+# The version appears in four places. Editing by hand leaves one behind, which
+# shows up as "file name says 0.2.0 but the app shows 0.1.0".
+$syncTargets = @(
+    @{ Path = "apps/desktop/src-tauri/tauri.conf.json"; Label = "tauri.conf.json" },
+    @{ Path = "apps/desktop/ui/package.json";            Label = "ui/package.json" }
+)
+foreach ($t in $syncTargets) {
+    $full = Join-Path $root $t.Path
+    # -Encoding UTF8 is mandatory: PS 5.1 defaults to the system ANSI code page,
+    # which shreds the Chinese strings inside these files.
+    $raw = Get-Content $full -Raw -Encoding UTF8
+    # PS 5.1's -replace has no script-block form (that is PS 6+); it would write
+    # the block's source text into the file. .NET regex replacement is enough.
+    $new = [regex]::Replace($raw, '("version"\s*:\s*")[^"]+(")', ('${1}' + $version + '${2}'))
+    if ($new -ne $raw) {
+        # Must be BOM-less UTF-8: a BOM breaks serde_json parsing of JSON files,
+        # while Set-Content -Encoding utf8 in PS 5.1 writes a BOM.
+        [System.IO.File]::WriteAllText($full, $new, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  synced version in $($t.Label)" -ForegroundColor DarkGray
+    }
 }
 
-# --- 2. 前端 ----------------------------------------------------------------
-Write-Host "[2/4] 构建前端..." -ForegroundColor Cyan
+# --- 1. tests ---------------------------------------------------------------
+if (-not $SkipTests) {
+    Write-Host "[1/4] Running tests..." -ForegroundColor Cyan
+    cargo test --workspace --quiet
+    if ($LASTEXITCODE -ne 0) { throw "Tests failed, build aborted" }
+} else {
+    Write-Host "[1/4] Tests skipped (-SkipTests)" -ForegroundColor Yellow
+}
+
+# --- 2. frontend ------------------------------------------------------------
+Write-Host "[2/4] Building frontend..." -ForegroundColor Cyan
 Push-Location (Join-Path $root "apps/desktop/ui")
 if (-not (Test-Path "node_modules")) { npm install --no-audit --no-fund }
 npm run build
-if ($LASTEXITCODE -ne 0) { Pop-Location; throw "前端构建失败" }
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Frontend build failed" }
 Pop-Location
 
-# --- 3. Rust 发布构建 -------------------------------------------------------
-Write-Host "[3/4] 编译 release..." -ForegroundColor Cyan
+# --- 3. rust release build --------------------------------------------------
+Write-Host "[3/4] Compiling release..." -ForegroundColor Cyan
 cargo build --release --manifest-path (Join-Path $root "apps/desktop/src-tauri/Cargo.toml")
-if ($LASTEXITCODE -ne 0) { throw "Rust 构建失败" }
+if ($LASTEXITCODE -ne 0) { throw "Rust build failed" }
 
 $distDir = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 
 $srcExe = Join-Path $root "apps/desktop/src-tauri/target/release/pointhub.exe"
-if (-not (Test-Path $srcExe)) { throw "找不到编译产物：$srcExe" }
+if (-not (Test-Path $srcExe)) { throw "Build output not found: $srcExe" }
 
 $portable = Join-Path $distDir "$baseName.exe"
-Copy-Item $srcExe $portable -Force
-$sizeMb = [math]::Round((Get-Item $portable).Length / 1MB, 1)
-Write-Host "  便携版：$portable ($sizeMb MB)" -ForegroundColor Green
+# dist holds shipped history: never overwrite, never delete.
+if (Test-Path $portable) {
+    throw @"
+Refusing to overwrite an existing artifact:
+  $portable
 
-# --- 4. 可选：安装包 --------------------------------------------------------
+Files under dist\ are released history and must not be replaced.
+Bump the version first (Cargo.toml -> [workspace.package] version), then rebuild:
+  before 1.0.0: new feature = +MINOR, bug fix = +PATCH, breaking change = +MINOR
+"@
+}
+Copy-Item $srcExe $portable
+$sizeMb = [math]::Round((Get-Item $portable).Length / 1MB, 1)
+Write-Host "  portable: $portable ($sizeMb MB)" -ForegroundColor Green
+
+# --- 4. optional installer --------------------------------------------------
 if ($Installer) {
-    Write-Host "[4/4] 构建安装包..." -ForegroundColor Cyan
+    Write-Host "[4/4] Building installer..." -ForegroundColor Cyan
     Push-Location (Join-Path $root "apps/desktop/src-tauri")
     npx --yes @tauri-apps/cli build --bundles nsis
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "安装包构建失败" }
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Installer build failed" }
     Pop-Location
 
     $setup = Get-ChildItem (Join-Path $root "apps/desktop/src-tauri/target/release/bundle/nsis") -Filter "*.exe" |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $setup) { throw "没找到 NSIS 安装包" }
+    if (-not $setup) { throw "NSIS installer not found" }
     $destSetup = Join-Path $distDir "${baseName}_Setup.exe"
-    Copy-Item $setup.FullName $destSetup -Force
-    Write-Host "  安装包：$destSetup" -ForegroundColor Green
+    if (Test-Path $destSetup) {
+        throw "Refusing to overwrite an existing installer: $destSetup (bump the version first)"
+    }
+    Copy-Item $setup.FullName $destSetup
+    Write-Host "  installer: $destSetup" -ForegroundColor Green
 } else {
-    Write-Host "[4/4] 跳过安装包（需要时加 -Installer）" -ForegroundColor Yellow
+    Write-Host "[4/4] Installer skipped (add -Installer when needed)" -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host "完成。产物目录：$distDir" -ForegroundColor Cyan
+Write-Host "Done. Output directory: $distDir" -ForegroundColor Cyan
 Get-ChildItem $distDir | Format-Table Name, @{N = "MB"; E = { [math]::Round($_.Length / 1MB, 1) } }

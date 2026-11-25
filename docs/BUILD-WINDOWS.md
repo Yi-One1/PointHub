@@ -54,3 +54,52 @@ rm -rf apps/desktop/src-tauri/target/debug/incremental
 与 Tauri 外壳，`opt-level` 见 workspace 配置）。这只是首次或大改后；只改 UI 时不需要重编 Rust。
 
 如果远超这个量级且 CPU 不动，按上一节判定是否为等锁。
+
+## 产物不覆盖（版本号规则）
+
+`dist/` 里放的是**已交付的历史版本**，不是工作区。构建脚本的规矩：
+
+- 目标文件已存在 → **直接报错退出**，不覆盖、不删除
+- 要再出一版 → 先升 `Cargo.toml` 的 `[workspace.package] version`
+
+升哪一位按语义化版本判定（0.x 阶段也一样）：
+
+| 改了什么 | 升哪一位 | 例子 |
+|---|---|---|
+| 修 bug、改文案、补日志 | PATCH | 0.2.0 → 0.2.1 |
+| 新增功能、新增命令、新增平台 | MINOR | 0.2.1 → 0.3.0 |
+| 破坏兼容（数据格式、接口、配置项不兼容） | 0.x 阶段用 MINOR；1.0.0 起用 MAJOR | 0.3.0 → 0.4.0 |
+
+版本号在四处出现，脚本以 `Cargo.toml` 为准自动同步 `tauri.conf.json` 与
+`ui/package.json`；程序内显示的版本取自 `CARGO_PKG_VERSION`，不会各说各话。
+
+## 不打包也能验收：`1. 一键启动预览.bat`
+
+项目根目录下双击即可。它做三件事：编前端 → 编 Rust（dev）→ 启动。
+
+- **不产出、也不改动 `dist/`**，看的是当前源码
+- 那个黑窗口是日志窗口，**关掉窗口 = 退出程序**
+- 第一次要装前端依赖、全量编 Rust，慢；之后只改前端就很快
+
+## 脚本文件必须是纯 ASCII（或带 BOM）
+
+第 5 个坑，也是最阴的一个：**Windows PowerShell 5.1 读无 BOM 的 `.ps1` 时用系统 ANSI 代码页**，
+UTF-8 的中文注释会被解成乱码，进而吃掉引号，报一堆莫名其妙的「表达式缺少 }」。
+
+```
+表达式或语句中包含意外的标记")"
+```
+
+`.bat` 同理（cmd.exe 按 GBK 读）。三条应对：
+
+1. **首选纯 ASCII**：脚本里的中文一律挪进文档；确实需要中文（比如产物文件名）用码点拼：
+
+   ```powershell
+   $cnName = -join ([char[]](0x79EF, 0x5206, 0x67A2, 0x7EBD))   # 积分枢纽
+   ```
+
+2. **改 JSON 别用 `Get-Content -Raw` 裸读**：PS 5.1 默认按 ANSI 解，中文会被写坏。
+   必须 `-Encoding UTF8` 读、`UTF8Encoding($false)` 写（带 BOM 的 JSON 会让 serde_json 报错）。
+3. **`-replace` 不支持脚本块**（那是 PS 6+）。写成脚本块的话，它会把**脚本块的源码文本**
+   写进文件——JSON 当场废掉。用 `[regex]::Replace($raw, $pattern, ('${1}' + $v + '${2}'))`。
+

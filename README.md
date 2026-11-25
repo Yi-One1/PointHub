@@ -56,16 +56,25 @@ PointHub/
 
 需要：**Rust 1.80+**、**Node 18+**、Windows 10/11（自带 WebView2）。
 
+### 只想验收、还不打包：双击 `1. 一键启动预览.bat`
+
+项目根目录下的 `1. 一键启动预览.bat` 会**用当前源码**编译并启动，不产出、也不改动
+`dist/` 里的任何文件。第一次跑要装前端依赖 + 编 Rust，慢一些；之后只改前端就很快。
+
+它的黑窗口是日志窗口，**关掉窗口 = 退出程序**。
+
+### 想自己敲命令
+
 ```bash
 # 1) 只跑命令行内核（不用装前端依赖，最快验证链路）
 cargo run -p phctl -- doctor
 
-# 2) 跑桌面端（开发模式）
+# 2) 跑桌面端（开发模式，前端热更新）
 cd apps/desktop/ui && npm install
 cd ../src-tauri && npx @tauri-apps/cli dev
 ```
 
-打包：
+### 打包
 
 ```powershell
 # 便携 exe（日常只要这个）
@@ -75,7 +84,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 ```
 
-产物在 `dist/`，命名格式 `积分枢纽PointHub_v0.1.0.exe`。
+产物在 `dist/`，命名格式 `积分枢纽PointHub_v0.2.0.exe`。
+
+**`dist/` 里的文件视为已交付的历史版本，脚本不覆盖、不删除。** 要再出一版，
+先按语义化版本升 `Cargo.toml` 里 `[workspace.package] version`，再跑脚本；
+版本号没变会直接报错退出——逼你先想清楚这次该升哪一位。
 
 **实测（本机 Windows 11 / WebView2 158）**
 

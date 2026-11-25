@@ -40,7 +40,6 @@ pub struct AppState {
 
 pub type SharedState = Arc<AppState>;
 
-#[cfg_attr(mobile, allow(unused_variables))]
 /// 安卓上的数据目录。
 ///
 /// 必须问系统要（`app_data_dir()` 返回应用私有目录）。早期版本写死了
@@ -58,6 +57,9 @@ fn mobile_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     }
 }
 
+// 这个宏负责生成 `Java_..._Rust_onCreate` 之类的 JNI 导出。
+// 少了它，so 能加载但找不到入口，安卓一启动就是 UnsatisfiedLinkError。
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[cfg_attr(mobile, allow(unused_variables))]
 pub fn run() {
     #[allow(unused_mut)]

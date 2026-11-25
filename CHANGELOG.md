@@ -6,6 +6,41 @@
 > **产物不覆盖**：`dist/` 里已出的包视为交付历史，构建脚本拒绝覆盖或删除。
 > 要再出一版，先升 `Cargo.toml` 的 `[workspace.package] version`。
 
+## [0.4.2] - 2026-11-25
+
+**修复：安卓仍闪退——Rust 的 JNI 入口根本没生成**（按 SemVer 升 PATCH）。
+
+### 根因
+
+`lib.rs` 的 `run()` 缺了 `#[cfg_attr(mobile, tauri::mobile_entry_point)]`。
+这个宏负责导出 `Java_cn_pointhub_desktop_Rust_onCreate` 等 JNI 函数，没有它，
+`libpointhub_lib.so` 照常加载、但符号表里找不到入口：
+
+```
+java.lang.UnsatisfiedLinkError: No implementation found for
+  void cn.pointhub.desktop.Rust.onCreate(cn.pointhub.desktop.WryActivity)
+  at cn.pointhub.desktop.WryActivity.onCreate(WryActivity.kt:136)
+```
+
+JVM 在 `onCreate` 就抛异常，进程直接退出——连 Rust 的 `run()` 都没进过，
+所以之前修的「数据目录」那条路径其实一直没被执行到（它也是错的，但排在后面）。
+
+### 改法
+
+- `run()` 补上 `#[cfg_attr(mobile, tauri::mobile_entry_point)]`
+- 顺带修正了属性与文档注释放错位置的问题
+
+### 验证
+
+在雷电模拟器（x86_64 / Android 9，走 ARM 翻译层）上实测：
+
+- 安装成功，启动后进程存活、`mCurrentFocus` 是本应用
+- JNI 全部解析成功（`trampoline_addr` 非 0），日志出现 `Rust_onPageLoaded`
+- 前端在跑：调到了 `notification` 插件的 `checkPermissions`
+- `llvm-nm -D` 确认 so 已导出 `T Java_cn_pointhub_desktop_Rust_onCreate`
+
+另外把 debug 包的 native 调试符号剥掉，体积从 322 MB 回到 148 MB。
+
 ## [0.4.1] - 2026-11-25
 
 **修复：安卓端一打开就闪退**（按 SemVer 升 PATCH）。

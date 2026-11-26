@@ -133,7 +133,13 @@ pub fn run() {
                 },
                 engine: tokio::sync::Mutex::new(engine),
             });
+            let data_dir_for_icons = state.data_dir.clone();
             app.manage(state);
+
+            // 覆盖升级后桌面图标可能还停在旧版本（Explorer 缓存 .lnk 图标）。
+            // 放在 manage 之后执行：路径取自真实数据目录，失败也不影响启动。
+            #[cfg(desktop)]
+            refresh_shortcut_icons(&data_dir_for_icons);
 
             // 双端都要：发现新版本发一条系统通知，不自动安装。
             spawn_update_check(app.handle().clone());
@@ -229,6 +235,82 @@ fn data_dir_arg() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+/// 快捷方式文件名 = 安装包里的产品名（`tauri.conf.json` 的 `productName`）。
+#[cfg(all(desktop, windows))]
+const SHORTCUT_NAME: &str = "PointHub.lnk";
+
+/// 覆盖升级后 Explorer 会继续用旧的 `.lnk` 图标缓存，桌面看起来还是上个版本。
+/// 版本变化时通知 shell 重读这几个快捷方式；每个版本只做一次，避免每次启动闪图标。
+#[cfg(all(desktop, windows))]
+fn refresh_shortcut_icons(data_dir: &std::path::Path) {
+    let marker = data_dir.join(".icons-version");
+    let current = env!("CARGO_PKG_VERSION");
+    if std::fs::read_to_string(&marker).ok().as_deref() == Some(current) {
+        return;
+    }
+
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{
+        SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNE_UPDATEITEM, SHCNF_IDLIST, SHCNF_PATHW,
+    };
+
+    for p in shortcut_paths() {
+        if !p.exists() {
+            continue;
+        }
+        let wide: Vec<u16> = p.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        // SAFETY: 宽字符串以 NUL 结尾，且在调用期间保持有效。
+        unsafe {
+            SHChangeNotify(
+                SHCNE_UPDATEITEM as i32,
+                SHCNF_PATHW,
+                wide.as_ptr().cast(),
+                std::ptr::null(),
+            )
+        };
+    }
+    // 再通知一次关联变更：部分系统只认这条路径。
+    unsafe {
+        SHChangeNotify(
+            SHCNE_ASSOCCHANGED as i32,
+            SHCNF_IDLIST,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+
+    let _ = std::fs::write(marker, current);
+}
+
+/// 其它桌面平台没有这个问题，保留空实现让调用点不用加 cfg。
+#[cfg(all(desktop, not(windows)))]
+fn refresh_shortcut_icons(_: &std::path::Path) {}
+
+#[cfg(all(desktop, windows))]
+fn shortcut_paths() -> Vec<std::path::PathBuf> {
+    shortcut_paths_from(
+        std::env::var("USERPROFILE").unwrap_or_default(),
+        std::env::var("PUBLIC").unwrap_or_default(),
+        std::env::var("APPDATA").unwrap_or_default(),
+    )
+}
+
+/// 桌面（当前用户 / 公共）+ 开始菜单，三处都是安装包会创建的位置。
+#[cfg(all(desktop, windows))]
+fn shortcut_paths_from(user: String, public: String, appdata: String) -> Vec<std::path::PathBuf> {
+    let p = std::path::Path::new;
+    vec![
+        p(&user).join("Desktop").join(SHORTCUT_NAME),
+        p(&public).join("Desktop").join(SHORTCUT_NAME),
+        p(&appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join(SHORTCUT_NAME),
+    ]
 }
 
 /// 解析卸载清理参数：`--purge-data` 删账号数据，`--purge-app` 只删应用痕迹。
@@ -623,4 +705,23 @@ pub fn spawn_update_check(app: tauri::AppHandle) {
             Err(e) => eprintln!("更新检查失败：{}", e.user_message()),
         }
     });
+}
+
+#[cfg(all(test, desktop, windows))]
+mod icon_cache_tests {
+    use super::shortcut_paths_from;
+    use std::path::PathBuf;
+
+    #[test]
+    fn shortcuts_cover_both_desktops_and_start_menu() {
+        let paths: Vec<PathBuf> = shortcut_paths_from(
+            r"C:\Users\a".into(),
+            r"C:\Users\Public".into(),
+            r"C:\Users\a\AppData\Roaming".into(),
+        );
+        assert_eq!(paths.len(), 3);
+        assert!(paths[0].ends_with(PathBuf::from(r"Desktop\PointHub.lnk")));
+        assert!(paths[1].ends_with(PathBuf::from(r"Desktop\PointHub.lnk")));
+        assert!(paths[2].ends_with(PathBuf::from(r"Start Menu\Programs\PointHub.lnk")));
+    }
 }

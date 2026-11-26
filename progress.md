@@ -2,10 +2,10 @@
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
 > `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-27，版本
-> **v0.10.0（待发布）**。
+> **v0.10.1**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-上一发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.9.2>
+上一发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.10.1>
 
 ---
 
@@ -36,6 +36,10 @@
 - **图标体系（0.10.0）**：应用图标全链路替换（exe / 任务栏 / 托盘 / 侧栏 / 启动页 /
   favicon / Android）；平台 logo 进入 5 处界面；积分数值的「分」全部换成彩色图标
   （主窗口、悬浮球、手机页、趋势悬停）。
+- **覆盖升级图标缓存（0.10.1）**：安装包 `POSTINSTALL` 跑 `ie4uinit`，程序首次以新
+  版本启动时用 `SHChangeNotify` 重读三个快捷方式；解决「升级后桌面还是旧图标」。
+- **覆盖升级图标缓存修复（0.10.1）**：NSIS `POSTINSTALL` 重建图标缓存 + 程序首次以新
+  版本启动时 `SHChangeNotify` 通知 shell 重读桌面/开始菜单快捷方式（每版本一次）。
 
 ---
 
@@ -62,8 +66,8 @@
 
 ## 未完成的待办
 
-- [ ] **发布 v0.10.0**：推送 `master`、打 `v0.10.0` tag、上传便携 exe 与安装包、
-      写 Release notes（对比 v0.9.2）。
+- [ ] **发布 v0.10.1**：推送 `master`、打 `v0.10.1` tag、上传便携 exe 与安装包、
+      写 Release notes（对比 v0.10.0，修复快捷方式图标缓存）。
 - [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要在发版后真跑一次。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
 - [ ] **Android APK 未跟到 0.10.0**：`dist/` 里最新 APK 仍是 v0.6.0；需要时
@@ -77,7 +81,7 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.10.0.exe` 与 `_Setup.exe`；历史版本均在 `dist/` |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.10.1.exe` 与 `_Setup.exe`；历史版本均在 `dist/` |
 | Android 正式包 | `dist/积分枢纽PointHub_v0.6.0.apk`（8.0 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
@@ -93,6 +97,9 @@
 
 - **改图标必重编**：`build.rs` 已声明 `rerun-if-changed=icons`；`lib.rs` 启动时显式
   `set_icon(icons/icon.png)`。否则只改 PNG 时任务栏会一直显示旧图。
+- **桌面快捷方式图标**：资源管理器按 `.lnk` 缓存，覆盖安装不会自动失效。0.10.1 起
+  装机后由 NSIS 钩子重建缓存，程序启动再按版本号补一次 `SHChangeNotify`。
+  仍遇到旧图时：重开资源管理器或清 `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db`。
 - **托盘跟随系统深浅色**：嵌入 `tray-32.png` / `tray-dark-32.png`，监听 `ThemeChanged`。
 - **平台 logo**：`ui/src/assets/vendors/`，已裁掉透明留白；白底 logo 加 1px 轮廓；
   未收录平台回退成识别色圆点。

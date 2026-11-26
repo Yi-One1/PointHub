@@ -1,6 +1,6 @@
 [package]
 name = "pointhub"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 description = "积分枢纽 PointHub 桌面端"
 authors = ["Yi-One1"]
@@ -44,6 +44,8 @@ jni = "0.21"
 # 卸载清理要读/删 HKCU Run 里的自启项
 [target.'cfg(windows)'.dependencies]
 windows-registry = "0.6"
+# 覆盖升级后通知 Explorer 重读快捷方式图标（SHChangeNotify）
+windows-sys = { version = "0.52", features = ["Win32_UI_Shell"] }
 
 [features]
 default = ["custom-protocol"]

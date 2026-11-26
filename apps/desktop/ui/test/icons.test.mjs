@@ -97,9 +97,14 @@ test("tauri.conf 引用的图标文件都存在", () => {
   assert.ok(icons.includes("icons/icon.ico"), "bundle.icon 应包含 icon.ico");
 });
 
-test("托盘与窗口图标来自同一份 default_window_icon", () => {
+test("托盘用透明标记，窗口/任务栏用完整底板图标", () => {
+  const tray = path.join(ICONS, "tray-32.png");
+  assert.ok(existsSync(tray), "缺少托盘图标 tray-32.png");
+  assert.deepEqual(pngSize(tray), { width: 32, height: 32 }, "托盘图标应为 32×32");
+
   const lib = readFileSync(path.join(TAURI_DIR, "src", "lib.rs"), "utf8");
-  assert.match(lib, /default_window_icon\(\)/, "托盘应使用 default_window_icon，换图标才会同步生效");
+  assert.match(lib, /include_bytes!\("\.\.\/icons\/tray-32\.png"\)/, "托盘应嵌入 tray-32.png");
+  assert.match(lib, /default_window_icon\(\)/, "解码失败时应回退到窗口图标");
 });
 
 test("Android mipmap 已写入（工程存在时）", () => {

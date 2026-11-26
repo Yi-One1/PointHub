@@ -298,7 +298,11 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
         });
 
-    if let Some(icon) = app.default_window_icon().cloned() {
+    // 托盘用透明底的品牌标记：浅绿底板在浅色任务栏上看不清，看起来像个空白方块。
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-32.png"))
+        .ok()
+        .or_else(|| app.default_window_icon().cloned());
+    if let Some(icon) = tray_icon {
         builder = builder.icon(icon);
     }
     builder.build(app)?;

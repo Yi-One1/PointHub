@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { BRAND_ICON } from "./assets";
+import { BRAND_MARK } from "./assets";
 import { useTheme } from "./theme";
 import type {
   AccountView,
@@ -158,7 +158,7 @@ export default function App() {
   if (!view) {
     return (
       <div className="boot">
-        <img className="boot-mark" src={BRAND_ICON} alt="" />
+        <img className="boot-mark" src={BRAND_MARK} alt="" />
         <div>正在读取账号数据…</div>
       </div>
     );
@@ -168,7 +168,7 @@ export default function App() {
     <div className="app">
       <aside className="rail">
         <div className="brand">
-          <img className="mark" src={BRAND_ICON} alt="" aria-hidden />
+          <img className="mark" src={BRAND_MARK} alt="" aria-hidden />
           <div>
             <div className="bname">积分枢纽</div>
             <div className="bsub">POINTHUB</div>

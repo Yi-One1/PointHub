@@ -18,7 +18,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "用户提供的文件" / "软件图标"
@@ -39,9 +39,11 @@ ADAPTIVE_BG = "#F4FBF7"  # matches the rounded background of pointhub-icon.svg
 # artwork and repadded to a thin, uniform edge so the plate stays readable at 16-32px.
 PAD_RATIO = 0.0
 # Windows 任务栏只有 24px 左右，整块底板摆进去时绿色图形显得很小。
-# 裁掉约 35% 底板（1.55 倍）让图形占比更大；圆角几乎看不出来，但观感仍是一个方块，
-# 不像 1.7 倍那样变成硬直角。
-BUNDLE_ZOOM = 1.55
+# 裁掉约 20% 底板（1.25 倍）让图形占比更大。
+BUNDLE_ZOOM = 1.25
+# 裁进底板后四个角会被切掉，按原图的比例（rx 18 / 边长 84）重新倒圆角，
+# 放大后看上去仍是同一枚圆角方块。
+PLATE_CORNER_RATIO = 18 / 84
 # Small-size tray icon: transparent mark, not the pale plate (plate would vanish on a
 # light taskbar and look like an empty square). Dark variant follows the OS theme.
 TRAY_SIZE = 32
@@ -80,7 +82,23 @@ def tight(im: Image.Image, size: int, zoom: float = 1.0) -> Image.Image:
     im = im.resize((inner, inner), Image.LANCZOS)
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     canvas.paste(im, (pad, pad), im)
+    if zoom > 1.0:
+        canvas = round_corners(canvas, size, PLATE_CORNER_RATIO * zoom)
     return canvas
+
+
+def round_corners(im: Image.Image, size: int, ratio: float) -> Image.Image:
+    """Mask the canvas to a rounded square; drawn at 4x then downsampled for clean AA."""
+    r = max(1, round(size * ratio))
+    scale = 4
+    mask = Image.new("L", (size * scale, size * scale), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, size * scale - 1, size * scale - 1), radius=r * scale, fill=255
+    )
+    mask = mask.resize((size, size), Image.LANCZOS)
+    out = im.copy()
+    out.putalpha(ImageChops.multiply(im.getchannel("A"), mask))
+    return out
 
 
 def mean_diff(a: Image.Image, b: Image.Image) -> float:

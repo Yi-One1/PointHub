@@ -2,10 +2,11 @@
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
 > `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本
-> **v0.9.2（已验收，产物已出、待发布）**。
+> **v0.9.2（已验收、已发布）**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-发布：<https://github.com/Yi-One1/PointHub/releases>（已发布 v0.5.0 / v0.6.0；v0.9.2 为本次待发布）
+发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.9.2>
+（更早的 v0.5.0 / v0.6.0 同样已发布）
 
 ---
 
@@ -67,8 +68,8 @@
 
 ## 未完成的待办
 
-- [ ] **发布 v0.9.2**：推 `master`、打 `v0.9.2` tag、上传便携 exe，写 Release notes
-      （若本次收尾已自动完成，可删掉这条）。
+- [x] **发布 v0.9.2**：`master` 已推送、`v0.9.2` tag 已打、便携 exe 与安装包已上传，
+      Release notes 已写（对比 v0.6.0）。
 - [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要在发版后真跑一次。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
 - [ ] **清理大体积构建产物**（用户曾选择暂缓；本次收尾已列出清单待授权）：
@@ -84,7 +85,7 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.9.2.exe`（5.2 MB）；历史版本均在 `dist/` |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.9.2.exe`（5.2 MB）与 `_Setup.exe`（2.1 MB）；历史版本均在 `dist/` |
 | Android 正式包 | `dist/积分枢纽PointHub_v0.6.0.apk`（8.0 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |

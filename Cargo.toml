@@ -10,7 +10,14 @@ members = [
     "crates/ph-update",
     "crates/ph-cli",
 ]
-exclude = ["apps/desktop/src-tauri", "apps/desktop/ui"]
+exclude = [
+    "apps/desktop/src-tauri",
+    "apps/desktop/ui",
+    # 第三方参考项目（仅本地参考，见 .gitignore）：不属于本工作区，
+    # 否则它们内部的 src-tauri 会被误认为是本项目的成员而报错。
+    "GitHub上的参考项目/1. CheckinBox-Tools/src-tauri",
+    "GitHub上的参考项目/2. Trae-workbuddyAssistant/src-tauri",
+]
 
 [workspace.package]
 version = "0.9.2"

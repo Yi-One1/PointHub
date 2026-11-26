@@ -64,6 +64,8 @@ $rsInputs += Get-ChildItem (Join-Path $root "crates") -Recurse -File -Include *.
 $rsInputs += Get-ChildItem (Join-Path $crate "src") -Recurse -File -ErrorAction SilentlyContinue
 # Icons are embedded into the exe at compile time; regenerate them and rebuild.
 $rsInputs += Get-ChildItem (Join-Path $crate "icons") -Recurse -File -ErrorAction SilentlyContinue
+# lan.html 等内嵌资源是 include_str! 编进二进制的，改动同样需要重编。
+$rsInputs += Get-ChildItem (Join-Path $crate "assets") -Recurse -File -ErrorAction SilentlyContinue
 # Frontend assets are embedded at compile time, so a UI change also needs a rebuild.
 $rsInputs += $distNewest
 $rsNewest = Newest $rsInputs

@@ -2,6 +2,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { useTheme } from "./theme";
+import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
 import type { AccountView, StateView } from "./types";
 
@@ -197,7 +198,10 @@ export default function Ball() {
             <button className={`bp-row ${selected === null ? "on" : ""}`} onClick={() => pick(null)}>
               <span className="bp-tick">{selected === null ? "✓" : ""}</span>
               <span className="bp-name">全部合计</span>
-              <span className="bp-val">{fmt(total)}</span>
+              <span className="bp-val">
+                {fmt(total)}
+                <PointsIcon tone="bronze" size={11} />
+              </span>
             </button>
 
             {groups.map((g) => (
@@ -205,7 +209,10 @@ export default function Ball() {
                 <div className="bp-group">
                   <VendorIcon vendor={g.vendor} size={13} />
                   <span>{g.display}</span>
-                  <b>{fmt(g.subtotal)}</b>
+                  <b>
+                    {fmt(g.subtotal)}
+                    <PointsIcon tone="ink" size={10} />
+                  </b>
                 </div>
                 {g.accounts.map((a) => (
                   <button
@@ -216,7 +223,16 @@ export default function Ball() {
                   >
                     <span className="bp-tick">{selected === a.id ? "✓" : ""}</span>
                     <span className="bp-name">{a.label}</span>
-                    <span className="bp-val">{a.balance === null ? "—" : fmt(a.balance)}</span>
+                    <span className="bp-val">
+                      {a.balance === null ? (
+                        "—"
+                      ) : (
+                        <>
+                          {fmt(a.balance)}
+                          <PointsIcon tone="jade" size={11} />
+                        </>
+                      )}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -266,7 +282,16 @@ export default function Ball() {
           />
         </svg>
         <div className="ball-inner">
-          <div className="ball-value">{value}</div>
+          <div className="ball-value">
+            {show === "pending_count" ? (
+              value
+            ) : (
+              <>
+                {value}
+                <PointsIcon tone={account ? "jade" : "bronze"} size={13} />
+              </>
+            )}
+          </div>
           <div className="ball-caption">{caption}</div>
         </div>
       </div>

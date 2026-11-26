@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "./api";
 import { BRAND_MARK, BRAND_MARK_DARK } from "./assets";
 import { useTheme } from "./theme";
+import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
 import type {
   AccountView,
@@ -315,7 +316,10 @@ function Overview({
       <div className="kpis">
         <div className="kpi">
           <div className="klabel">积分合计</div>
-          <div className="kval">{credits(view.aggregate.total_balance)}</div>
+          <div className="kval">
+            {credits(view.aggregate.total_balance)}
+            <PointsIcon tone="bronze" size={18} />
+          </div>
           <div className="prog" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
             <i style={{ width: `${pct}%` }} />
           </div>
@@ -331,7 +335,15 @@ function Overview({
         <div className="kpi">
           <div className="klabel">今日新增</div>
           <div className="kval">
-            {todayGain === null ? "—" : `${todayGain >= 0 ? "+" : ""}${credits(todayGain)}`}
+            {todayGain === null ? (
+              "—"
+            ) : (
+              <>
+                {todayGain >= 0 ? "+" : ""}
+                {credits(todayGain)}
+                <PointsIcon tone="jade" size={18} />
+              </>
+            )}
           </div>
           <div className="kfoot">较昨日余额</div>
         </div>
@@ -369,6 +381,7 @@ function Overview({
                 {!g.verified && <span className="tag tag-muted">端点待实测</span>}
                 <span className="psub">
                   {g.accounts.length} 账号 · 小计 {credits(g.subtotal)}
+                  <PointsIcon tone="ink" size={10} />
                   {g.unknown > 0 ? ` · ${g.unknown} 个未知` : ""}
                 </span>
               </div>
@@ -396,7 +409,7 @@ function Overview({
                       ) : (
                         <>
                           {credits(a.balance)}
-                          <small>分</small>
+                          <PointsIcon tone="jade" size={13} />
                         </>
                       )}
                     </div>
@@ -457,10 +470,32 @@ function TrendCard({ trend }: { trend: DayPoint[] }) {
   const gains = trend.map((t) => t.gain);
   const max = Math.max(...gains.map((g) => Math.abs(g ?? 0)), 1);
   const hasAny = gains.some((g) => g !== null && g !== 0);
+  const [hover, setHover] = useState<number | null>(null);
+  const cur = hover !== null ? trend[hover] : null;
 
   return (
     <div className="bcard">
-      <div className="btitle">近 7 日每日新增</div>
+      <div className="btitle">
+        <span>近 7 日每日新增</span>
+        {cur && (
+          <span className="btip">
+            {cur.date}
+            {cur.gain === null ? (
+              " · 无对比"
+            ) : (
+              <>
+                {" · 新增 "}
+                {cur.gain >= 0 ? "+" : ""}
+                {credits(cur.gain)}
+                <PointsIcon tone="jade" size={10} />
+              </>
+            )}
+            {" · 合计 "}
+            {credits(cur.total)}
+            <PointsIcon tone="ink" size={10} />
+          </span>
+        )}
+      </div>
       {!hasAny ? (
         <div className="ev-empty">还不到两天数据，攒够两天才有对比</div>
       ) : (
@@ -469,7 +504,12 @@ function TrendCard({ trend }: { trend: DayPoint[] }) {
             const g = t.gain;
             const h = g === null || g === 0 ? 3 : Math.max(6, Math.round((Math.abs(g) / max) * 56));
             return (
-              <div key={t.date} title={`${t.date} · ${g === null ? "无对比" : `${g >= 0 ? "+" : ""}${g}`} · 合计 ${t.total}`}>
+              <div
+                key={t.date}
+                title={`${t.date} · ${g === null ? "无对比" : `${g >= 0 ? "+" : ""}${g}`} · 合计 ${t.total}`}
+                onMouseEnter={() => setHover(i)}
+                onMouseLeave={() => setHover(null)}
+              >
                 <i style={{ height: `${h}px` }} data-empty={g === null || g === 0 ? "1" : "0"} />
                 <span>{i === trend.length - 1 ? "今日" : t.date}</span>
               </div>
@@ -493,7 +533,12 @@ function ActivityCard({ events }: { events: StateView["events"] }) {
           <div className="ev" key={`${e.at}-${e.account_id}-${i}`}>
             <b>{e.label}</b>
             <span className="ev-text">{e.text}</span>
-            {e.delta !== null && e.delta > 0 && <span className="ev-delta">+{e.delta}</span>}
+            {e.delta !== null && e.delta > 0 && (
+              <span className="ev-delta">
+                +{e.delta}
+                <PointsIcon tone="jade" size={10} />
+              </span>
+            )}
             <time>{clock(e.at)}</time>
           </div>
         ))
@@ -714,7 +759,14 @@ function AccountsPage({
                     </div>
                   </div>
                   <div className="acct-balance">
-                    {a.balance === null ? "—" : credits(a.balance)}
+                    {a.balance === null ? (
+                      "—"
+                    ) : (
+                      <>
+                        {credits(a.balance)}
+                        <PointsIcon tone="jade" size={12} />
+                      </>
+                    )}
                   </div>
                   <button className="icon-btn" title="删除" onClick={() => setTarget(a)} disabled={busy !== null}>
                     <IconTrash />

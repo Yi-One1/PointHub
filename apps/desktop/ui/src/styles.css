@@ -413,6 +413,20 @@ html[data-theme="dark"] .prog {
   background: var(--faint);
 }
 
+/* 积分单位图标：跟在数字后面，和数字基线对齐。 */
+.pts {
+  display: inline-block;
+  vertical-align: -0.12em;
+  margin-left: 3px;
+  flex: none;
+  object-fit: contain;
+}
+
+/* 墨色图标本身接近 #3B3C41，深色底上会消失，按主题提亮到中灰。 */
+html[data-theme="dark"] .pts-ink {
+  filter: brightness(2.6);
+}
+
 /* 平台 logo：小圆角方块。Trae/Qoder 是白底 logo，白面板上需要一圈极细轮廓。 */
 .vicon {
   display: block;
@@ -474,13 +488,6 @@ html[data-theme="dark"] .vicon {
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
-}
-
-.rnum small {
-  font-size: 10.5px;
-  font-weight: 400;
-  color: var(--faint);
-  margin-left: 2px;
 }
 
 .rnum-none {
@@ -582,9 +589,19 @@ html[data-theme="dark"] .go.solid {
 }
 
 .btitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11.5px;
   color: var(--muted);
   margin-bottom: 10px;
+}
+
+.btip {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .bars {

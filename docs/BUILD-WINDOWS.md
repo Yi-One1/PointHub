@@ -1,7 +1,7 @@
 # Windows 构建避坑
 
 项目放在含中文的路径下（`E:\AI工作空间\积分枢纽PointHub`），Windows 工具链里有一批组件
-不吃非 ASCII 路径。安卓侧的四个坑见 [ANDROID.md](ANDROID.md)，本文记录桌面端与 Cargo 侧的坑。
+不吃非 ASCII 路径。安卓侧的五个坑见 [ANDROID.md](ANDROID.md)，本文记录桌面端与 Cargo 侧的坑。
 
 ## 增量编译卡死（现象最像「程序挂了」，其实不是）
 

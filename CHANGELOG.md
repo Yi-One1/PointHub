@@ -14,7 +14,12 @@
   （托盘最小化状态也会恢复）；依赖官方 `tauri-plugin-single-instance`。
 - 清晰度：桌面与任务栏图标改为从 256px 母图裁剪后缩小，不再把小图放大 1.25 倍。
 - 对齐：积分图标由「底部对齐」改为基线对齐，视觉中心与数字一致；手机页同步。
-- 安卓：APK 由 0.6.0 重打到 0.11.0，包含新启动图标、平台 logo、积分图标与新 UI。
+- 安卓：APK 由 0.6.0 重打到 0.11.0，包含新启动图标、平台 logo、积分图标与新 UI；
+  构建链的 Windows 兼容问题（非 ASCII 路径、`node.bat`、`node tauri` 入口）全部脚本化。
+
+**测试**：`cargo test --workspace` 90 项、前端 20 项、`tsc --noEmit`、`vite build`、
+`gen-app-icons.py --check` 全部通过；单实例脚本实测第二个进程 0.2 秒退出；APK
+`apksigner verify` 通过（versionName 0.11.0 / versionCode 11000 / targetSdk 36）。
 
 ## [0.10.1] - 2026-11-27
 

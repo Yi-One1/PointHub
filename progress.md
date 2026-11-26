@@ -1,11 +1,11 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-27，版本
-> **v0.11.0**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-27，版本 **v0.11.0**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-上一发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.10.1>
+最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.11.0>
+（上一版：<https://github.com/Yi-One1/PointHub/releases/tag/v0.10.1>）
 
 ---
 
@@ -34,16 +34,16 @@
 - **自动更新 / 卸载 / 数据目录**：查 GitHub Releases、比较语义化版本；NSIS 卸载钩子
   默认清账号数据（可勾选保留）；发行版数据目录跟随 exe（D20）。
 - **图标体系（0.10.0）**：应用图标全链路替换（exe / 任务栏 / 托盘 / 侧栏 / 启动页 /
-  favicon / Android）；平台 logo 进入 5 处界面；积分数值的「分」全部换成彩色图标
-  （主窗口、悬浮球、手机页、趋势悬停）。
-- **覆盖升级图标缓存（0.10.1）**：安装包 `POSTINSTALL` 跑 `ie4uinit`，程序首次以新
-  版本启动时用 `SHChangeNotify` 重读三个快捷方式；解决「升级后桌面还是旧图标」。
-- **图标清晰度与对齐（0.11.0）**：桌面/任务栏图标统一从 256px 母图缩小（不再放大
-  1.25 倍）；积分图标改基线对齐，视觉中心与数字一致（手机页同步）。
+  favicon / Android）；平台 logo 进入 5 处界面；积分数值的「分」全部换成彩色图标。
+- **覆盖升级图标缓存（0.10.1）**：NSIS `POSTINSTALL` 用 `ie4uinit` 重建图标缓存；
+  程序首次以新版本启动时用 `SHChangeNotify` 重读三个快捷方式（每版本一次）。
+- **图标清晰度与对齐（0.11.0）**：桌面/任务栏图标统一从 **256px 母图缩小**
+  （不再把小图放大 1.25 倍）；积分图标改**基线对齐**，视觉中心与数字一致
+  （手机页 `lan.html` 同步）。
 - **单实例（0.11.0）**：`tauri-plugin-single-instance` 最先注册，第二次启动唤起并
   置前已有窗口（含托盘最小化）；`scripts/test-single-instance.ps1` 可自动验证。
-- **覆盖升级图标缓存修复（0.10.1）**：NSIS `POSTINSTALL` 重建图标缓存 + 程序首次以新
-  版本启动时 `SHChangeNotify` 通知 shell 重读桌面/开始菜单快捷方式（每版本一次）。
+- **安卓重打（0.11.0）**：APK 从 0.6.0 直接重打到 0.11.0（arm64 / 8.3 MB），
+  含新图标、平台 logo、积分图标与新 UI；构建链的 Windows 兼容问题全部脚本化。
 
 ---
 
@@ -57,12 +57,15 @@
    版本单点在 `Cargo.toml [workspace.package] version`，`scripts/sync-version.ps1`
    同步其余三处；`dist/` 视为交付历史，不覆盖、不删除（D09）。
 6. **图标资产不入库**：源文件在 `用户提供的文件/软件图标/`，`scripts/gen-app-icons.py`
-   生成 `src-tauri/icons/`；Android 图标由 `scripts/build-android.bat` 构建前重写（D22）。
+   生成 `src-tauri/icons/`；Android mipmap 由 `build-android.bat` 构建前重写（D22）。
 7. **应用图标分两套素材**：完整底板（桌面 / 任务栏 / 安装包 / launcher）+ 透明标记
-   （侧栏 / 启动页 / 托盘 / favicon）；Windows 图标按 1.25 倍裁进底板并重新倒圆角，
-   否则 24px 任务栏里图形太小（D22）。
-8. **积分图标按位置定色调**：合计/总值青铜、平台小计墨、余额/新增玉；深色主题下墨色
-   提亮 2.6 倍；手机页把图标 base64 内联，不发额外请求（D22）。
+   （侧栏 / 启动页 / 托盘 / favicon）；Windows 按 1.25 倍裁进底板并重新倒圆角（D22）。
+8. **小尺寸只缩小不放大**：所有桌面尺寸从 256px 母图裁→缩；放大必然发虚（0.11.0）。
+9. **积分图标按位置定色调**：合计/总值青铜、平台小计墨、余额/新增玉；深色主题下墨色
+   提亮；手机页 base64 内联（D22）。
+10. **安卓构建补丁全部留在 `scripts/`**：`gen/` 不入库，每次构建幂等重打——
+    Gradle 非 ASCII 路径、`node.bat` / `npm.bat` 垫片、`node tauri` 入口改写
+    （详见 `docs/ANDROID.md` 的五个坑）；发布包优先 arm64 单架构。
 
 详见 `DECISIONS.md` D01–D22。
 
@@ -70,12 +73,10 @@
 
 ## 未完成的待办
 
-- [ ] **发布 v0.10.1**：推送 `master`、打 `v0.10.1` tag、上传便携 exe 与安装包、
-      写 Release notes（对比 v0.10.0，修复快捷方式图标缓存）。
-- [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要在发版后真跑一次。
+- [ ] **自动更新「下载 → 安装」真跑**：检查/下载链路已验证；v0.11.0 发布后在旧版
+      上完整走一次下载与安装向导。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
-- [ ] **Android APK 未跟到 0.10.0**：`dist/` 里最新 APK 仍是 v0.6.0；需要时
-      `tauri android init` + `scripts/build-android.bat release --target aarch64`。
+- [ ] **安卓应用内直接调起安装器**：目前跳浏览器下载 APK（需原生 Intent 插件，见 D08）。
 
 ---
 
@@ -85,22 +86,32 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.10.1.exe` 与 `_Setup.exe`；历史版本均在 `dist/` |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.6.0.apk`（8.0 MB，arm64，debug 签名） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.11.0.exe` 与 `_Setup.exe`；历史版本均在 `dist/` |
+| Android 正式包 | `dist/积分枢纽PointHub_v0.11.0.apk`（8.3 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
 | 预览启动 | 双击 `1. 一键启动预览.bat`（按文件时间增量编译，无改动秒开） |
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
-| Android 打包 | `scripts\build-android.bat release --target aarch64` |
-| 图标生成/校验 | `python scripts/gen-app-icons.py [--check]`（菜单/窗口/Android 全套） |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（18 项） |
+| Android 打包 | `scripts\build-android.bat release --target aarch64`（需先 `npm install` 于 `apps\desktop\ui`） |
+| 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（20 项） |
+| 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
 
-### 图标实现要点（0.10.0）
+### 安卓构建的五个坑（细节见 `docs/ANDROID.md`）
+
+1. NDK 不认中文路径 → `CARGO_TARGET_DIR=D:\ph-build\target`；
+2. Gradle 拒绝非 ASCII 路径 → `android.overridePathCheck=true`（脚本幂等写入）；
+3. 插件硬调 `npm.bat` / `node.bat` → `scripts/shims/` 垫片放进 PATH 最前；
+4. 插件回查 CLI 配置 → `src-tauri/package.json` 提供同名空脚本；
+5. 新模板执行 `node tauri ...` → `patch-android-sources.ps1` 改写为
+   `../ui/node_modules/@tauri-apps/cli/tauri.js`。
+
+### 图标实现要点
 
 - **改图标必重编**：`build.rs` 已声明 `rerun-if-changed=icons`；`lib.rs` 启动时显式
-  `set_icon(icons/icon.png)`。否则只改 PNG 时任务栏会一直显示旧图。
+  `set_icon(icons/icon.png)`。
 - **桌面快捷方式图标**：资源管理器按 `.lnk` 缓存，覆盖安装不会自动失效。0.10.1 起
   装机后由 NSIS 钩子重建缓存，程序启动再按版本号补一次 `SHChangeNotify`。
   仍遇到旧图时：重开资源管理器或清 `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db`。
@@ -108,24 +119,27 @@
 - **平台 logo**：`ui/src/assets/vendors/`，已裁掉透明留白；白底 logo 加 1px 轮廓；
   未收录平台回退成识别色圆点。
 - **积分图标**：`ui/src/assets/points/`（bronze / ink / jade，64px RGBA），
-  `PointsIcon` 组件统一尺寸与基线；手机页内联 base64。
-- 用户提供的原始素材（含深色版）只在本地，换机器需自行放回。
+  `PointsIcon` 统一尺寸与基线；手机页内联 base64。
+- **素材**：用户提供的原始素材（含深色版）只在本地，换机器需自行放回。
 
 ### 验证过的证据
 
-- `cargo test --workspace` **90 个测试全绿**；`cargo check --workspace` 零错误；
-  桌面端 `cargo check` 通过；前端 **18/18**、`tsc --noEmit`、`vite build` 通过。
-- `gen-app-icons.py --check`：bundle PNG / ICO / Android mipmap / 托盘图标与源图逐像素一致。
+- `cargo test --workspace` **90 个测试全绿**；`cargo check --workspace` 零错误。
+- 前端 **20/20**、`tsc --noEmit`、`vite build` 通过；`gen-app-icons.py --check` 通过。
+- 0.11.0 APK：`aapt dump badging` 显示 versionName 0.11.0 / versionCode 11000 /
+  targetSdk 36 / native-code 仅 arm64-v8a；mipmap 160–640 五档齐全；
+  `apksigner verify` 通过（debug 证书）。
+- 单实例：第二个进程 0.2 秒退出（exit=0），首个窗口被唤起。
 - 从 exe 资源实测：内嵌 32px 图标包围盒 `(0,0,32,32)`，与 `icons/32x32.png` 像素差 0。
 - 0.8.0 真实账号：Trae 余额约 1478、Qoder 余额 909，`checked_in=true`，重复签到不重复领取。
-- 0.9.2 去重合并：真实数据副本两条 → 导入后一条；原数据未被修改。
 - 手机端无头浏览器：错误码 400、无 token 401、重复用码 400、已签账号 `alreadydone`。
 
 ### 隐私与仓库卫生
 
-- 仓库体检：跟踪文件约 100 个，最大 149 KB，`.git` 约 1 MB；未发现令牌、私钥、
-  邮箱或账号数据；`dist/`、`target/`、`gen/`、`node_modules/`、`.trae/`、
-  `用户提供的文件/`、`GitHub上的参考项目/` 均不入库。
+- 仓库体检：只跟踪源码与文档，最大文件远小于 1 MB；未发现令牌、私钥、邮箱或账号数据。
+- `dist/`、`target/`、`gen/`、`node_modules/`、`.trae/`、`用户提供的文件/`、
+  `GitHub上的参考项目/` 均不入库；运行产物 `debug.log` / `device.json` / `logs/` /
+  `.icons-version` 已忽略。
 - 用户真实账号数据只在本机 `data/`，永远不会被提交。
 
 ### 接手时的第一件事

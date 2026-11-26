@@ -187,7 +187,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 
 | 指标 | 数值 |
 |---|---|
-| 便携 exe 体积 | 5.2 MB（单文件，无外部资源） |
+| 便携 exe 体积 | 5.3 MB（单文件，无外部资源） |
 | 空闲内存 | 约 78 MB |
 | 冷启动到可见界面 | 1 秒内 |
 
@@ -234,7 +234,7 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 多账号管理、逐账号签到 + 一键全部签到
 - [x] 总览控制台：四格 KPI、按平台分组、近 7 日每日新增、最近活动
 - [x] 调度器常驻（每 45 秒核对，到点执行，错过按设置补签）
-- [x] Android 工程与 APK 构建链路（release 包 8.0 MB，见 `docs/ANDROID.md`）
+- [x] Android 工程与 APK 构建链路（release 包 8.3 MB，见 `docs/ANDROID.md`）
 - [x] 局域网互通（PC 服务端 + 手机浏览器配对）
 - [x] Android 端界面适配（单列布局、触控尺寸、底部导航）
 - [x] 安卓 App 双模式：本机模式 / 连接电脑，持久配对、远程签到
@@ -250,8 +250,8 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 自动更新：检查 GitHub Releases、下载安装包、更新源可配镜像
 - [x] 卸载清理（NSIS 钩子：默认删除账号数据，可勾选保留）
 - [x] 数据目录跟随安装目录（旧版首次启动自动迁移）
-- [x] v0.6.0（便携 exe / 安装包 / arm64 APK）、v0.9.2、v0.10.0 与 v0.10.1
-      （便携 exe / 安装包）已发布到 GitHub Releases
+- [x] v0.6.0（便携 exe / 安装包 / arm64 APK）、v0.9.2、v0.10.0、v0.10.1 与
+      v0.11.0（便携 exe / 安装包 / arm64 APK）已发布到 GitHub Releases
 
 最新发布：<https://github.com/Yi-One1/PointHub/releases>
 

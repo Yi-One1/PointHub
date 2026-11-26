@@ -469,6 +469,32 @@ impl Engine {
                 cred.platform_uid = Some(uid);
             }
         }
+        // 以前用本机导入建的记录没有 platform_uid（令牌轮换过就对不上整串）。
+        // 借这次导入顺手问一次平台：能解析出同一个 uid 就先补上，随后 upsert 会合并。
+        if let Some(uid) = cred.platform_uid.clone() {
+            let pending: Vec<(String, Credential)> = self
+                .accounts
+                .iter()
+                .filter(|a| a.vendor == vendor && a.platform_uid.is_none())
+                .filter_map(|a| self.vault.get(&a.id).map(|c| (a.id.clone(), c.clone())))
+                .collect();
+            let mut matched = Vec::new();
+            for (id, old) in pending {
+                if let Ok(Some(other)) = provider.identity(&old).await {
+                    if other == uid {
+                        matched.push(id);
+                    }
+                }
+            }
+            if !matched.is_empty() {
+                for id in &matched {
+                    if let Some(a) = self.accounts.iter_mut().find(|a| &a.id == id) {
+                        a.platform_uid = Some(uid.clone());
+                    }
+                }
+                self.store.save_accounts(&self.accounts)?;
+            }
+        }
         let snap = provider.snapshot(&probe, &cred).await?;
         let (account, updated, merged) = self.upsert_account(vendor, label, cred)?;
         Ok((account, snap, updated, merged))

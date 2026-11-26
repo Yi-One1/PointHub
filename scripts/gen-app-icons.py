@@ -38,6 +38,9 @@ ADAPTIVE_BG = "#F4FBF7"  # matches the rounded background of pointhub-icon.svg
 # Source artwork keeps ~7% transparent margin on every side. Outputs are trimmed to the
 # artwork and repadded to a thin, uniform edge so the plate stays readable at 16-32px.
 PAD_RATIO = 0.0
+# Windows 任务栏只有 24px 左右，整块底板摆进去时绿色图形显得很小。
+# 裁掉约 20% 底板（1.25 倍）让图形占比更大；四角仍保留圆角，看起来还是圆角方块。
+BUNDLE_ZOOM = 1.25
 # Small-size tray icon: transparent mark, not the pale plate (plate would vanish on a
 # light taskbar and look like an empty square). Dark variant follows the OS theme.
 TRAY_SIZE = 32
@@ -56,8 +59,8 @@ def load(size: int) -> Image.Image:
     return Image.open(source(size)).convert("RGBA")
 
 
-def tight(im: Image.Image, size: int) -> Image.Image:
-    """Trim transparent margin, center on a square canvas, repad by PAD_RATIO."""
+def tight(im: Image.Image, size: int, zoom: float = 1.0) -> Image.Image:
+    """Trim transparent margin, optionally crop into the plate, then fit the canvas."""
     im = im.convert("RGBA")
     bbox = im.split()[3].getbbox()
     if bbox:
@@ -65,7 +68,13 @@ def tight(im: Image.Image, size: int) -> Image.Image:
     w, h = im.size
     side = min(w, h)
     im = im.crop(((w - side) // 2, (h - side) // 2, (w - side) // 2 + side, (h - side) // 2 + side))
-    pad = max(1, round(size * PAD_RATIO))
+    if zoom > 1.0:
+        inner_side = side / zoom
+        off = (side - inner_side) / 2
+        im = im.crop(
+            (round(off), round(off), round(off + inner_side), round(off + inner_side))
+        )
+    pad = max(0, round(size * PAD_RATIO))
     inner = max(1, size - 2 * pad)
     im = im.resize((inner, inner), Image.LANCZOS)
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -83,7 +92,7 @@ def mean_diff(a: Image.Image, b: Image.Image) -> float:
 def write_pngs() -> None:
     ICONS.mkdir(parents=True, exist_ok=True)
     for name, size in PNG_TARGETS.items():
-        tight(load(size), size).save(ICONS / name, optimize=True)
+        tight(load(size), size, BUNDLE_ZOOM).save(ICONS / name, optimize=True)
         print(f"[icons] wrote {name} ({size}px)")
 
     for name, path in (("tray", MARK_SRC), ("tray-dark", MARK_DARK_SRC)):
@@ -91,7 +100,7 @@ def write_pngs() -> None:
         tight(art, TRAY_SIZE).save(ICONS / f"{name}-{TRAY_SIZE}.png", optimize=True)
         print(f"[icons] wrote {name}-{TRAY_SIZE}.png")
 
-    frames = [tight(load(s), s) for s in ICO_SIZES]
+    frames = [tight(load(s), s, BUNDLE_ZOOM) for s in ICO_SIZES]
     frames[-1].save(
         ICONS / "icon.ico",
         format="ICO",
@@ -162,7 +171,7 @@ def check(android_res: Path) -> int:
         if got.size != (size, size):
             errors.append(f"{name} size {got.size} != {(size, size)}")
             continue
-        diff = mean_diff(got, tight(load(size), size))
+        diff = mean_diff(got, tight(load(size), size, BUNDLE_ZOOM))
         if diff > 0.5:
             errors.append(f"{name} differs from freshly trimmed source (mean {diff:.1f})")
         bad = framing_ok(got, size)
@@ -193,7 +202,7 @@ def check(android_res: Path) -> int:
             im.size = (256, 256)
             im.load()
             big = im.convert("RGBA")
-            diff = mean_diff(big, tight(load(256), 256))
+            diff = mean_diff(big, tight(load(256), 256, BUNDLE_ZOOM))
             if diff > 0.5:
                 errors.append(f"icon.ico 256px differs from freshly trimmed source (mean {diff:.1f})")
             bad = framing_ok(big, 256)

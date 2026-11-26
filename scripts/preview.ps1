@@ -62,6 +62,8 @@ $rsInputs += Get-Item (Join-Path $root "Cargo.toml") -ErrorAction SilentlyContin
 $rsInputs += Get-Item (Join-Path $crate "Cargo.toml") -ErrorAction SilentlyContinue
 $rsInputs += Get-ChildItem (Join-Path $root "crates") -Recurse -File -Include *.rs, *.toml -ErrorAction SilentlyContinue
 $rsInputs += Get-ChildItem (Join-Path $crate "src") -Recurse -File -ErrorAction SilentlyContinue
+# Icons are embedded into the exe at compile time; regenerate them and rebuild.
+$rsInputs += Get-ChildItem (Join-Path $crate "icons") -Recurse -File -ErrorAction SilentlyContinue
 # Frontend assets are embedded at compile time, so a UI change also needs a rebuild.
 $rsInputs += $distNewest
 $rsNewest = Newest $rsInputs

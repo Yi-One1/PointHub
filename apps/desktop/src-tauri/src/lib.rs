@@ -76,7 +76,17 @@ pub fn run() {
     }
 
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // 单实例插件必须最先注册：第二次启动时把已有窗口唤到前台，本进程随后退出。
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            bring_main_window(app);
+        }));
+    }
+
+    let mut builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -705,6 +715,21 @@ pub fn spawn_update_check(app: tauri::AppHandle) {
             Err(e) => eprintln!("更新检查失败：{}", e.user_message()),
         }
     });
+}
+
+#[cfg(test)]
+mod single_instance_tests {
+    #[test]
+    fn plugin_registered_and_focuses_main_window() {
+        let src = include_str!("lib.rs");
+        let si = src.find("tauri_plugin_single_instance::init").expect("未注册单实例插件");
+        let other = src.find("tauri_plugin_notification::init").unwrap();
+        assert!(si < other, "单实例插件必须先于其它插件注册");
+        assert!(
+            src.contains("bring_main_window(app)"),
+            "第二次启动没有唤起主窗口"
+        );
+    }
 }
 
 #[cfg(all(test, desktop, windows))]

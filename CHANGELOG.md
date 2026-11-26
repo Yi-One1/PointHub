@@ -6,6 +6,62 @@
 > **产物不覆盖**：`dist/` 里已出的包视为交付历史，构建脚本拒绝覆盖或删除。
 > 要再出一版，先升 `Cargo.toml` 的 `[workspace.package] version`。
 
+## [0.9.2] - 2026-11-26
+
+**修复：浏览器授权导入同一账号时没有合并旧记录**（问题修正，升 PATCH）。
+
+### 修复
+
+- **浏览器授权导入后仍留两条**：Trae 本机令牌的 JWT 只有 `data.id`、没有 `sub`，
+  身份解析一直返回空，新凭据匹配不到旧记录。`identity` 现在先读 `data.id`，
+  再退回 `sub`。
+- **旧记录没有身份就永远合不上**：新增 `Engine::adopt_identities`，导入前先用旧凭据
+  问一次平台（Trae 读 JWT，Qoder 走 userinfo），能对上同一个 uid 就先补写身份，
+  随后的 upsert 才能合并。本机导入 / 浏览器授权 / 手动令牌三条路径都调用。
+- **同令牌旧记录兜底**：`upsert_account` 对同一平台、整串令牌完全相同的旧记录
+  一并合并，避免令牌轮换前留下的重复项。
+
+### 测试
+
+- 新增 `adopt_identity_merges_legacy_trae_record`、`uid_from_jwt_reads_data_id`。
+- `cargo test --workspace` 90 个全绿；桌面端测试与前端 `tsc + vite build` 通过。
+- 用真实数据副本验证：导入前两条（本机无身份 / 网页有身份）→ 导入后一条。
+
+## [0.9.1] - 2026-11-26
+
+**修复：本机导入的账号没有平台用户 id，重复导入会新建记录**（升 PATCH）。
+
+- `local_import` 从 Trae 登录态 JSON 读取 `userId`、从 Qoder session 读取
+  `user_id / userId / uid`，写入 `Credential.platform_uid`。
+- `Provider::identity` 增加默认实现，Qoder 用 `/api/v1/userinfo` 反查 uid。
+- `upsert_account` 在比对前先用已存凭据补齐旧记录身份（`backfill_platform_uid`）。
+
+## [0.9.0] - 2026-11-26
+
+**新增：Trae CN / Qoder CN 浏览器授权与令牌续期**（新功能，升 MINOR）。
+
+### 新增
+
+- **Trae CN 浏览器授权**：打开 `https://www.trae.cn/authorization`，本地
+  `127.0.0.1` 随机端口接回调，用 PKCE 换 `POST /trae/api/v3/oauth/ExchangeToken`；
+  同时生成 ECDSA P-256 设备密钥，续期时对
+  `POST\n<path>\n<client_id>\n<refresh>\n<ts>\n<nonce>` 签名。
+- **Qoder CN 浏览器授权**：`device/selectAccounts` 打开授权页，按 2 秒轮询
+  `deviceToken/poll` 换令牌；续期走 `deviceToken/refresh`，身份走 `userinfo`。
+- **Token 续期**：Trae / Qoder 的能力矩阵改为 `token_refresh: true`；
+  只在 `expires_at - now < 300` 秒时才续期，避免每次操作都多打一次上游。
+- **凭据模型**：新增 `platform_uid`、`machine_id`、`device_key`（Trae 私钥 PEM）、
+  `refresh_token_id`（Qoder），均只在加密仓内保存；`Debug` 对设备字段脱敏。
+- **客户端加密原语**：新增 `oauth`（PKCE / base64url / 随机数）与 `client_crypto`
+  （DPAPI、AES-256-GCM、AES-128-CBC、SHA-512）。
+- **界面**：删除「Trae/Qoder 还没接入官方授权」的警告，浏览器授权文案改为通用。
+
+### 测试
+
+- PKCE RFC 7636 测试向量、`uid_from_jwt`、本机导入明文 / 密文夹具、
+  Qoder DPAPI + GCM 夹具、Trae 设备校验与 9074 映射等。
+- `cargo test --workspace` 88 个全绿（0.9.0 时点）。
+
 ## [0.8.0] - 2026-11-26
 
 **新增：Trae CN / Qoder CN 端到端**（新功能，按 SemVer 升 MINOR）。

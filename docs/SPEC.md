@@ -4,7 +4,7 @@
 > **部分落地**（核心在，缺外壳/缺验证）、**未开始**（说清卡在哪）。
 > 不做「看起来做了」的表述。
 
-版本：v0.8.0 · 2026-11-26
+版本：v0.9.2 · 2026-11-26
 
 ---
 
@@ -17,7 +17,7 @@
 | 3 | 同一 agent 多账号 | 已落地 | 账号模型按 id 独立，凭据各自加密，`phctl account add` 可加多个 |
 | 4 | Windows + Android 双端互通 | 已落地 | 安卓 App 双模式（连接电脑 / 本机）；持久设备配对后可远程查看、远程签到，`/api/sync/pull` 与 `/api/sync/push` 双向同步账号、快照、历史、活动；凭据不跨电脑；每账号唯一执行端（D03 / D15）。安卓端定时调度仍未做，见第 1 条 |
 | 5 | 手动单个签到 + 一键全部签到 | 已落地 | 总览每行「签到」/ 顶部「一键全部签到」/ 悬浮球面板「一键签到」/ 托盘菜单 / `phctl checkin` |
-| 6 | 浏览器授权 + 本机导入 | 部分落地 | **浏览器授权**：WorkBuddy 已走官方插件授权（长效令牌、自动续期），Trae/Qoder 未接；**本机导入**：WorkBuddy / Trae CN / Qoder CN 均已落地（只读客户端登录态，验证余额后落库，仅 Windows）；Trae/Qoder 仍可手动令牌兜底。三种导入方式统一按 JWT `sub` 去重，拿不到 `sub` 时按整串令牌相同识别 |
+| 6 | 浏览器授权 + 本机导入 | 已落地 | **浏览器授权**：WorkBuddy 走官方插件授权；Trae CN 走授权页 + 本地回调 + `ExchangeToken`；Qoder CN 走设备码轮询，三平台均可用，令牌可续期（D21）。**本机导入**：WorkBuddy / Trae CN / Qoder CN 均可（只读客户端登录态，验证余额后落库，仅 Windows）；手动令牌兜底。三种方式统一按平台用户 id 去重，旧记录导入时自动合并（D19） |
 | 7 | 双端更新功能 | 部分落地 | 检查/下载链路已通：启动自动查 GitHub Releases（可关）+ 设置页「检查 / 下载 / 手动下载」；Windows 下载 `_Setup.exe` 后启动安装向导，安卓跳浏览器下载 APK；来源可切镜像前缀。**未做**：Windows 静默自替换（未接 Tauri updater 签名链）、安卓应用内直接调起安装器（需原生 Intent 插件），见 D08 |
 | 8 | 卸载干净无残留 | 已落地 | 安装包 NSIS 钩子调用 `pointhub.exe --purge-data` / `--purge-app`；默认清理账号、令牌、日志、自启、快捷方式、计划任务、WebView2 缓存，勾选「保留账号数据」则只删程序痕迹；判定标准见 D10 |
 | 9 | Windows 数据目录可自定义 | 已落地 | 发行版默认 `<exe 所在目录>\data`，旧数据首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub`（D20）；设置页「更换数据目录」→ 复制 + 指针文件 + 重启生效；`ph_store::locate` |
@@ -28,7 +28,7 @@
 | 14 | 安卓正常 / 深色 + 跟随系统 | 已落地 | 主题跟随系统；≤760px 走移动端布局：侧栏收成底部标签栏、单列、触控区 ≥40px、`safe-area` 留白。已在 390×844 / 360×640 / 844×390 三档实测无横向溢出 |
 | 15 | 签到后系统弹窗提示 | 已落地 | Windows 接 `tauri-plugin-notification`；安卓新增「签到结果」通知渠道，首次进入前台申请 Android 13+ 通知权限，后台任务直接发系统通知 |
 | 16 | 包名 `中文名英文名_v版本` + 语义化版本 | 已落地 | `积分枢纽PointHub_v<版本>.exe/.apk`；版本号单点来自 `Cargo.toml` 的 `workspace.package.version` |
-| 17 | 体积小、占用少 | 已落地 | 便携 exe **5.0 MB**、安卓 release APK **7.8 MB**；`opt-level=z` + LTO + strip 已启用 |
+| 17 | 体积小、占用少 | 已落地 | 便携 exe **5.2 MB**、安卓 release APK **8.0 MB**；`opt-level=z` + LTO + strip 已启用 |
 | 18 | 语言选型（Rust 可行性） | 已落地 | 结论与取舍见 `DECISIONS.md` D02 |
 | 19 | 中文名「积分枢纽」/ 英文名 PointHub | 已落地 | 产品名、窗口标题、安装包名、托盘提示均已统一 |
 | 20 | WorkBuddy 增加「派猫猫旅行」 | 已落地 | 与签到同模块（非独立分支），按状态机自动「先领后派」 |
@@ -53,7 +53,11 @@ Credential         凭据（只在加密仓里）
 ├─ refresh_token   长效令牌
 ├─ access_token    短期令牌
 ├─ expires_at      access_token 过期时间
-├─ device_id       Trae 必需
+├─ platform_uid    平台用户 id（导入去重用，D19）
+├─ device_id       Trae 必需（X-Device-Id）
+├─ machine_id      授权时的设备标识
+├─ device_key      Trae 续期用的设备私钥 PEM（D21）
+├─ refresh_token_id Qoder 续期需要的令牌 id
 ├─ cookie          网页会话形态
 ├─ domain          WorkBuddy 鉴权域名 / Qoder 自定义端点
 └─ user_agent      会话绑定的 UA（需原样回放时用）
@@ -69,7 +73,9 @@ VendorSnapshot     一次采样
 
 ---
 
-## 三、平台接口契约（WorkBuddy，已实机验证）
+## 三、平台接口契约（三平台均已实机验证）
+
+### WorkBuddy
 
 | 动作 | 方法 / 路径 | 鉴权 |
 |---|---|---|
@@ -88,6 +94,35 @@ VendorSnapshot     一次采样
    余额取 `POST /billing/meter/get-user-resource-summary` 的 `data.TotalCredits`（字符串小数）。
 
 签发令牌会**轮换**：每次刷新都返回新的长效令牌，必须回写，否则下次用不了。
+
+### Trae CN
+
+| 动作 | 方法 / 路径 | 鉴权 |
+|---|---|---|
+| 签到状态 | `POST https://api.trae.cn/trae/api/v2/ug/checkin_credits/status` | `Authorization: Cloud-IDE-JWT <token>` + `X-Device-Id` + `X-User-Region: CN` |
+| 领取签到 | `POST .../checkin_credits/claim` | 同上 |
+| 余额 | `POST /trae/api/v2/pay/ide_user_ent_usage` → `total_balance` | 同上 |
+| 浏览器授权 | `https://www.trae.cn/authorization` + 本地回调 | PKCE |
+| 换令牌 / 续期 | `POST /trae/api/v3/oauth/ExchangeToken` | 续期需 ECDSA P-256 设备签名（D21） |
+
+坑：必须带真机 `X-Device-Id`，不一致返回业务码 9074；`X-User-Region: CN`
+不能省。Trae 对「今天已领」重复 claim 仍返回成功，所以**先查 status 再 claim**。
+身份：本机令牌的 JWT 没有 `sub`，用户 id 在 `data.id`。
+
+### Qoder CN
+
+| 动作 | 方法 / 路径 | 鉴权 |
+|---|---|---|
+| 活动列表 | `GET https://qoder.com.cn/sash/api/v1/me/campaigns` | `Bearer` |
+| 领取 | `POST .../campaigns/{campaignId}/claim` | `Bearer` |
+| 余额 | `GET /sash/api/v2/me/usage`（各配额桶 `remaining` 之和） | `Bearer` |
+| 浏览器授权 | `https://qoder.com.cn/device/selectAccounts?challenge=&challenge_method=S256&machine_id=&nonce=` | PKCE |
+| 轮询令牌 | `GET https://openapi.qoder.com.cn/api/v1/deviceToken/poll?nonce=&verifier=&challenge_method=S256` | — |
+| 续期 | `POST /api/v1/deviceToken/refresh` | `Bearer` |
+| 身份 | `GET /api/v1/userinfo` | `Bearer` |
+
+坑：签到是**活动制**，不在窗口内返回空列表，按「无活动资格」处理，不重试不告警；
+令牌不透明，身份只能问 userinfo。续期需要保存返回的 `refresh_token_id`。
 
 ---
 
@@ -150,16 +185,16 @@ VendorSnapshot     一次采样
 
 ---
 
-## 六、验收状态（v0.8.0）
+## 六、验收状态（v0.9.2）
 
-- [x] `cargo test --workspace` 77 个测试全绿；`cargo check --workspace` 零错误
+- [x] `cargo test --workspace` 90 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
 - [x] 桌面端启动、数据目录可创建、CLI 全链路闭环
 - [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
 - [x] Trae CN 真实账号端到端：状态 / 领取 / 余额均跑通（领取前预检，避免重复「成功」）
 - [x] Qoder CN 真实账号端到端：活动查询 / 领取 / 余额均跑通（免费号实测可领）
 - [x] 本机导入：WorkBuddy / Trae CN / Qoder CN 三平台登录态解密与验证导入
-- [x] 发布版体积实测：exe 5.0 MB / APK 8.0 MB
+- [x] 发布版体积实测：exe 5.2 MB / APK 8.0 MB
 - [x] 安卓出包，并在模拟器上验证安装与启动
 - [x] Redmi K80 Pro / Android 17 真机验证（targetSdk 36 后可连局域网）
 - [x] 安卓 App 配对电脑、远程查看与远程签到真机跑通
@@ -168,10 +203,13 @@ VendorSnapshot     一次采样
 - [x] 数据目录跟随安装目录：旧数据迁移、清空旧位置、删除/保留清理均验证
 - [x] 安卓后台签到：WorkManager 任务注册成功，APK 内 JNI 符号与 4 个 Kotlin 类校验通过；真机按验收步骤确认
 - [x] 积分自动刷新：3 个单元测试覆盖关闭 / 间隔边界 / 自定义间隔；全量测试与前端构建通过
+- [x] Trae CN / Qoder CN 浏览器授权：授权页打开、回调 / 轮询、换令牌与续期均跑通（D21）
+- [x] 同一账号跨导入方式去重：用真实数据副本验证「本机 + 网页」两条 → 导入后合并为一条
 
 ---
 
 ## 七、下一步（按优先级）
 
-1. **Trae / Qoder 浏览器授权导入**：参考公开实现的授权流程，补齐第三种导入方式。
-2. 更细的当前快照与阻塞项见 `progress.md`。
+1. **自动更新「下载 → 安装」真跑**：下次发版时完整走一遍下载与安装向导。
+2. **Windows 防火墙入站说明**：局域网连不上时提示用户放行 47821。
+3. 更细的当前快照与阻塞项见 `progress.md`。

@@ -72,10 +72,11 @@
       Release notes 已写（对比 v0.6.0）。
 - [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要在发版后真跑一次。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
-- [ ] **清理大体积构建产物**（用户曾选择暂缓；本次收尾已列出清单待授权）：
-      `target/`、`apps/desktop/src-tauri/target/`、
-      `apps/desktop/src-tauri/gen/android/app/build/`、`.design/`、`.workbuddy/`、
-      空的 `.screenshots/`。均可再生或为内部笔记，不影响源码与已发布产物。
+- [x] **清理构建产物（2026-11-26 用户授权）**：已删除 `target/`、
+      `apps/desktop/src-tauri/target/`、`gen/`、`ui/node_modules/`、`ui/dist/`、
+      `.design/`、`.workbuddy/`、`.screenshots/`，共释放约 27 GB。
+      按用户选择保留 `dist/` 历史产物（103 MB）与 `dist/data/`（验收数据）。
+      删掉 `gen/` 后安卓需重新 `tauri android init`；删掉 `target/` 后首次构建会全量编译。
 
 ---
 
@@ -110,8 +111,10 @@
 
 ### 隐私与仓库卫生
 
-- 仓库体检（2026-11-26 收尾）：跟踪文件内无令牌、私钥、邮箱或账号数据；
-  `dist/`、`target/`、`gen/`、`.design/`、`.workbuddy/`、`scripts/dev/` 均不入库。
+- 仓库体检（2026-11-26 收尾）：96 个跟踪文件，最大 149 KB，`.git` 仅约 0.9 MB；
+  未发现令牌、私钥、邮箱或账号数据；`dist/`、`target/`、`gen/`、`.design/`、
+  `.workbuddy/`、`scripts/dev/` 均不入库。
+- 2026-11-26 已清理本机构建缓存与内部笔记约 27 GB（清单见「未完成的待办」）。
 - `%LOCALAPPDATA%\PointHub\browser-profile`（旧 CDP 方案残留，含当时 cookie）不在仓库内。
 - 用户真实账号数据只在本机 `data/`，永远不会被提交。
 

@@ -248,7 +248,8 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 自动更新：检查 GitHub Releases、下载安装包、更新源可配镜像
 - [x] 卸载清理（NSIS 钩子：默认删除账号数据，可勾选保留）
 - [x] 数据目录跟随安装目录（旧版首次启动自动迁移）
-- [x] v0.6.0（便携 exe / 安装包 / arm64 APK）与 v0.9.2（便携 exe / 安装包）已发布到 GitHub Releases
+- [x] v0.6.0（便携 exe / 安装包 / arm64 APK）、v0.9.2 与 v0.10.0（便携 exe / 安装包）
+      已发布到 GitHub Releases
 
 最新发布：<https://github.com/Yi-One1/PointHub/releases>
 

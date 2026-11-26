@@ -364,7 +364,7 @@ function Overview({
           {groups.map((g) => (
             <section className="panel" key={g.vendor}>
               <div className="phead">
-                <VendorIcon vendor={g.vendor} />
+                <VendorIcon vendor={g.vendor} size={20} />
                 <span className="pname">{g.display}</span>
                 {!g.verified && <span className="tag tag-muted">端点待实测</span>}
                 <span className="psub">
@@ -701,7 +701,7 @@ function AccountsPage({
             <ul className="acct-list">
               {view.accounts.map((a) => (
                 <li key={a.id} className="acct-row">
-                  <VendorIcon vendor={a.vendor} size={17} />
+                  <VendorIcon vendor={a.vendor} size={24} />
                   <div className="acct-main">
                     <div className="acct-title">
                       {a.label}

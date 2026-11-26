@@ -103,6 +103,12 @@ test("平台名称前都挂了 VendorIcon（总览/账号/导入/能力表/悬�
   assert.ok(appCount >= 4, `App.tsx 中 VendorIcon 只有 ${appCount} 处，应为 4 处（总览/账号/导入/能力表）`);
   assert.match(ball, /<VendorIcon\b/, "悬浮球的分组标题缺少平台图标");
 
+  // 总览面板头与已纳管列表的 logo 要够大，16-17px 在实机里被反馈过偏小。
+  const phead = app.match(/<VendorIcon vendor=\{g\.vendor\} size=\{(\d+)\}/);
+  assert.ok(phead && Number(phead[1]) >= 20, "总览面板头的平台 logo 应不小于 20px");
+  const acctRow = app.match(/<VendorIcon vendor=\{a\.vendor\} size=\{(\d+)\}/);
+  assert.ok(acctRow && Number(acctRow[1]) >= 24, "已纳管列表的平台 logo 应不小于 24px");
+
   // 旧的识别色圆点方案应彻底退场，避免同一个平台出现「点 + 图」两种标识。
   assert.doesNotMatch(app, /VENDOR_TONE|tone-(wb|trae|qoder)/, "App.tsx 仍残留 VENDOR_TONE 圆点");
   const css = readFileSync(path.join(UI_DIR, "src", "styles.css"), "utf8");

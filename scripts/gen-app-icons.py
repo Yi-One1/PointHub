@@ -39,8 +39,9 @@ ADAPTIVE_BG = "#F4FBF7"  # matches the rounded background of pointhub-icon.svg
 # artwork and repadded to a thin, uniform edge so the plate stays readable at 16-32px.
 PAD_RATIO = 0.0
 # Windows 任务栏只有 24px 左右，整块底板摆进去时绿色图形显得很小。
-# 裁掉约 20% 底板（1.25 倍）让图形占比更大；四角仍保留圆角，看起来还是圆角方块。
-BUNDLE_ZOOM = 1.25
+# 裁掉约 35% 底板（1.55 倍）让图形占比更大；圆角几乎看不出来，但观感仍是一个方块，
+# 不像 1.7 倍那样变成硬直角。
+BUNDLE_ZOOM = 1.55
 # Small-size tray icon: transparent mark, not the pale plate (plate would vanish on a
 # light taskbar and look like an empty square). Dark variant follows the OS theme.
 TRAY_SIZE = 32

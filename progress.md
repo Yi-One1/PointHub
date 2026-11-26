@@ -1,10 +1,10 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.6.0（已发布）**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.7.0（已验收，产物已出、未发布）**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`，本地与远端同步）
-发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.6.0>
+发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.6.0>（0.7.0 尚未发布）
 
 ---
 
@@ -46,6 +46,9 @@
   经 JNI 调 `android_worker.rs`（自建 tokio 运行时）执行签到；打开 App 约 12 秒后
   补签当天漏掉的；结果回 Kotlin 发「签到结果」通知。Kotlin 源在
   `apps/desktop/android/`，由 `scripts/patch-android-sources.ps1` 幂等注入 `gen/`。
+- **积分自动刷新（0.7.0）**：设置页可选 关闭 / 5 / 10 / 30 分钟（默认 10）；
+  主窗口可见且未最小化时按间隔采样，复用 `run_refresh_inner`；隐藏期间暂停，
+  重新可见时补一次。3 个单元测试覆盖关闭与间隔边界。
 - **发布（0.5.0 / 0.6.0）**：两个 tag 与 GitHub Release 均已上线；0.6.0 上传
   便携 exe 5.0 MB、Setup 2.0 MB、APK 8.0 MB。GitHub 会丢弃资产名里的非 ASCII
   前缀，仓库上显示为 `PointHub_v0.6.0_Setup.exe` 等；自动更新按 `_Setup.exe` /
@@ -80,8 +83,10 @@
 ## 未完成的待办
 
 - [ ] **积分自动刷新**：窗口可见时每 10 分钟采样、可关闭（D18，需求 2 的剩余部分）。
-- [ ] **Trae CN / Qoder CN 端到端**：Qoder 领取端点需一次付费/试用账号抓包；
-      Trae 的 ExchangeToken 需设备私钥签名样本（P01 / P02）。
+- [ ] **Trae CN / Qoder CN 端到端**：用户 2026-11-26 授权由我获取前置材料。
+      关键新事实：**Qoder 用户不是会员，但新注册账号可每日领 100 积分**，
+      D07「免费账号无资格」的旧结论不成立，需按接口实际返回判断。
+      Qoder 领取端点未知；Trae 的 ExchangeToken 需设备私钥签名样本（P01 / P02）。
 - [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要等下一版发布时真跑一次。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
 - [ ] **清理大体积构建产物**（2026-11-26 用户选择暂不清理；需要腾空间时再确认）：
@@ -98,7 +103,7 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.6.0.exe`（5.0 MB）、`dist/积分枢纽PointHub_v0.6.0_Setup.exe`（2.0 MB） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.7.0.exe`（5.0 MB）、`dist/积分枢纽PointHub_v0.7.0_Setup.exe`（2.0 MB）；0.6.0 已发布 |
 | Android 正式包 | `dist/积分枢纽PointHub_v0.6.0.apk`（8.0 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`（安装版为 `安装目录\data`）；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |

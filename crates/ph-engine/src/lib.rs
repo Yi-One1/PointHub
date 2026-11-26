@@ -445,7 +445,9 @@ impl Engine {
         // 只用于验证，不落库；id 与真实账号无关。
         let probe = Account::new(vendor, label.clone(), cred.hint());
         let provider = provider_for(vendor);
-        provider.refresh(&mut cred).await?;
+        if provider.capabilities().token_refresh {
+            provider.refresh(&mut cred).await?;
+        }
         let snap = provider.snapshot(&probe, &cred).await?;
         let (account, updated, merged) = self.upsert_account(vendor, label, cred)?;
         Ok((account, snap, updated, merged))
@@ -523,17 +525,19 @@ impl Engine {
 
         let provider = provider_for(account.vendor);
         let mut cred2 = cred.clone();
-        // 先尝试刷新；刷新失败但还有 access_token 时继续（可能是网络抖动）。
-        if let Err(e) = provider.refresh(&mut cred2).await {
-            if cred2.access_token.is_none() {
-                self.note_error(account_id, &e.user_message());
-                return Err(e);
+        // 有续期能力的平台先刷新；没有续期的（Trae / Qoder）直接用 access_token。
+        if provider.capabilities().token_refresh {
+            if let Err(e) = provider.refresh(&mut cred2).await {
+                if cred2.access_token.is_none() {
+                    self.note_error(account_id, &e.user_message());
+                    return Err(e);
+                }
+                self.store.log(&format!(
+                    "{} 刷新令牌失败但沿用旧令牌：{}",
+                    account.label,
+                    e.user_message()
+                ));
             }
-            self.store.log(&format!(
-                "{} 刷新令牌失败但沿用旧令牌：{}",
-                account.label,
-                e.user_message()
-            ));
         }
         let result = provider.snapshot(&account, &cred2).await;
 
@@ -629,19 +633,21 @@ impl Engine {
             .ok_or_else(|| Error::Auth("该账号还没有导入凭据".into()))?;
 
         let provider = provider_for(account.vendor);
-        if let Err(e) = provider.refresh(&mut cred).await {
-            if cred.access_token.is_none() {
-                let outcome = CheckinOutcome {
-                    account_id: account.id.clone(),
-                    vendor: account.vendor,
-                    status: CheckinStatus::AuthFailed,
-                    credit: None,
-                    streak_days: None,
-                    message: e.user_message(),
-                    at: chrono::Local::now().timestamp(),
-                };
-                self.note_error(account_id, &outcome.message);
-                return Ok(outcome);
+        if provider.capabilities().token_refresh {
+            if let Err(e) = provider.refresh(&mut cred).await {
+                if cred.access_token.is_none() {
+                    let outcome = CheckinOutcome {
+                        account_id: account.id.clone(),
+                        vendor: account.vendor,
+                        status: CheckinStatus::AuthFailed,
+                        credit: None,
+                        streak_days: None,
+                        message: e.user_message(),
+                        at: chrono::Local::now().timestamp(),
+                    };
+                    self.note_error(account_id, &outcome.message);
+                    return Ok(outcome);
+                }
             }
         }
 
@@ -1333,16 +1339,16 @@ mod tests {
     async fn verified_import_rolls_back_when_verification_fails() {
         let dir = tmpdir("verify-fail");
         let mut e = Engine::open(Some(dir.clone())).unwrap();
-        // Qoder 的刷新未实现：验证必然失败，账号不能落库。
+        // Trae 缺设备 id 时会在本地就拒绝（不发网络请求）：验证必然失败，账号不能落库。
         let err = e
             .upsert_account_verified(
-                Vendor::QoderCn,
-                "q",
+                Vendor::TraeCn,
+                "t",
                 Credential::from_access_token("whatever"),
             )
             .await
             .unwrap_err();
-        assert!(matches!(err, Error::Unsupported(_)));
+        assert!(matches!(err, Error::Auth(_)), "实际错误：{err:?}");
         assert!(e.accounts().is_empty(), "验证失败不能留下账号");
         let _ = std::fs::remove_dir_all(&dir);
     }

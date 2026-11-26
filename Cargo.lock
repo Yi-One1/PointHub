@@ -770,6 +770,8 @@ dependencies = [
 name = "ph-providers"
 version = "0.7.0"
 dependencies = [
+ "aes",
+ "aes-gcm",
  "async-trait",
  "base64 0.22.1",
  "chrono",
@@ -778,6 +780,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
  "tracing",
 ]

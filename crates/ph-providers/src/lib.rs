@@ -8,6 +8,7 @@
 //! - 适配器**不落盘**，持久化交给引擎；
 //! - 所有错误向上抛 [`ph_core::Error`]，由引擎决定是否重试。
 
+pub mod client_crypto;
 pub mod http;
 pub mod identity;
 pub mod local_import;

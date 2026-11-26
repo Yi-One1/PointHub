@@ -13,7 +13,7 @@ members = [
 exclude = ["apps/desktop/src-tauri", "apps/desktop/ui"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"
@@ -41,6 +41,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 rand = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+aes = "0.8"
 aes-gcm = "0.10"
 base64 = "0.22"
 sha2 = "0.10"

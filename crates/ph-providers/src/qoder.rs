@@ -1,31 +1,35 @@
 //! Qoder CN（阿里）适配器。
 //!
-//! ## 现状（必须诚实说明）
+//! ## 机制（2026-11-26 用真实账号实测确认）
 //!
-//! 1. 自 2026-11-19 10:00 起，Qoder 每日 100 Credits **仅对付费/试用账号开放**，
-//!    体验版（免费）账号的入口被服务端直接隐藏，返回的是「无资格」而**不是**错误。
-//!    因此本适配器把「无资格」映射为 [`ph_core::CheckinStatus::NotEligible`]，
-//!    不重试、不报警、不计入失败数。
+//! Qoder 的每日 100 Credits 走「活动」模型，而不是一个固定的 checkin 端点：
 //!
-//! 2. 领取走的是活动制：先取活动列表，再对 `kind == CREDITS` 的那条领取，
-//!    并且请求必须携带设备风控头（`Cosy-MachineToken` / `Cosy-MachineCode` /
-//!    `Cosy-MachineType`），缺头会返回空或 503。
+//! 1. `GET /sash/api/v1/me/campaigns` 取活动列表，里面每条带
+//!    `actionType / claimStatus / startAt / endAt / benefit.amount`；
+//! 2. 只处理 `actionType == CLAIM_BENEFIT` 且当前时间落在 `[startAt, endAt)` 的活动；
+//! 3. `POST /sash/api/v1/me/campaigns/{campaignId}/claim`（空对象）领取；
+//! 4. 余额取 `GET /sash/api/v2/me/usage` 里各配额桶的 `remaining` 之和。
 //!
-//! 3. **本版尚未取得可公开验证的领取端点**，因此：
-//!    - 若 `Credential.domain` 里给了完整地址（形如 `https://host/path`），
-//!      本适配器会按「POST 该地址」尝试领取；
-//!    - 否则直接返回 `Unsupported`，**绝不猜测路径**。
+//! 免费账号也能领：用户 2026-11-26 的实测账号就是新注册的免费号（D07 已修正）。
+//! 因此**不按套餐猜资格**，一律以接口返回为准。
 //!
-//! 为什么宁可不做也不猜：猜出来的 404 会被用户当成「软件坏了」，
-//! 而实际是端点未知。明确说「待实测」比假装能用更有价值。
+//! 鉴权用 `Authorization: Bearer <access_token>`，令牌来自客户端登录态，
+//! 本版不做刷新（客户端登录态有效期约 30 天），过期后重新导入即可。
 
 use crate::http;
 use crate::{Capabilities, Provider};
 use async_trait::async_trait;
+use chrono::TimeZone as _;
 use ph_core::{
     Account, CheckinOutcome, CheckinStatus, Credential, Error, Result, Vendor, VendorSnapshot,
 };
 use serde_json::{json, Value};
+
+const QODER_BASE: &str = "https://openapi.qoder.com.cn";
+const CAMPAIGNS_PATH: &str = "/sash/api/v1/me/campaigns";
+const USAGE_PATH: &str = "/sash/api/v2/me/usage";
+/// 领取窗口是每天 10:00 刷新，到次日 10:00 结束；文案按这个口径写。
+const WINDOW_HINT: &str = "每天 10:00 刷新，领取窗口到次日 10:00";
 
 pub struct QoderCnProvider {
     client: reqwest::Client,
@@ -38,30 +42,120 @@ impl QoderCnProvider {
         }
     }
 
-    fn endpoint(cred: &Credential) -> Option<String> {
+    fn token(cred: &Credential) -> Result<&str> {
+        cred.access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| Error::Auth("Qoder CN 需要 access_token，请先在本机导入登录态".into()))
+    }
+
+    /// 默认用官方域名；`domain` 给了完整地址时按自定义端点走（内网代理等场景）。
+    fn base(cred: &Credential) -> String {
         cred.domain
             .as_deref()
             .map(str::trim)
-            .filter(|s| s.starts_with("http") && s.contains('/'))
-            .map(|s| s.to_string())
+            .filter(|s| s.starts_with("http"))
+            .map(|s| s.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| QODER_BASE.to_string())
     }
 
-    fn with_device_headers<'a>(
-        rb: reqwest::RequestBuilder,
-        cred: &'a Credential,
-    ) -> reqwest::RequestBuilder {
-        let mut rb = rb;
-        if let Some(t) = cred.device_id.as_deref().filter(|s| !s.is_empty()) {
-            // 设备指纹三件套：缺任一项，服务端会返回空活动或 503。
-            rb = rb
-                .header("Cosy-MachineToken", t)
-                .header("Cosy-MachineCode", t)
-                .header("Cosy-MachineType", "windows");
+    fn signed(rb: reqwest::RequestBuilder, cred: &Credential) -> Result<reqwest::RequestBuilder> {
+        let token = Self::token(cred)?;
+        let mut rb = rb
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Accept", "application/json")
+            .header("User-Agent", "Qoder/claim")
+            .header("Cosy-ClientType", "10");
+        if let Some(cookie) = cred.cookie.as_deref().filter(|s| !s.is_empty()) {
+            rb = rb.header("Cookie", cookie);
         }
-        if let Some(c) = cred.cookie.as_deref().filter(|s| !s.is_empty()) {
-            rb = rb.header("Cookie", c);
+        Ok(rb)
+    }
+
+    async fn fetch_campaigns(&self, cred: &Credential) -> Result<Value> {
+        let url = format!("{}{}", Self::base(cred), CAMPAIGNS_PATH);
+        let resp = Self::signed(self.client.get(&url), cred)?.send().await?;
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        if let Some(e) = http::map_status(status, &body) {
+            return Err(e);
         }
-        rb
+        if let Some(code) = http::code_of(&body) {
+            if code != 0 {
+                let msg = http::msg_of(&body);
+                return Err(Error::Upstream(if msg.is_empty() {
+                    format!("Qoder 活动接口返回 code={code}")
+                } else {
+                    msg
+                }));
+            }
+        }
+        Ok(body)
+    }
+
+    async fn fetch_balance(&self, cred: &Credential) -> Result<Option<f64>> {
+        let url = format!("{}{}", Self::base(cred), USAGE_PATH);
+        let resp = Self::signed(self.client.get(&url), cred)?.send().await?;
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        if let Some(e) = http::map_status(status, &body) {
+            return Err(e);
+        }
+        Ok(balance_from_usage(&body))
+    }
+
+    /// 领取一条活动。返回 `Ok(true)` 表示本次领到了，`Ok(false)` 表示服务端说已经领过。
+    async fn claim(&self, cred: &Credential, campaign_id: &str) -> Result<bool> {
+        let url = format!(
+            "{}{}/{}/claim",
+            Self::base(cred),
+            CAMPAIGNS_PATH,
+            campaign_id
+        );
+        let rb = Self::signed(self.client.post(&url), cred)?.json(&json!({}));
+        let resp = rb.send().await?;
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        let code = http::code_of(&body);
+        let msg = http::msg_of(&body);
+        let lowered = msg.to_lowercase();
+
+        if status == 401 || status == 403 {
+            return Err(Error::Auth(if msg.is_empty() {
+                "Qoder 令牌被拒绝".into()
+            } else {
+                msg
+            }));
+        }
+        if status == 429 || status >= 500 {
+            return Err(Error::Upstream(format!(
+                "Qoder 服务暂时不可用（HTTP {status}）"
+            )));
+        }
+        if (400..500).contains(&status) {
+            if code == Some(10001) || msg.contains('已') || lowered.contains("already") {
+                return Ok(false);
+            }
+            return Err(Error::Upstream(format!(
+                "领取 Qoder Credits 失败（HTTP {status}）：{}",
+                if msg.is_empty() { "未知错误" } else { &msg }
+            )));
+        }
+        if code == Some(0) || body.get("data").is_some() {
+            return Ok(true);
+        }
+        if msg.contains('已') || lowered.contains("already") {
+            return Ok(false);
+        }
+        Err(Error::Upstream(format!(
+            "领取 Qoder Credits 失败：{}",
+            if msg.is_empty() {
+                format!("服务端返回 code={}", code.map(|c| c.to_string()).unwrap_or_default())
+            } else {
+                msg
+            }
+        )))
     }
 }
 
@@ -79,122 +173,303 @@ impl Provider for QoderCnProvider {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            // 端点待实测，先声明为 false，界面才不会给出一个点了就报错的按钮。
-            checkin: false,
+            checkin: true,
             travel: false,
-            balance: false,
+            balance: true,
             token_refresh: false,
-            verified: false,
+            verified: true,
         }
     }
 
     async fn refresh(&self, _cred: &mut Credential) -> Result<()> {
         Err(Error::Unsupported(
-            "Qoder CN 的令牌刷新未实现，请在过期后重新导入".into(),
+            "Qoder CN 的客户端登录态不支持接口续期；过期后重新「本机导入」即可".into(),
         ))
     }
 
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot> {
-        let Some(url) = Self::endpoint(cred) else {
-            return Err(Error::Unsupported(
-                "Qoder CN 的积分查询端点尚未实测确认，本版不提供余额。详见 README 的「平台能力矩阵」。"
-                    .into(),
-            ));
-        };
-        let rb = self.client.get(&url);
-        let resp = Self::with_device_headers(rb, cred).send().await?;
-        let status = resp.status().as_u16();
-        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
-        if let Some(e) = http::map_status(status, &body) {
-            return Err(e);
+        Self::token(cred)?;
+        let now = chrono::Local::now().timestamp();
+        let mut snap = VendorSnapshot::empty(account, now);
+        let mut notes: Vec<String> = Vec::new();
+
+        match self.fetch_campaigns(cred).await {
+            Ok(payload) => {
+                let active = active_campaigns(&payload, now);
+                if active.is_empty() {
+                    notes.push(format!("当前不在领取窗口（{WINDOW_HINT}）"));
+                } else {
+                    let claimed = active.iter().all(|c| claim_status(c) == "CLAIMED");
+                    snap.checked_in_today = Some(claimed);
+                    snap.daily_credit = Some(active.iter().map(|c| claim_amount(c)).sum());
+                    if let Some(end) = active.iter().filter_map(|c| as_i64(c.get("endAt"))).max() {
+                        notes.push(format!("本次窗口至 {}", fmt_local(end)));
+                    }
+                }
+            }
+            Err(Error::Auth(m)) => return Err(Error::Auth(m)),
+            Err(e) => notes.push(format!("签到状态查询失败：{}", e.user_message())),
         }
-        let data = body.get("data").cloned().unwrap_or_else(|| body.clone());
-        let mut snap = VendorSnapshot::empty(account, chrono::Local::now().timestamp());
-        snap.balance = http::pick_f64(&data, http::BALANCE_KEYS);
-        snap.note = Some("Qoder 余额来自自定义端点，字段按通用候选名解析".into());
+
+        match self.fetch_balance(cred).await {
+            Ok(Some(b)) => snap.balance = Some(b),
+            Ok(None) => notes.push("余额接口没有返回可识别的配额字段".into()),
+            Err(Error::Auth(m)) => return Err(Error::Auth(m)),
+            Err(e) => notes.push(format!("余额查询失败：{}", e.user_message())),
+        }
+
+        if !notes.is_empty() {
+            snap.note = Some(notes.join("；"));
+        }
         Ok(snap)
     }
 
     async fn checkin(&self, account: &Account, cred: &Credential) -> Result<CheckinOutcome> {
-        let Some(url) = Self::endpoint(cred) else {
-            return Ok(CheckinOutcome {
-                account_id: account.id.clone(),
-                vendor: Vendor::QoderCn,
-                status: CheckinStatus::NotEligible,
-                credit: None,
-                streak_days: None,
-                message: "Qoder CN 端点未配置（v0.1.0 待实测），本次跳过，不计为失败".into(),
-                at: chrono::Local::now().timestamp(),
-            });
-        };
-
-        let rb = self.client.post(&url);
-        let resp = Self::with_device_headers(rb, cred).json(&json!({})).send().await?;
-        let status = resp.status().as_u16();
-        let body: Value = resp.json().await.unwrap_or_else(|_| json!({}));
+        Self::token(cred)?;
         let now = chrono::Local::now().timestamp();
-        let code = http::code_of(&body);
-        let msg = http::msg_of(&body);
-        let data = body.get("data").cloned().unwrap_or(Value::Null);
+        let payload = self.fetch_campaigns(cred).await?;
+        let active = active_campaigns(&payload, now);
 
-        if status == 401 || status == 403 {
-            return Ok(CheckinOutcome {
-                account_id: account.id.clone(),
-                vendor: Vendor::QoderCn,
-                status: CheckinStatus::AuthFailed,
-                credit: None,
-                streak_days: None,
-                message: if msg.is_empty() { "凭据被拒绝".into() } else { msg },
-                at: now,
-            });
-        }
-        // 「没有资格」不是错误：Qoder 免费号自 2026-11-19 起就是这种状态。
-        if msg.contains("无资格")
-            || msg.contains("不满足")
-            || msg.contains("not eligible")
-            || msg.contains("empty")
-        {
+        if active.is_empty() {
             return Ok(CheckinOutcome {
                 account_id: account.id.clone(),
                 vendor: Vendor::QoderCn,
                 status: CheckinStatus::NotEligible,
                 credit: None,
                 streak_days: None,
-                message: if msg.is_empty() {
-                    "当前账号不参与该活动".into()
-                } else {
-                    msg
-                },
+                message: format!("当前不在 Qoder 领取窗口（{WINDOW_HINT}）"),
                 at: now,
             });
         }
-        if code == Some(0) && status < 400 {
-            let credit = http::pick_i64(&data, &["credit", "amount", "credits"]);
+
+        let claimable: Vec<&Value> = active
+            .iter()
+            .copied()
+            .filter(|c| claim_status(c) == "CLAIMABLE")
+            .collect();
+        if claimable.is_empty() {
+            if active.iter().all(|c| claim_status(c) == "CLAIMED") {
+                return Ok(CheckinOutcome {
+                    account_id: account.id.clone(),
+                    vendor: Vendor::QoderCn,
+                    status: CheckinStatus::AlreadyDone,
+                    credit: None,
+                    streak_days: None,
+                    message: "今日已签到，无需重复操作".into(),
+                    at: now,
+                });
+            }
+            let states: Vec<String> = active.iter().map(|c| claim_status(c).to_string()).collect();
+            return Ok(CheckinOutcome {
+                account_id: account.id.clone(),
+                vendor: Vendor::QoderCn,
+                status: CheckinStatus::Failed,
+                credit: None,
+                streak_days: None,
+                message: format!("活动状态异常（{}）", states.join("/")),
+                at: now,
+            });
+        }
+
+        let mut total = 0i64;
+        let mut claimed_any = false;
+        let mut already = 0usize;
+        for campaign in &claimable {
+            let Some(id) = campaign.get("campaignId").and_then(Value::as_str) else {
+                return Err(Error::Upstream("Qoder 活动缺少 campaignId".into()));
+            };
+            if self.claim(cred, id).await? {
+                claimed_any = true;
+                total += claim_amount(campaign);
+            } else {
+                already += 1;
+            }
+        }
+
+        // 以服务端最终状态为准：领取请求成功不代表马上可查，但状态必须能收敛。
+        let verified = self
+            .fetch_campaigns(cred)
+            .await
+            .ok()
+            .map(|p| {
+                let rows = active_campaigns(&p, chrono::Local::now().timestamp());
+                !rows.is_empty() && rows.iter().all(|c| claim_status(c) == "CLAIMED")
+            })
+            .unwrap_or(false);
+
+        if claimed_any {
+            let mut message = format!("领取成功，+{total} Credits");
+            if already > 0 {
+                message.push_str(&format!("（另有 {already} 条此前已领）"));
+            }
+            if !verified {
+                message.push_str("；服务端状态尚未刷新，稍后会自动更新");
+            }
             return Ok(CheckinOutcome {
                 account_id: account.id.clone(),
                 vendor: Vendor::QoderCn,
                 status: CheckinStatus::Claimed,
-                credit,
+                credit: Some(total),
                 streak_days: None,
-                message: match credit {
-                    Some(c) => format!("领取成功，+{c} Credits"),
-                    None => "领取成功".into(),
-                },
-                at: now,
+                message,
+                at: chrono::Local::now().timestamp(),
             });
         }
+
         Ok(CheckinOutcome {
             account_id: account.id.clone(),
             vendor: Vendor::QoderCn,
-            status: CheckinStatus::Failed,
+            status: CheckinStatus::AlreadyDone,
             credit: None,
             streak_days: None,
-            message: format!(
-                "未成功（HTTP {status}, code {}）：{}",
-                code.map(|c| c.to_string()).unwrap_or_else(|| "-".into()),
-                if msg.is_empty() { "平台未给出原因" } else { &msg }
-            ),
-            at: now,
+            message: "今日已签到，无需重复操作".into(),
+            at: chrono::Local::now().timestamp(),
         })
+    }
+}
+
+// ---------------------------------------------------------------- JSON 小工具
+
+fn as_i64(v: Option<&Value>) -> Option<i64> {
+    match v? {
+        Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn campaign_rows(payload: &Value) -> &[Value] {
+    let rows = payload
+        .get("campaigns")
+        .or_else(|| payload.get("data").and_then(|d| d.get("campaigns")));
+    rows.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+}
+
+fn action_type(c: &Value) -> &str {
+    c.get("actionType").and_then(Value::as_str).unwrap_or("")
+}
+
+fn claim_status(c: &Value) -> &str {
+    c.get("claimStatus").and_then(Value::as_str).unwrap_or("")
+}
+
+fn claim_amount(c: &Value) -> i64 {
+    c.get("benefit")
+        .and_then(|b| b.get("amount"))
+        .and_then(|a| a.as_i64().or_else(|| a.as_f64().map(|f| f as i64)))
+        .unwrap_or(100)
+}
+
+/// 当前窗口内、可领取 Credits 的活动。
+fn active_campaigns<'a>(payload: &'a Value, now: i64) -> Vec<&'a Value> {
+    campaign_rows(payload)
+        .iter()
+        .filter(|c| action_type(c) == "CLAIM_BENEFIT")
+        .filter(|c| {
+            let (Some(start), Some(end)) = (as_i64(c.get("startAt")), as_i64(c.get("endAt"))) else {
+                return false;
+            };
+            start <= now && now < end
+        })
+        .collect()
+}
+
+/// 各配额桶 `remaining` 之和；拿不到任何一桶就返回 None（不填 0）。
+fn balance_from_usage(payload: &Value) -> Option<f64> {
+    let usage = payload.get("qoderUsage").unwrap_or(payload);
+    let mut total = 0.0;
+    let mut found = false;
+
+    let mut add = |bucket: &Value| {
+        let Some(obj) = bucket.as_object() else { return };
+        let remaining = obj
+            .get("remaining")
+            .and_then(Value::as_f64)
+            .or_else(|| match (obj.get("total"), obj.get("used")) {
+                (Some(t), Some(u)) => Some(t.as_f64()? - u.as_f64()?),
+                _ => None,
+            });
+        if let Some(r) = remaining {
+            total += r;
+            found = true;
+        }
+    };
+
+    for key in ["userQuota", "addOnQuota", "orgResourcePackage"] {
+        if let Some(bucket) = usage.get(key) {
+            add(bucket);
+        }
+    }
+    match usage.get("dedicatedResourcePackages") {
+        Some(Value::Array(items)) => items.iter().for_each(&mut add),
+        Some(Value::Object(map)) => map.values().for_each(&mut add),
+        _ => {}
+    }
+
+    found.then(|| (total * 100.0).round() / 100.0)
+}
+
+fn fmt_local(epoch: i64) -> String {
+    chrono::Local
+        .timestamp_opt(epoch, 0)
+        .single()
+        .map(|d| d.format("%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| epoch.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn campaign(id: &str, start: i64, end: i64, status: &str, amount: i64) -> Value {
+        json!({
+            "campaignId": id,
+            "campaignKey": format!("act-{id}"),
+            "actionType": "CLAIM_BENEFIT",
+            "claimStatus": status,
+            "startAt": start,
+            "endAt": end,
+            "benefit": { "kind": "CREDITS", "amount": amount }
+        })
+    }
+
+    #[test]
+    fn picks_only_active_claim_benefit_campaigns() {
+        let now = 1_000_000;
+        let payload = json!({
+            "campaigns": [
+                campaign("open", now - 60, now + 60, "CLAIMABLE", 100),
+                campaign("future", now + 60, now + 3600, "CLAIMABLE", 100),
+                campaign("expired", now - 3600, now - 60, "CLAIMABLE", 100),
+                { "campaignId": "banner", "actionType": "SHOW_BANNER", "startAt": now - 1, "endAt": now + 1 }
+            ]
+        });
+        let picked = active_campaigns(&payload, now);
+        assert_eq!(picked.len(), 1, "只应命中窗口内的 CLAIM_BENEFIT");
+        assert_eq!(picked[0]["campaignId"], "open");
+        assert_eq!(claim_amount(picked[0]), 100);
+    }
+
+    #[test]
+    fn balance_sums_quota_buckets_and_ignores_missing() {
+        let payload = json!({
+            "qoderUsage": {
+                "userQuota": { "remaining": 900.5, "total": 1000, "used": 99.5 },
+                "addOnQuota": { "remaining": 8.5 },
+                "orgResourcePackage": null,
+                "dedicatedResourcePackages": [ { "remaining": 1.0 }, { "total": 3, "used": 1 } ]
+            }
+        });
+        assert_eq!(balance_from_usage(&payload), Some(912.0));
+        assert_eq!(balance_from_usage(&json!({ "qoderUsage": {} })), None);
+        assert_eq!(balance_from_usage(&json!({})), None);
+    }
+
+    #[test]
+    fn missing_token_is_auth_error() {
+        assert!(matches!(
+            QoderCnProvider::token(&Credential::default()),
+            Err(Error::Auth(_))
+        ));
     }
 }

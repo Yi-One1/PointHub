@@ -41,6 +41,9 @@ PAD_RATIO = 0.0
 # Windows 任务栏只有 24px 左右，整块底板摆进去时绿色图形显得很小。
 # 裁掉约 20% 底板（1.25 倍）让图形占比更大。
 BUNDLE_ZOOM = 1.25
+# 所有桌面尺寸（16-256）都从 256px 母图裁剪后缩小，绝不放大。
+# 早期版本用同尺寸源图（如 32px）再放大 1.25 倍，桌面/任务栏图标会明显发虚。
+BASE_SIZE = 256
 # 裁进底板后四个角会被切掉，按原图的比例（rx 18 / 边长 84）重新倒圆角，
 # 放大后看上去仍是同一枚圆角方块。
 PLATE_CORNER_RATIO = 18 / 84
@@ -111,7 +114,7 @@ def mean_diff(a: Image.Image, b: Image.Image) -> float:
 def write_pngs() -> None:
     ICONS.mkdir(parents=True, exist_ok=True)
     for name, size in PNG_TARGETS.items():
-        tight(load(size), size, BUNDLE_ZOOM).save(ICONS / name, optimize=True)
+        tight(load(BASE_SIZE), size, BUNDLE_ZOOM).save(ICONS / name, optimize=True)
         print(f"[icons] wrote {name} ({size}px)")
 
     for name, path in (("tray", MARK_SRC), ("tray-dark", MARK_DARK_SRC)):
@@ -119,7 +122,7 @@ def write_pngs() -> None:
         tight(art, TRAY_SIZE).save(ICONS / f"{name}-{TRAY_SIZE}.png", optimize=True)
         print(f"[icons] wrote {name}-{TRAY_SIZE}.png")
 
-    frames = [tight(load(s), s, BUNDLE_ZOOM) for s in ICO_SIZES]
+    frames = [tight(load(BASE_SIZE), s, BUNDLE_ZOOM) for s in ICO_SIZES]
     frames[-1].save(
         ICONS / "icon.ico",
         format="ICO",
@@ -190,7 +193,7 @@ def check(android_res: Path) -> int:
         if got.size != (size, size):
             errors.append(f"{name} size {got.size} != {(size, size)}")
             continue
-        diff = mean_diff(got, tight(load(size), size, BUNDLE_ZOOM))
+        diff = mean_diff(got, tight(load(BASE_SIZE), size, BUNDLE_ZOOM))
         if diff > 0.5:
             errors.append(f"{name} differs from freshly trimmed source (mean {diff:.1f})")
         bad = framing_ok(got, size)
@@ -221,7 +224,7 @@ def check(android_res: Path) -> int:
             im.size = (256, 256)
             im.load()
             big = im.convert("RGBA")
-            diff = mean_diff(big, tight(load(256), 256, BUNDLE_ZOOM))
+            diff = mean_diff(big, tight(load(BASE_SIZE), 256, BUNDLE_ZOOM))
             if diff > 0.5:
                 errors.append(f"icon.ico 256px differs from freshly trimmed source (mean {diff:.1f})")
             bad = framing_ok(big, 256)

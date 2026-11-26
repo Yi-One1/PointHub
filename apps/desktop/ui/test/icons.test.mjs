@@ -146,3 +146,30 @@ test("图标像素与源图一致（调用 gen-app-icons.py --check）", (t) => 
   }
   assert.equal(r.status, 0, `图标像素校验失败：\n${r.stdout}${r.stderr}`);
 });
+
+test("桌面/任务栏图标由 256px 母图缩小，而不是把小图放大", (t) => {
+  // 32px 曾经用 32px 源再放大 1.25 倍，任务栏与桌面快捷方式明显发虚。
+  const code = [
+    "import importlib.util, sys",
+    "from PIL import Image, ImageChops, ImageStat",
+    "root = sys.argv[1]",
+    "spec = importlib.util.spec_from_file_location('g', root + '/scripts/gen-app-icons.py')",
+    "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)",
+    "def diff(a, b):",
+    "    s = ImageStat.Stat(ImageChops.difference(a.convert('RGBA'), b.convert('RGBA')))",
+    "    return sum(s.mean) / 4",
+    "got = Image.open(root + '/apps/desktop/src-tauri/icons/32x32.png')",
+    "big = g.tight(Image.open(g.source(256)).convert('RGBA'), 32, g.BUNDLE_ZOOM)",
+    "small = g.tight(Image.open(g.source(32)).convert('RGBA'), 32, g.BUNDLE_ZOOM)",
+    "print(diff(got, big), diff(got, small))",
+  ].join("\n");
+  const r = spawnSync("python", ["-c", code, ROOT], { encoding: "utf8" });
+  if (r.error?.code === "ENOENT") {
+    t.skip("本机没有 python，跳过清晰度来源校验");
+    return;
+  }
+  assert.equal(r.status, 0, r.stderr);
+  const [fromBig, fromSmall] = r.stdout.trim().split(/\s+/).map(Number);
+  assert.ok(fromBig < 0.6, `32px 图标与「256→32」结果不一致（差 ${fromBig}），可能又走了放大路径`);
+  assert.ok(fromSmall > 3, `32px 图标与「32px 源」几乎一致（差 ${fromSmall}），说明仍在使用小图放大`);
+});

@@ -41,3 +41,6 @@ scripts/dev/
 
 # 用户提供的文件
 /用户提供的文件/
+# Python 缓存（测试会 import 生成脚本）
+__pycache__/
+

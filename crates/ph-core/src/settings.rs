@@ -112,6 +112,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_auto_refresh_minutes() -> u32 {
+    10
+}
+
 impl Default for SyncSettings {
     fn default() -> Self {
         Self {
@@ -194,6 +198,9 @@ pub struct Settings {
     /// 错过当天窗口后，启动时是否补签。
     #[serde(default = "default_true")]
     pub catch_up_missed: bool,
+    /// 主窗口可见时每隔多少分钟自动采样一次积分；0 表示关闭（D18）。
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub auto_refresh_minutes: u32,
     /// 自动更新。
     #[serde(default)]
     pub update: UpdateSettings,
@@ -212,6 +219,7 @@ impl Default for Settings {
             sync: SyncSettings::default(),
             scheduler_enabled: true,
             catch_up_missed: true,
+            auto_refresh_minutes: 10,
             update: UpdateSettings::default(),
         }
     }

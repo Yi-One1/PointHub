@@ -1369,6 +1369,31 @@ function SettingsPage({
           />
         </div>
 
+        {!isPhone && (
+          <div className="row">
+            <div>
+              <div className="row-title">积分自动刷新</div>
+              <div className="row-desc">主窗口可见时按间隔重新采样；最小化后暂停</div>
+            </div>
+            <div className="seg">
+              {[
+                { v: 0, label: "关闭" },
+                { v: 5, label: "5 分钟" },
+                { v: 10, label: "10 分钟" },
+                { v: 30, label: "30 分钟" },
+              ].map((o) => (
+                <button
+                  key={o.v}
+                  className={`seg-item ${draft.auto_refresh_minutes === o.v ? "active" : ""}`}
+                  onClick={() => patch({ auto_refresh_minutes: o.v })}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="row">
           <div>
             <div className="row-title">系统通知</div>

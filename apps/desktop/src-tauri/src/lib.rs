@@ -153,6 +153,7 @@ pub fn run() {
                 }
                 sync_autostart(app.handle());
                 spawn_scheduler(app.handle().clone());
+                spawn_auto_refresh(app.handle().clone());
 
                 // 局域网服务：手机和电脑同一个 Wi-Fi 时，手机浏览器就能看账本。
                 if app.state::<SharedState>().sync_enabled.load(Ordering::Relaxed) {
@@ -472,6 +473,79 @@ fn spawn_scheduler(app: tauri::AppHandle) {
             tokio::time::sleep(Duration::from_secs(45)).await;
         }
     });
+}
+
+// ------------------------------------------------------------------ 自动刷新
+
+/// 到点没有：0 表示关闭，否则看距上次采样是否已过设定分钟数（D18）。
+#[cfg(desktop)]
+fn auto_refresh_due(minutes: u32, elapsed: std::time::Duration) -> bool {
+    if minutes == 0 {
+        return false;
+    }
+    elapsed >= std::time::Duration::from_secs(u64::from(minutes) * 60)
+}
+
+/// 主窗口可见时按设置间隔自动采样积分（D18）。
+///
+/// 每 30 秒只做一次判断；真正采样复用 `run_refresh_inner`，与手动刷新同一条路。
+/// 窗口最小化或隐藏时暂停，重新可见后按上次时间判断是否立刻补一次。
+#[cfg(desktop)]
+fn spawn_auto_refresh(app: tauri::AppHandle) {
+    use std::time::{Duration, Instant};
+    use tauri::Emitter;
+
+    tauri::async_runtime::spawn(async move {
+        // 首屏自己会刷一次，这里从启动时刻起算，避免重复请求。
+        let mut last = Instant::now();
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            let visible = app
+                .get_webview_window("main")
+                .map(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+                .unwrap_or(false);
+            if !visible {
+                continue;
+            }
+            let minutes = {
+                let state = app.state::<SharedState>();
+                let engine = state.engine.lock().await;
+                engine.settings().auto_refresh_minutes
+            };
+            if !auto_refresh_due(minutes, last.elapsed()) {
+                continue;
+            }
+            let state = app.state::<SharedState>();
+            if commands::run_refresh_inner(&state).await.is_ok() {
+                let _ = app.emit("ph://changed", ());
+            }
+            last = Instant::now();
+        }
+    });
+}
+
+#[cfg(all(test, desktop))]
+mod auto_refresh_tests {
+    use super::auto_refresh_due;
+    use std::time::Duration;
+
+    #[test]
+    fn zero_minutes_means_off() {
+        assert!(!auto_refresh_due(0, Duration::from_secs(24 * 3600)));
+    }
+
+    #[test]
+    fn waits_for_the_interval() {
+        assert!(!auto_refresh_due(10, Duration::from_secs(9 * 60)));
+        assert!(auto_refresh_due(10, Duration::from_secs(10 * 60)));
+    }
+
+    #[test]
+    fn honours_custom_interval() {
+        assert!(!auto_refresh_due(30, Duration::from_secs(29 * 60)));
+        assert!(auto_refresh_due(30, Duration::from_secs(30 * 60)));
+    }
 }
 
 // ------------------------------------------------------------------ 更新提示

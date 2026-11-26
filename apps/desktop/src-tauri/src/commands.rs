@@ -371,6 +371,11 @@ pub async fn bootstrap(state: State<'_, SharedState>) -> Result<StateView, Strin
 /// 远程模式下这一步是「让电脑采样，再把结果拉回来」。
 #[tauri::command]
 pub async fn refresh_all(state: State<'_, SharedState>) -> Result<StateView, String> {
+    run_refresh_inner(state.inner()).await
+}
+
+/// 供命令与后台自动刷新共用的采样执行体（D18）。
+pub async fn run_refresh_inner(state: &SharedState) -> Result<StateView, String> {
     let (settings, local) = {
         let engine = state.engine.lock().await;
         (engine.settings().clone(), build_state(&engine))
@@ -382,7 +387,7 @@ pub async fn refresh_all(state: State<'_, SharedState>) -> Result<StateView, Str
                 client.refresh().await.map_err(|e| e.user_message())?;
             }
         }
-        return Ok(remote_state(state.inner(), settings, local).await);
+        return Ok(remote_state(state, settings, local).await);
     }
     let mut engine = state.engine.lock().await;
     let (_snaps, _errs) = engine.snapshot_all().await;

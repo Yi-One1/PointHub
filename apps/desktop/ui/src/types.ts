@@ -83,6 +83,7 @@ export interface Settings {
   sync: SyncSettings;
   scheduler_enabled: boolean;
   catch_up_missed: boolean;
+  auto_refresh_minutes: number;
   update: UpdateSettings;
 }
 

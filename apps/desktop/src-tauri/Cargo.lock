@@ -2871,7 +2871,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "ph-client"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "ph-core",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "ph-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",
@@ -2896,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "ph-engine"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "ph-core",
@@ -2913,7 +2913,7 @@ dependencies = [
 
 [[package]]
 name = "ph-providers"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "ph-store"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "ph-core",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "ph-update"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ph-core",
  "reqwest 0.12.28",
@@ -2950,7 +2950,7 @@ dependencies = [
 
 [[package]]
 name = "ph-vault"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "aes-gcm",
  "ph-core",
@@ -3117,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "pointhub"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

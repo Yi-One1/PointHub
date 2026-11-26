@@ -31,6 +31,16 @@ const USAGE_PATH: &str = "/sash/api/v2/me/usage";
 /// 领取窗口是每天 10:00 刷新，到次日 10:00 结束；文案按这个口径写。
 const WINDOW_HINT: &str = "每天 10:00 刷新，领取窗口到次日 10:00";
 
+/// 单条活动的领取结果。
+enum ClaimResult {
+    /// 本次领到了。
+    Claimed,
+    /// 服务端说此前已经领过。
+    Already,
+    /// 服务端回了空响应，需要以最终活动状态判定。
+    Unknown,
+}
+
 pub struct QoderCnProvider {
     client: reqwest::Client,
 }
@@ -105,8 +115,8 @@ impl QoderCnProvider {
         Ok(balance_from_usage(&body))
     }
 
-    /// 领取一条活动。返回 `Ok(true)` 表示本次领到了，`Ok(false)` 表示服务端说已经领过。
-    async fn claim(&self, cred: &Credential, campaign_id: &str) -> Result<bool> {
+    /// 领取一条活动。
+    async fn claim(&self, cred: &Credential, campaign_id: &str) -> Result<ClaimResult> {
         let url = format!(
             "{}{}/{}/claim",
             Self::base(cred),
@@ -135,27 +145,26 @@ impl QoderCnProvider {
         }
         if (400..500).contains(&status) {
             if code == Some(10001) || msg.contains('已') || lowered.contains("already") {
-                return Ok(false);
+                return Ok(ClaimResult::Already);
             }
             return Err(Error::Upstream(format!(
                 "领取 Qoder Credits 失败（HTTP {status}）：{}",
                 if msg.is_empty() { "未知错误" } else { &msg }
             )));
         }
-        if code == Some(0) || body.get("data").is_some() {
-            return Ok(true);
+        if code == Some(0) {
+            return Ok(ClaimResult::Claimed);
+        }
+        if let Some(data) = body.get("data") {
+            if data.is_object() && data.as_object().map_or(false, |o| !o.is_empty()) {
+                return Ok(ClaimResult::Claimed);
+            }
         }
         if msg.contains('已') || lowered.contains("already") {
-            return Ok(false);
+            return Ok(ClaimResult::Already);
         }
-        Err(Error::Upstream(format!(
-            "领取 Qoder Credits 失败：{}",
-            if msg.is_empty() {
-                format!("服务端返回 code={}", code.map(|c| c.to_string()).unwrap_or_default())
-            } else {
-                msg
-            }
-        )))
+        // 服务端可能回一个空对象；最终以活动状态为准，不在这里判失败。
+        Ok(ClaimResult::Unknown)
     }
 }
 
@@ -272,22 +281,23 @@ impl Provider for QoderCnProvider {
         }
 
         let mut total = 0i64;
-        let mut claimed_any = false;
+        let mut submitted = false;
         let mut already = 0usize;
         for campaign in &claimable {
             let Some(id) = campaign.get("campaignId").and_then(Value::as_str) else {
                 return Err(Error::Upstream("Qoder 活动缺少 campaignId".into()));
             };
-            if self.claim(cred, id).await? {
-                claimed_any = true;
-                total += claim_amount(campaign);
-            } else {
-                already += 1;
+            match self.claim(cred, id).await? {
+                ClaimResult::Claimed | ClaimResult::Unknown => {
+                    submitted = true;
+                    total += claim_amount(campaign);
+                }
+                ClaimResult::Already => already += 1,
             }
         }
 
         // 以服务端最终状态为准：领取请求成功不代表马上可查，但状态必须能收敛。
-        let verified = self
+        let final_claimed = self
             .fetch_campaigns(cred)
             .await
             .ok()
@@ -296,14 +306,12 @@ impl Provider for QoderCnProvider {
                 !rows.is_empty() && rows.iter().all(|c| claim_status(c) == "CLAIMED")
             })
             .unwrap_or(false);
+        let now = chrono::Local::now().timestamp();
 
-        if claimed_any {
+        if submitted && final_claimed {
             let mut message = format!("领取成功，+{total} Credits");
             if already > 0 {
                 message.push_str(&format!("（另有 {already} 条此前已领）"));
-            }
-            if !verified {
-                message.push_str("；服务端状态尚未刷新，稍后会自动更新");
             }
             return Ok(CheckinOutcome {
                 account_id: account.id.clone(),
@@ -312,18 +320,39 @@ impl Provider for QoderCnProvider {
                 credit: Some(total),
                 streak_days: None,
                 message,
-                at: chrono::Local::now().timestamp(),
+                at: now,
             });
         }
-
+        if submitted {
+            return Ok(CheckinOutcome {
+                account_id: account.id.clone(),
+                vendor: Vendor::QoderCn,
+                status: CheckinStatus::Failed,
+                credit: None,
+                streak_days: None,
+                message: "领取请求已发送，但服务端仍显示未领取，请稍后重试".into(),
+                at: now,
+            });
+        }
+        if final_claimed {
+            return Ok(CheckinOutcome {
+                account_id: account.id.clone(),
+                vendor: Vendor::QoderCn,
+                status: CheckinStatus::AlreadyDone,
+                credit: None,
+                streak_days: None,
+                message: "今日已签到，无需重复操作".into(),
+                at: now,
+            });
+        }
         Ok(CheckinOutcome {
             account_id: account.id.clone(),
             vendor: Vendor::QoderCn,
-            status: CheckinStatus::AlreadyDone,
+            status: CheckinStatus::Failed,
             credit: None,
             streak_days: None,
-            message: "今日已签到，无需重复操作".into(),
-            at: chrono::Local::now().timestamp(),
+            message: "领取后活动状态未更新，请稍后重试".into(),
+            at: now,
         })
     }
 }

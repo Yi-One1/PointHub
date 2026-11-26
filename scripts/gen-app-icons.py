@@ -15,7 +15,6 @@ Exit codes: 0 ok, 1 mismatch (check mode) or missing source.
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -36,6 +35,10 @@ PNG_TARGETS = {
 ICO_SIZES = [16, 32, 48, 64, 128, 256]
 ANDROID_LEGACY = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 ADAPTIVE_BG = "#F4FBF7"  # matches the rounded background of pointhub-icon.svg
+# Source artwork keeps ~7% transparent margin on every side. On a 30px sidebar tile
+# that reads as "the icon is tiny", so outputs are trimmed to the artwork and repadded
+# to a thin, uniform 3% edge.
+PAD_RATIO = 0.03
 
 
 def source(size: int) -> Path:
@@ -49,6 +52,23 @@ def load(size: int) -> Image.Image:
     return Image.open(source(size)).convert("RGBA")
 
 
+def tight(im: Image.Image, size: int) -> Image.Image:
+    """Trim transparent margin, center on a square canvas, repad by PAD_RATIO."""
+    im = im.convert("RGBA")
+    bbox = im.split()[3].getbbox()
+    if bbox:
+        im = im.crop(bbox)
+    w, h = im.size
+    side = min(w, h)
+    im = im.crop(((w - side) // 2, (h - side) // 2, (w - side) // 2 + side, (h - side) // 2 + side))
+    pad = max(1, round(size * PAD_RATIO))
+    inner = max(1, size - 2 * pad)
+    im = im.resize((inner, inner), Image.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.paste(im, (pad, pad), im)
+    return canvas
+
+
 def mean_diff(a: Image.Image, b: Image.Image) -> float:
     if a.size != b.size:
         return 255.0
@@ -59,12 +79,10 @@ def mean_diff(a: Image.Image, b: Image.Image) -> float:
 def write_pngs() -> None:
     ICONS.mkdir(parents=True, exist_ok=True)
     for name, size in PNG_TARGETS.items():
-        # The provided artwork already ships one file per size: copy bytes so the
-        # bundled icon stays pixel-identical to the source (and testable by hash).
-        shutil.copyfile(source(size), ICONS / name)
+        tight(load(size), size).save(ICONS / name, optimize=True)
         print(f"[icons] wrote {name} ({size}px)")
 
-    frames = [load(s) for s in ICO_SIZES]
+    frames = [tight(load(s), s) for s in ICO_SIZES]
     frames[-1].save(
         ICONS / "icon.ico",
         format="ICO",
@@ -83,8 +101,9 @@ def write_android(res: Path) -> None:
     for density, size in ANDROID_LEGACY.items():
         d = res / f"mipmap-{density}"
         d.mkdir(parents=True, exist_ok=True)
-        app.resize((size, size), Image.LANCZOS).save(d / "ic_launcher.png", optimize=True)
-        app.resize((size, size), Image.LANCZOS).save(d / "ic_launcher_round.png", optimize=True)
+        icon = tight(app, size)
+        icon.save(d / "ic_launcher.png", optimize=True)
+        icon.save(d / "ic_launcher_round.png", optimize=True)
 
     # Adaptive icon (API 26+): foreground is the transparent mark inside a 108dp canvas,
     # with the artwork kept inside the 66dp safe zone.
@@ -111,6 +130,18 @@ def write_android(res: Path) -> None:
     print(f"[icons] wrote android mipmaps -> {res}")
 
 
+def framing_ok(im: Image.Image, size: int) -> str | None:
+    """Outputs must show the artwork with only the thin PAD_RATIO edge, not the 7% source margin."""
+    pad = max(1, round(size * PAD_RATIO))
+    expected = (pad, pad, size - pad, size - pad)
+    bbox = im.split()[3].getbbox()
+    if bbox is None:
+        return "fully transparent"
+    if any(abs(a - b) > 1 for a, b in zip(bbox, expected)):
+        return f"framing {bbox} != expected {expected} (too much or too little margin)"
+    return None
+
+
 def check(android_res: Path) -> int:
     errors: list[str] = []
     for name, size in PNG_TARGETS.items():
@@ -122,9 +153,12 @@ def check(android_res: Path) -> int:
         if got.size != (size, size):
             errors.append(f"{name} size {got.size} != {(size, size)}")
             continue
-        diff = mean_diff(got, load(size))
-        if diff > 2.0:
-            errors.append(f"{name} differs from source (mean {diff:.1f})")
+        diff = mean_diff(got, tight(load(size), size))
+        if diff > 0.5:
+            errors.append(f"{name} differs from freshly trimmed source (mean {diff:.1f})")
+        bad = framing_ok(got, size)
+        if bad:
+            errors.append(f"{name} {bad}")
 
     ico = ICONS / "icon.ico"
     if not ico.is_file():
@@ -137,17 +171,27 @@ def check(android_res: Path) -> int:
                 errors.append(f"icon.ico missing sizes {missing}")
             im.size = (256, 256)
             im.load()
-            diff = mean_diff(im.convert("RGBA"), load(256))
-            if diff > 2.0:
-                errors.append(f"icon.ico 256px differs from source (mean {diff:.1f})")
+            big = im.convert("RGBA")
+            diff = mean_diff(big, tight(load(256), 256))
+            if diff > 0.5:
+                errors.append(f"icon.ico 256px differs from freshly trimmed source (mean {diff:.1f})")
+            bad = framing_ok(big, 256)
+            if bad:
+                errors.append(f"icon.ico 256px {bad}")
 
     if android_res.is_dir():
         for density, size in ANDROID_LEGACY.items():
             p = android_res / f"mipmap-{density}" / "ic_launcher.png"
             if not p.is_file():
                 errors.append(f"missing android {p.relative_to(ROOT)}")
-            elif Image.open(p).size != (size, size):
+                continue
+            got = Image.open(p).convert("RGBA")
+            if got.size != (size, size):
                 errors.append(f"android {density} size != {size}")
+                continue
+            bad = framing_ok(got, size)
+            if bad:
+                errors.append(f"android {density} {bad}")
 
     if errors:
         for e in errors:

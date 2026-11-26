@@ -51,16 +51,13 @@ function icoEntries(file) {
   return { buf, entries };
 }
 
-test("打包 PNG 与用户提供的原图逐字节一致", () => {
+test("打包 PNG 尺寸正确（像素与四周留白由 --check 校验）", () => {
   for (const [name, size] of Object.entries(BUNDLE_ICONS)) {
     const out = path.join(ICONS, name);
-    const src = path.join(SRC_DIR, `pointhub-appicon-${size}.png`);
     assert.ok(existsSync(out), `缺少 ${name}`);
-    assert.ok(existsSync(src), `缺少源图 pointhub-appicon-${size}.png`);
-    const png = pngSize(out);
-    assert.deepEqual(png, { width: size, height: size }, `${name} 尺寸不对`);
-    assert.ok(readFileSync(out).equals(readFileSync(src)), `${name} 与源图不是同一张图`);
+    assert.deepEqual(pngSize(out), { width: size, height: size }, `${name} 尺寸不对`);
   }
+  assert.ok(existsSync(path.join(SRC_DIR, "pointhub-appicon-256.png")), "缺少源图，无法校验像素");
 });
 
 test("icon.ico 含 16→256 全套尺寸，256 帧为 256×256 PNG", () => {

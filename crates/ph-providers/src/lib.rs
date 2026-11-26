@@ -12,6 +12,7 @@ pub mod client_crypto;
 pub mod http;
 pub mod identity;
 pub mod local_import;
+pub mod oauth;
 pub mod qoder;
 pub mod trae;
 pub mod workbuddy;

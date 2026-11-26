@@ -11,11 +11,17 @@ use base64::Engine as _;
 use ph_core::Credential;
 use serde_json::Value;
 
-/// 从凭据推断平台用户 id。优先用长效令牌，再退回短期令牌。
+/// 从凭据推断平台用户 id。
+///
+/// 优先用浏览器授权时平台直接下发的 `platform_uid`（Qoder 的 token 是不透明字符串，
+/// 只能靠它识别），其次解析 JWT 的 `sub`。
 pub fn platform_uid(cred: &Credential) -> Option<String> {
-    cred.refresh_token
+    cred.platform_uid
         .as_deref()
-        .and_then(subject)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| cred.refresh_token.as_deref().and_then(subject))
         .or_else(|| cred.access_token.as_deref().and_then(subject))
 }
 

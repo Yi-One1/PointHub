@@ -445,7 +445,7 @@ impl Engine {
         // 只用于验证，不落库；id 与真实账号无关。
         let probe = Account::new(vendor, label.clone(), cred.hint());
         let provider = provider_for(vendor);
-        if provider.capabilities().token_refresh {
+        if provider.capabilities().token_refresh && cred.refresh_token.is_some() {
             provider.refresh(&mut cred).await?;
         }
         let snap = provider.snapshot(&probe, &cred).await?;
@@ -525,8 +525,8 @@ impl Engine {
 
         let provider = provider_for(account.vendor);
         let mut cred2 = cred.clone();
-        // 有续期能力的平台先刷新；没有续期的（Trae / Qoder）直接用 access_token。
-        if provider.capabilities().token_refresh {
+        // 有续期能力的平台先刷新；没有 refresh token 的（本机导入的 Trae/Qoder）直接采样。
+        if provider.capabilities().token_refresh && cred2.refresh_token.is_some() {
             if let Err(e) = provider.refresh(&mut cred2).await {
                 if cred2.access_token.is_none() {
                     self.note_error(account_id, &e.user_message());
@@ -633,7 +633,7 @@ impl Engine {
             .ok_or_else(|| Error::Auth("该账号还没有导入凭据".into()))?;
 
         let provider = provider_for(account.vendor);
-        if provider.capabilities().token_refresh {
+        if provider.capabilities().token_refresh && cred.refresh_token.is_some() {
             if let Err(e) = provider.refresh(&mut cred).await {
                 if cred.access_token.is_none() {
                     let outcome = CheckinOutcome {

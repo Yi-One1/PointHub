@@ -787,11 +787,6 @@ function AccountsPage({
 
             {mode === "browser" ? (
               <>
-                {vendor !== "workbuddy" && (
-                  <p className="hint warn">
-                    {cap?.display ?? vendor} 还没接入官方授权流程，请切到「手动令牌」导入。
-                  </p>
-                )}
                 <ol className="steps">
                   <li>点下面的按钮，会在你<strong>平时用的浏览器</strong>里新开一个标签页（不是新窗口）</li>
                   <li>登录并点「授权」，看到成功提示就可以关掉那个标签页</li>
@@ -808,7 +803,7 @@ function AccountsPage({
                   </p>
                 )}
                 <p className="hint">
-                  走的是官方插件授权：软件只拿到一个由你本人确认过的长效令牌，加密存在本机；
+                  走的是平台官方授权：软件只拿到一个由你本人确认过的令牌（含续期令牌），加密存在本机；
                   不读取你浏览器的任何数据，也不用另开一个专用浏览器。
                 </p>
               </>

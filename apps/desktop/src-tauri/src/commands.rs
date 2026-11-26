@@ -729,6 +729,15 @@ pub async fn import_from_browser(
     auth: crate::login::CapturedAuth,
 ) -> Result<(), String> {
     let cred = crate::login::build_credential(vendor, &auth);
+    import_credential(app, vendor, cred).await
+}
+
+/// 三种浏览器授权流程共用的落库入口：建账号 → 读一次余额验证 → 通知界面。
+pub async fn import_credential(
+    app: &AppHandle,
+    vendor: Vendor,
+    cred: ph_core::Credential,
+) -> Result<(), String> {
     let state = app.state::<SharedState>();
 
     let (account_id, label, updated, merged) = {

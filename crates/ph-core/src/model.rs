@@ -157,6 +157,18 @@ pub struct Credential {
     /// access_token 过期时间（epoch 秒）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    /// 平台侧用户 id：令牌不是 JWT 时（Qoder / Trae 浏览器授权）用它去重。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_uid: Option<String>,
+    /// 设备机器码（Qoder 风控头、Trae 刷新签名体里要用）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    /// 设备私钥（PEM）：Trae 浏览器授权的令牌绑定这把钥匙，刷新时要签名字。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_key: Option<String>,
+    /// Qoder 设备续期的 refresh_token_id（部分响应会下发）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_id: Option<String>,
 }
 
 impl fmt::Debug for Credential {
@@ -180,6 +192,10 @@ impl fmt::Debug for Credential {
             .field("domain", &self.domain)
             .field("user_agent", &self.user_agent)
             .field("expires_at", &self.expires_at)
+            .field("platform_uid", &self.platform_uid)
+            .field("machine_id", &mask(&self.machine_id))
+            .field("device_key", &mask(&self.device_key))
+            .field("refresh_token_id", &mask(&self.refresh_token_id))
             .finish()
     }
 }

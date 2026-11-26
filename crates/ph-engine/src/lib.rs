@@ -311,12 +311,26 @@ impl Engine {
         let uid = ph_providers::identity::platform_uid(&cred);
         if let Some(uid) = uid.as_deref() {
             self.backfill_platform_uid(vendor)?;
-            let matches: Vec<Account> = self
+            let mut matches: Vec<Account> = self
                 .accounts
                 .iter()
                 .filter(|a| a.vendor == vendor && a.platform_uid.as_deref() == Some(uid))
                 .cloned()
                 .collect();
+            // 旧版本用「本机导入」建的记录没有 platform_uid，但令牌和新凭据是同一串；
+            // 顺手合并掉，避免同一账号留两条。
+            for account in &self.accounts {
+                if account.vendor != vendor || matches.iter().any(|m| m.id == account.id) {
+                    continue;
+                }
+                if self
+                    .vault
+                    .get(&account.id)
+                    .map_or(false, |c| same_secret(&c, &cred))
+                {
+                    matches.push(account.clone());
+                }
+            }
             if !matches.is_empty() {
                 let Some(keeper) = matches
                     .iter()
@@ -447,6 +461,13 @@ impl Engine {
         let provider = provider_for(vendor);
         if provider.capabilities().token_refresh && refresh_due(&cred) {
             provider.refresh(&mut cred).await?;
+        }
+        // 本机导入 / 手动令牌的凭据里通常没有用户 id；验证前让适配器问一次平台，
+        // 这样和浏览器授权导入的同一账号能命中同一条记录，不会各存一份。
+        if cred.platform_uid.is_none() {
+            if let Ok(Some(uid)) = provider.identity(&cred).await {
+                cred.platform_uid = Some(uid);
+            }
         }
         let snap = provider.snapshot(&probe, &cred).await?;
         let (account, updated, merged) = self.upsert_account(vendor, label, cred)?;
@@ -1347,6 +1368,41 @@ mod tests {
             b.latest_snapshots().get("remote-1").and_then(|s| s.balance),
             Some(88.5)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_duplicate_without_uid_is_merged_on_import() {
+        let dir = tmpdir("merge-legacy-dup");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+
+        // 旧版本：本机导入，没有 platform_uid。
+        let local = Credential::from_access_token("local-token");
+        let (a, _, _) = e.upsert_account(Vendor::QoderCn, "q 本机", local).unwrap();
+        assert!(a.platform_uid.is_none());
+
+        // 浏览器授权：有 user_id。
+        let mut browser = Credential::from_access_token("browser-token");
+        browser.platform_uid = Some("user-1".into());
+        let (b, updated, merged) = e
+            .upsert_account(Vendor::QoderCn, "q 网页", browser)
+            .unwrap();
+        assert!(!updated);
+        assert_eq!(merged, 0);
+        assert_eq!(e.accounts().len(), 2);
+
+        // 再本机导入同一账号（令牌和旧记录相同，且这次解析出了 user_id）：
+        // 两条旧记录都要并成一条。
+        let mut local_again = Credential::from_access_token("local-token");
+        local_again.platform_uid = Some("user-1".into());
+        let (keeper, updated, merged) = e
+            .upsert_account(Vendor::QoderCn, "q 网页", local_again)
+            .unwrap();
+        assert!(updated);
+        assert_eq!(merged, 1, "同令牌的旧记录应被合并");
+        assert_eq!(e.accounts().len(), 1);
+        assert_eq!(e.accounts()[0].id, b.id);
+        assert_eq!(keeper.id, b.id);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

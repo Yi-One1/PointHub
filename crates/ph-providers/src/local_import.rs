@@ -257,6 +257,8 @@ fn read_trae_storage(path: &Path) -> Result<LocalCredential> {
         credential.device_id = Some(device_id);
     }
     credential.expires_at = expires_at;
+    // 客户端登录态里带 userId；用它和浏览器授权导入的账号对齐，避免同一账号两条记录。
+    credential.platform_uid = pick_uid(&auth, &["userId", "user_id", "uid"]);
 
     Ok(LocalCredential {
         detail: match expires_at {
@@ -362,6 +364,8 @@ fn qoder_credential(home: &Path) -> Result<LocalCredential> {
 
     let mut credential = Credential::from_access_token(token);
     credential.expires_at = expires_at;
+    // `auth.v1.dat` 里若带用户 id 就直接用；没有的话导入验证时由适配器走 userinfo 补。
+    credential.platform_uid = pick_uid(&session, &["user_id", "userId", "uid"]);
 
     Ok(LocalCredential {
         detail: match expires_at {
@@ -456,6 +460,22 @@ fn fmt_time(epoch: i64) -> String {
         .single()
         .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| epoch.to_string())
+}
+
+/// 从客户端 JSON 里取平台用户 id（数字也接受）。
+fn pick_uid(root: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        let Some(v) = root.get(*key) else { continue };
+        let text = match v {
+            Value::String(s) => s.trim().to_string(),
+            Value::Number(n) => n.to_string(),
+            _ => continue,
+        };
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -635,6 +655,7 @@ mod tests {
         let home = temp_home("trae-plain");
         let auth = serde_json::json!({
             "token": "trae-token",
+            "userId": "trae-user-9",
             "expiredAt": "2099-01-01T00:00:00+08:00"
         })
         .to_string();
@@ -643,6 +664,7 @@ mod tests {
         let found = import_in(Vendor::TraeCn, &home).unwrap();
         assert_eq!(found.credential.access_token.as_deref(), Some("trae-token"));
         assert_eq!(found.credential.device_id.as_deref(), Some("device-123"));
+        assert_eq!(found.credential.platform_uid.as_deref(), Some("trae-user-9"));
         assert!(found.credential.expires_at.is_some());
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -689,6 +711,7 @@ mod tests {
         let key = [42u8; 32];
         let session = serde_json::json!({
             "token": "qoder-token",
+            "user_id": "qoder-user-7",
             "expiresAt": "2099-01-01T00:00:00+08:00",
             "refreshTokenExpiresAt": "2099-02-01T00:00:00+08:00"
         });
@@ -696,6 +719,7 @@ mod tests {
 
         let found = import_in(Vendor::QoderCn, &home).unwrap();
         assert_eq!(found.credential.access_token.as_deref(), Some("qoder-token"));
+        assert_eq!(found.credential.platform_uid.as_deref(), Some("qoder-user-7"));
         assert!(found.credential.expires_at.is_some());
         let _ = std::fs::remove_dir_all(&home);
     }

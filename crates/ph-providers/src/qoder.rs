@@ -366,6 +366,19 @@ impl Provider for QoderCnProvider {
         self.refresh_with_token(cred).await
     }
 
+    /// 本机导入 / 手动令牌没有 user_id 时，用 userinfo 补一个。
+    async fn identity(&self, cred: &Credential) -> Result<Option<String>> {
+        if let Some(uid) = cred
+            .platform_uid
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Ok(Some(uid.to_string()));
+        }
+        Ok(self.resolve_user_id(cred).await)
+    }
+
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot> {
         Self::token(cred)?;
         let now = chrono::Local::now().timestamp();

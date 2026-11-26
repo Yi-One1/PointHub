@@ -597,6 +597,14 @@ pub async fn add_account(
     cred.domain = payload.domain.filter(|s| !s.trim().is_empty());
     cred.cookie = payload.cookie.filter(|s| !s.trim().is_empty());
 
+    // 手动令牌也可能和「浏览器授权 / 本机导入」是同一个账号，先问一次平台身份。
+    if cred.platform_uid.is_none() {
+        let provider = ph_providers::provider_for(vendor);
+        if let Ok(Some(uid)) = provider.identity(&cred).await {
+            cred.platform_uid = Some(uid);
+        }
+    }
+
     let mut engine = state.engine.lock().await;
     let (acc, updated, merged) = engine
         .upsert_account(vendor, payload.label, cred)

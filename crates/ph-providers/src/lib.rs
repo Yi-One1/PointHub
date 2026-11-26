@@ -60,6 +60,14 @@ pub trait Provider: Send + Sync {
     /// 查积分余额与今日签到状态。
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot>;
 
+    /// 解析平台侧用户 id，用于导入去重。
+    ///
+    /// 浏览器授权会直接下发 `user_id`；本机导入 / 手动令牌拿到的凭据没有这个字段时，
+    /// 由适配器自己想办法问平台（Qoder 走 userinfo）。默认「不认识」返回 `None`。
+    async fn identity(&self, _cred: &Credential) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// 执行签到。
     async fn checkin(&self, account: &Account, cred: &Credential) -> Result<CheckinOutcome>;
 

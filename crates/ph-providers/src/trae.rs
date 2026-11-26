@@ -369,6 +369,19 @@ impl Provider for TraeCnProvider {
         self.refresh_with_key(cred).await
     }
 
+    async fn identity(&self, cred: &Credential) -> Result<Option<String>> {
+        if let Some(uid) = cred
+            .platform_uid
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Ok(Some(uid.to_string()));
+        }
+        // 兜底：Trae 的 access token 是 JWT 时，`sub` 就是平台用户 id。
+        Ok(crate::identity::platform_uid(cred))
+    }
+
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot> {
         Self::check_prereq(cred)?;
         let (status, body) = self.post_json(cred, STATUS_PATH).await?;

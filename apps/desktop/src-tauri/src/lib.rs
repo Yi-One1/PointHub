@@ -144,6 +144,14 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
+                // 窗口/任务栏图标固定取 icons/icon.png，不依赖 codegen 的挑选规则；
+                // include_bytes! 也让 cargo 在图标变化时必然重编。
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+                        let _ = window.set_icon(icon);
+                    }
+                }
+
                 build_tray(app.handle())?;
                 if app.state::<SharedState>().ball_enabled.load(Ordering::Relaxed) {
                     if let Err(e) = open_ball(app.handle()) {

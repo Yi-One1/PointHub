@@ -97,6 +97,16 @@ test("tauri.conf 引用的图标文件都存在", () => {
   assert.ok(icons.includes("icons/icon.ico"), "bundle.icon 应包含 icon.ico");
 });
 
+test("图标变更能触发重编，且窗口图标固定取 icon.png", () => {
+  const build = readFileSync(path.join(TAURI_DIR, "build.rs"), "utf8");
+  assert.match(build, /rerun-if-changed=icons/, "build.rs 必须跟踪 icons/，否则只改图标不会重编");
+  assert.match(build, /rerun-if-changed=tauri\.conf\.json/);
+
+  const lib = readFileSync(path.join(TAURI_DIR, "src", "lib.rs"), "utf8");
+  assert.match(lib, /include_bytes!\("\.\.\/icons\/icon\.png"\)/, "窗口图标应显式取 icon.png");
+  assert.match(lib, /set_icon\(/, "启动时应显式设置窗口/任务栏图标");
+});
+
 test("托盘用透明标记（浅色 + 深色两套），窗口/任务栏用完整底板图标", () => {
   for (const name of ["tray-32.png", "tray-dark-32.png"]) {
     const tray = path.join(ICONS, name);

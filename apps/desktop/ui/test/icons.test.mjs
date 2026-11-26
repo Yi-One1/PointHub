@@ -1,0 +1,132 @@
+/**
+ * 应用图标校验：exe/安装包/托盘/窗口共用同一套图标，任何一处漂移都算回归。
+ *
+ * 分级：
+ * - 结构校验（本文件，纯 Node）：尺寸、ICO 目录、tauri.conf 引用、托盘来源；
+ * - 像素校验（调用 scripts/gen-app-icons.py --check）：与用户提供的源图逐像素比对。
+ */
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const UI_DIR = path.resolve(HERE, "..");
+const ROOT = path.resolve(HERE, "../../../..");
+const SRC_DIR = path.join(ROOT, "用户提供的文件", "软件图标");
+const TAURI_DIR = path.join(ROOT, "apps", "desktop", "src-tauri");
+const ICONS = path.join(TAURI_DIR, "icons");
+const ANDROID_RES = path.join(TAURI_DIR, "gen", "android", "app", "src", "main", "res");
+
+const BUNDLE_ICONS = {
+  "32x32.png": 32,
+  "128x128.png": 128,
+  "128x128@2x.png": 256,
+  "icon.png": 256,
+};
+
+function pngSize(file) {
+  const buf = readFileSync(file);
+  assert.deepEqual([...buf.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], `${file} 不是 PNG`);
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+function icoEntries(file) {
+  const buf = readFileSync(file);
+  assert.equal(buf.readUInt16LE(0), 0, "ICO reserved 应为 0");
+  assert.equal(buf.readUInt16LE(2), 1, "ICO type 应为 1");
+  const count = buf.readUInt16LE(4);
+  const entries = [];
+  for (let i = 0; i < count; i++) {
+    const at = 6 + i * 16;
+    entries.push({
+      width: buf[at] === 0 ? 256 : buf[at],
+      height: buf[at + 1] === 0 ? 256 : buf[at + 1],
+      bytes: buf.readUInt32LE(at + 8),
+      offset: buf.readUInt32LE(at + 12),
+    });
+  }
+  return { buf, entries };
+}
+
+test("打包 PNG 与用户提供的原图逐字节一致", () => {
+  for (const [name, size] of Object.entries(BUNDLE_ICONS)) {
+    const out = path.join(ICONS, name);
+    const src = path.join(SRC_DIR, `pointhub-appicon-${size}.png`);
+    assert.ok(existsSync(out), `缺少 ${name}`);
+    assert.ok(existsSync(src), `缺少源图 pointhub-appicon-${size}.png`);
+    const png = pngSize(out);
+    assert.deepEqual(png, { width: size, height: size }, `${name} 尺寸不对`);
+    assert.ok(readFileSync(out).equals(readFileSync(src)), `${name} 与源图不是同一张图`);
+  }
+});
+
+test("icon.ico 含 16→256 全套尺寸，256 帧为 256×256 PNG", () => {
+  const { buf, entries } = icoEntries(path.join(ICONS, "icon.ico"));
+  const sizes = entries.map((e) => e.width);
+  for (const s of [16, 32, 48, 64, 128, 256]) {
+    assert.ok(sizes.includes(s), `icon.ico 缺少 ${s}px`);
+  }
+
+  const big = entries.find((e) => e.width === 256);
+  assert.ok(big, "icon.ico 缺少 256px 帧");
+  const frame = buf.subarray(big.offset, big.offset + big.bytes);
+  assert.deepEqual([...frame.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], "256 帧不是 PNG");
+  assert.equal(frame.readUInt32BE(16), 256, "256 帧宽度不对");
+
+  // Pillow 可能把每一帧都写成 PNG，也可能对小于 256 的帧用 BMP；两种都接受。
+  for (const entry of entries) {
+    const frame = buf.subarray(entry.offset, entry.offset + entry.bytes);
+    if (frame.readUInt32BE(0) === 0x89504e47) {
+      assert.equal(frame.readUInt32BE(16), entry.width, `${entry.width}px 帧 PNG 宽度不对`);
+      assert.equal(frame.readUInt32BE(20), entry.height, `${entry.width}px 帧 PNG 高度不对`);
+    } else {
+      assert.equal(frame.readUInt32LE(0), 40, `${entry.width}px 帧应为 BITMAPINFOHEADER`);
+      assert.equal(frame.readInt32LE(4), entry.width, `${entry.width}px 帧宽度不对`);
+      assert.equal(frame.readInt32LE(8), entry.height * 2, `${entry.width}px 帧高度应为两倍（含掩码）`);
+    }
+  }
+});
+
+test("tauri.conf 引用的图标文件都存在", () => {
+  const conf = JSON.parse(readFileSync(path.join(TAURI_DIR, "tauri.conf.json"), "utf8"));
+  const icons = conf.bundle?.icon ?? [];
+  assert.ok(icons.length > 0, "bundle.icon 为空");
+  for (const rel of icons) {
+    assert.ok(existsSync(path.join(TAURI_DIR, rel)), `bundle.icon 指向不存在的文件：${rel}`);
+  }
+  assert.ok(icons.includes("icons/icon.ico"), "bundle.icon 应包含 icon.ico");
+});
+
+test("托盘与窗口图标来自同一份 default_window_icon", () => {
+  const lib = readFileSync(path.join(TAURI_DIR, "src", "lib.rs"), "utf8");
+  assert.match(lib, /default_window_icon\(\)/, "托盘应使用 default_window_icon，换图标才会同步生效");
+});
+
+test("Android mipmap 已写入（工程存在时）", () => {
+  if (!existsSync(ANDROID_RES)) {
+    return; // gen/ 不入库；没初始化 Android 工程时跳过
+  }
+  const expected = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+  for (const [density, size] of Object.entries(expected)) {
+    for (const name of ["ic_launcher.png", "ic_launcher_round.png"]) {
+      const file = path.join(ANDROID_RES, `mipmap-${density}`, name);
+      assert.ok(existsSync(file), `缺少 Android 图标 ${density}/${name}`);
+      assert.deepEqual(pngSize(file), { width: size, height: size }, `${density}/${name} 尺寸不对`);
+    }
+  }
+});
+
+test("图标像素与源图一致（调用 gen-app-icons.py --check）", (t) => {
+  const r = spawnSync("python", [path.join("scripts", "gen-app-icons.py"), "--check"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  if (r.error?.code === "ENOENT") {
+    t.skip("本机没有 python，跳过像素级校验");
+    return;
+  }
+  assert.equal(r.status, 0, `图标像素校验失败：\n${r.stdout}${r.stderr}`);
+});

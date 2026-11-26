@@ -160,6 +160,18 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 产物在 `dist/`，命名格式 `积分枢纽PointHub_v<版本>.exe`；安卓包见 `docs/ANDROID.md`
 （targetSdk 固定 36，绕开 Android 17 本地网络保护）。
 
+### 图标
+
+- **应用图标**：源文件在 `用户提供的文件/软件图标/`（不入库）；`scripts/gen-app-icons.py`
+  从其中的分尺寸 PNG 生成 `apps/desktop/src-tauri/icons/`（含多尺寸 `icon.ico`），
+  侧栏、启动页、任务栏、托盘、安装包与 Android launcher 共用同一套图。
+- **积分单位**：数字后面不再写「分」，改由 `ui/src/assets/points/` 的彩色图标表示，
+  颜色按位置区分（合计/总值青铜、余额/新增玉、平台小计墨）。
+- **平台图标**：`ui/src/assets/vendors/`，平台名前面显示对应 logo。
+- **`用户提供的文件/` 整个目录不入库**（已在 `.gitignore` 中排除），换机器需自行放回。
+- Android 工程（`src-tauri/gen/`）不入库，图标由 `scripts/build-android.bat`
+  在构建前自动重新写入。
+
 **`dist/` 里的文件视为已交付的历史版本，脚本不覆盖、不删除。** 要再出一版，
 先按语义化版本升 `Cargo.toml` 里 `[workspace.package] version`，再跑脚本；
 版本号没变会直接报错退出——逼你先想清楚这次该升哪一位。

@@ -109,14 +109,11 @@ button:disabled {
   padding: 0 8px 22px;
 }
 
+/* 品牌位：直接用完整彩色应用图标，圆角与浅色底由图形自带，不再叠底板。 */
 .mark {
   width: 30px;
   height: 30px;
-  border-radius: 9px;
-  background: var(--text);
-  color: var(--accent);
-  display: grid;
-  place-items: center;
+  display: block;
   flex: none;
 }
 
@@ -1142,17 +1139,16 @@ textarea {
 }
 
 .boot-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
-  animation: spin 0.9s linear infinite;
+  width: 46px;
+  height: 46px;
+  display: block;
+  animation: breathe 1.6s ease-in-out infinite;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+@keyframes breathe {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.96);
   }
 }
 

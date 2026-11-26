@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { BRAND_ICON } from "./assets";
 import { useTheme } from "./theme";
 import type {
   AccountView,
@@ -157,7 +158,7 @@ export default function App() {
   if (!view) {
     return (
       <div className="boot">
-        <div className="boot-mark" />
+        <img className="boot-mark" src={BRAND_ICON} alt="" />
         <div>正在读取账号数据…</div>
       </div>
     );
@@ -167,15 +168,7 @@ export default function App() {
     <div className="app">
       <aside className="rail">
         <div className="brand">
-          <div className="mark" aria-hidden>
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7">
-              <circle cx="12" cy="12" r="8.2" />
-              <circle cx="12" cy="12" r="2.1" fill="currentColor" />
-              <circle cx="12" cy="3.8" r="1.5" fill="currentColor" />
-              <circle cx="19.1" cy="16.1" r="1.5" fill="currentColor" />
-              <circle cx="4.9" cy="16.1" r="1.5" fill="currentColor" />
-            </svg>
-          </div>
+          <img className="mark" src={BRAND_ICON} alt="" aria-hidden />
           <div>
             <div className="bname">积分枢纽</div>
             <div className="bsub">POINTHUB</div>

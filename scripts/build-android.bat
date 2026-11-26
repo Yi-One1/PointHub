@@ -53,6 +53,12 @@ echo [2/3] android sources patch (WorkManager worker + notification)
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0patch-android-sources.ps1"
 if errorlevel 1 ( echo   ERROR: android sources patch failed & exit /b 1 )
 
+echo [2/3] app icons (Windows bundle + Android mipmaps)
+where python >nul 2>nul
+if errorlevel 1 ( echo   ERROR: python not found on PATH & exit /b 1 )
+python "%~dp0gen-app-icons.py" --android "%APP_DIR%\src-tauri\gen\android\app\src\main\res"
+if errorlevel 1 ( echo   ERROR: icon generation failed & exit /b 1 )
+
 echo [3/3] build apk
 REM   first arg "release" switches to a release build (smaller, stripped)
 REM   anything else keeps the debug build

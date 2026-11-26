@@ -381,7 +381,7 @@ function Overview({
                 {!g.verified && <span className="tag tag-muted">端点待实测</span>}
                 <span className="psub">
                   {g.accounts.length} 账号 · 小计 {credits(g.subtotal)}
-                  <PointsIcon tone="ink" size={10} />
+                  <PointsIcon tone="ink" size={8} />
                   {g.unknown > 0 ? ` · ${g.unknown} 个未知` : ""}
                 </span>
               </div>
@@ -487,12 +487,12 @@ function TrendCard({ trend }: { trend: DayPoint[] }) {
                 {" · 新增 "}
                 {cur.gain >= 0 ? "+" : ""}
                 {credits(cur.gain)}
-                <PointsIcon tone="jade" size={10} />
+                <PointsIcon tone="jade" size={8} />
               </>
             )}
             {" · 合计 "}
             {credits(cur.total)}
-            <PointsIcon tone="ink" size={10} />
+            <PointsIcon tone="ink" size={8} />
           </span>
         )}
       </div>
@@ -536,7 +536,7 @@ function ActivityCard({ events }: { events: StateView["events"] }) {
             {e.delta !== null && e.delta > 0 && (
               <span className="ev-delta">
                 +{e.delta}
-                <PointsIcon tone="jade" size={10} />
+                <PointsIcon tone="jade" size={8} />
               </span>
             )}
             <time>{clock(e.at)}</time>

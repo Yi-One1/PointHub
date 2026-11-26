@@ -200,7 +200,7 @@ export default function Ball() {
               <span className="bp-name">全部合计</span>
               <span className="bp-val">
                 {fmt(total)}
-                <PointsIcon tone="bronze" size={11} />
+                <PointsIcon tone="bronze" size={8} />
               </span>
             </button>
 
@@ -211,7 +211,7 @@ export default function Ball() {
                   <span>{g.display}</span>
                   <b>
                     {fmt(g.subtotal)}
-                    <PointsIcon tone="ink" size={10} />
+                    <PointsIcon tone="ink" size={8} />
                   </b>
                 </div>
                 {g.accounts.map((a) => (
@@ -229,7 +229,7 @@ export default function Ball() {
                       ) : (
                         <>
                           {fmt(a.balance)}
-                          <PointsIcon tone="jade" size={11} />
+                          <PointsIcon tone="jade" size={8} />
                         </>
                       )}
                     </span>

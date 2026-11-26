@@ -53,3 +53,16 @@ test("手机页 lan.html 内联积分图标，不依赖额外请求", () => {
   assert.match(LAN, /PT\.jade/, "手机页余额未使用积分图标");
   assert.doesNotMatch(LAN, />\s*分\s*</, "手机页仍在显示「分」");
 });
+
+test("积分图标以基线对齐，视觉中心与数字一致", () => {
+  // 底边贴基线时图标中心≈数字中心；再用负 em/px 下移就会变成「底部对齐」。
+  const block = CSS.match(/\.pts\s*\{[^}]*\}/)?.[0] ?? "";
+  assert.ok(block, "styles.css 里找不到 .pts 规则");
+  assert.match(block, /vertical-align:\s*baseline/);
+  assert.doesNotMatch(block, /vertical-align:\s*-/, ".pts 仍在用负偏移，图标会偏下");
+  assert.doesNotMatch(
+    LAN,
+    /\.pt(?:\.[a-z]+)?\s*\{[^}]*vertical-align:\s*-/,
+    "手机页的积分图标仍在用负偏移"
+  );
+});

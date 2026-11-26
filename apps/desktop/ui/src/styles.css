@@ -413,10 +413,11 @@ html[data-theme="dark"] .prog {
   background: var(--faint);
 }
 
-/* 积分单位图标：跟在数字后面，和数字基线对齐。 */
+/* 积分单位图标：跟在数字后面。底边贴基线时，图标中心≈数字视觉中心
+   （数字高约 0.72em，图标约 0.7em），所以不要再往下偏移。 */
 .pts {
   display: inline-block;
-  vertical-align: -0.12em;
+  vertical-align: baseline;
   margin-left: 3px;
   flex: none;
   object-fit: contain;

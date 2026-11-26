@@ -2,6 +2,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { useTheme } from "./theme";
+import { VendorIcon } from "./VendorIcon";
 import type { AccountView, StateView } from "./types";
 
 /**
@@ -202,6 +203,7 @@ export default function Ball() {
             {groups.map((g) => (
               <div key={g.vendor}>
                 <div className="bp-group">
+                  <VendorIcon vendor={g.vendor} size={13} />
                   <span>{g.display}</span>
                   <b>{fmt(g.subtotal)}</b>
                 </div>

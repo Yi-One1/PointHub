@@ -65,6 +65,51 @@ test("平台图标：三平台都是 128×128 透明 PNG", () => {
   }
 });
 
+test("平台图标已裁掉多余留白（四周透明边不超过 2%）", (t) => {
+  const r = spawnSync(
+    "python",
+    [
+      "-c",
+      [
+        "import sys",
+        "from PIL import Image",
+        "bad = []",
+        "for p in sys.argv[1:]:",
+        "    im = Image.open(p).convert('RGBA')",
+        "    b = im.split()[3].getbbox()",
+        "    w, h = im.size",
+        "    margin = max(b[0], b[1], w - b[2], h - b[3])",
+        "    if margin > w * 0.02:",
+        "        bad.append(f'{p}: margin {margin}px')",
+        "print('ok' if not bad else '\\n'.join(bad))",
+        "sys.exit(1 if bad else 0)",
+      ].join("\n"),
+      ...["workbuddy.png", "trae.png", "qoder.png"].map((n) => path.join(ASSETS, "vendors", n)),
+    ],
+    { encoding: "utf8" }
+  );
+  if (r.error?.code === "ENOENT") {
+    t.skip("本机没有 python，跳过留白校验");
+    return;
+  }
+  assert.equal(r.status, 0, `平台图标留白过大（会被缩得很小）：\n${r.stdout}${r.stderr}`);
+});
+
+test("平台名称前都挂了 VendorIcon（总览/账号/导入/能力表/悬浮球）", () => {
+  const app = readFileSync(path.join(UI_DIR, "src", "App.tsx"), "utf8");
+  const ball = readFileSync(path.join(UI_DIR, "src", "Ball.tsx"), "utf8");
+
+  const appCount = (app.match(/<VendorIcon\b/g) ?? []).length;
+  assert.ok(appCount >= 4, `App.tsx 中 VendorIcon 只有 ${appCount} 处，应为 4 处（总览/账号/导入/能力表）`);
+  assert.match(ball, /<VendorIcon\b/, "悬浮球的分组标题缺少平台图标");
+
+  // 旧的识别色圆点方案应彻底退场，避免同一个平台出现「点 + 图」两种标识。
+  assert.doesNotMatch(app, /VENDOR_TONE|tone-(wb|trae|qoder)/, "App.tsx 仍残留 VENDOR_TONE 圆点");
+  const css = readFileSync(path.join(UI_DIR, "src", "styles.css"), "utf8");
+  assert.doesNotMatch(css, /\.tone-(wb|trae|qoder)\b/, "styles.css 仍残留旧平台识别色类");
+  assert.match(css, /\.vicon\b/, "styles.css 缺少 .vicon 样式");
+});
+
 test("平台映射覆盖后端全部 Vendor（防止新增平台漏配 logo）", () => {
   const model = readFileSync(path.join(ROOT, "crates/ph-core/src/model.rs"), "utf8");
   const enumBody = model.match(/pub enum Vendor\s*\{([\s\S]*?)\n\}/);

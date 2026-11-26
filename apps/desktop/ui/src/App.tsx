@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "./api";
 import { BRAND_MARK, BRAND_MARK_DARK } from "./assets";
 import { useTheme } from "./theme";
+import { VendorIcon } from "./VendorIcon";
 import type {
   AccountView,
   ClientStatus,
@@ -15,13 +16,6 @@ import type {
 } from "./types";
 
 type Tab = "overview" | "accounts" | "settings";
-
-/** 平台识别色，只用于这一点小圆点，不铺大面积。 */
-const VENDOR_TONE: Record<string, string> = {
-  workbuddy: "wb",
-  "trae-cn": "trae",
-  "qoder-cn": "qoder",
-};
 
 export default function App() {
   const [view, setView] = useState<StateView | null>(null);
@@ -370,7 +364,7 @@ function Overview({
           {groups.map((g) => (
             <section className="panel" key={g.vendor}>
               <div className="phead">
-                <span className={`dot tone-${VENDOR_TONE[g.vendor] ?? "wb"}`} />
+                <VendorIcon vendor={g.vendor} />
                 <span className="pname">{g.display}</span>
                 {!g.verified && <span className="tag tag-muted">端点待实测</span>}
                 <span className="psub">
@@ -707,7 +701,7 @@ function AccountsPage({
             <ul className="acct-list">
               {view.accounts.map((a) => (
                 <li key={a.id} className="acct-row">
-                  <div className={`dot tone-${VENDOR_TONE[a.vendor] ?? "wb"}`} />
+                  <VendorIcon vendor={a.vendor} size={17} />
                   <div className="acct-main">
                     <div className="acct-title">
                       {a.label}
@@ -746,6 +740,7 @@ function AccountsPage({
                     className={`seg-item ${vendor === p.vendor ? "active" : ""}`}
                     onClick={() => setVendor(p.vendor)}
                   >
+                    <VendorIcon vendor={p.vendor} size={15} />
                     {p.display}
                   </button>
                 ))}
@@ -1581,7 +1576,10 @@ function SettingsPage({
           <tbody>
             {view.platforms.map((p) => (
               <tr key={p.vendor}>
-                <td>{p.display}</td>
+                <td className="cap-vendor">
+                  <VendorIcon vendor={p.vendor} size={15} />
+                  {p.display}
+                </td>
                 <td>{yes(p.checkin)}</td>
                 <td>{yes(p.balance)}</td>
                 <td>{yes(p.token_refresh)}</td>

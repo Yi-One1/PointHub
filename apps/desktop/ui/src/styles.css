@@ -19,9 +19,6 @@
   --warn: #b45309;
   --warn-w: #fff7e6;
   --danger: #b42318;
-  --wb: #0284c7;
-  --trae: #d97706;
-  --qoder: #4f46e5;
   --btn-line: #cfd6e0;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
@@ -39,9 +36,6 @@ html[data-theme="dark"] {
   --warn: #fbbf24;
   --warn-w: #2a2010;
   --danger: #f87171;
-  --wb: #38bdf8;
-  --trae: #fbbf24;
-  --qoder: #818cf8;
   --btn-line: #2c3a50;
   --shadow: none;
 }
@@ -419,14 +413,17 @@ html[data-theme="dark"] .prog {
   background: var(--faint);
 }
 
-.tone-wb {
-  background: var(--wb);
+/* 平台 logo：小圆角方块。Trae/Qoder 是白底 logo，白面板上需要一圈极细轮廓。 */
+.vicon {
+  display: block;
+  flex: none;
+  border-radius: 25%;
+  object-fit: contain;
+  box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.08);
 }
-.tone-trae {
-  background: var(--trae);
-}
-.tone-qoder {
-  background: var(--qoder);
+
+html[data-theme="dark"] .vicon {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 /* 账号行：列宽固定，保证多平台对齐后数字是一竖排 */
@@ -851,6 +848,9 @@ textarea {
 }
 
 .seg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: none;
   background: transparent;
   color: var(--muted);
@@ -1052,6 +1052,12 @@ textarea {
   padding: 9px 16px;
   border-bottom: 1px solid var(--line);
   color: var(--text);
+}
+
+.cap-vendor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .cap-table tr:last-child td {

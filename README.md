@@ -169,8 +169,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
   `*-dark` 提亮版标记，侧栏、启动页、托盘、favicon 都会跟着变。Windows 图标按
   **1.25 倍**裁进底板（任务栏只有 24px，不裁图形太小），并重新倒圆角保持方块观感。
 - **积分单位**：数字后面不再写「分」，改由 `ui/src/assets/points/` 的彩色图标表示，
-  颜色按位置区分（合计/总值青铜、余额/新增玉、平台小计墨）。
-- **平台图标**：`ui/src/assets/vendors/`，平台名前面显示对应 logo。
+  颜色按位置区分（合计/总值青铜、余额/新增玉、平台小计墨，深色主题自动提亮墨色）。
+  主窗口 KPI、平台小计、账号余额、活动增量、趋势悬停、悬浮球与手机页均已替换；
+  手机页把图标以 base64 内联，不发额外请求。
+- **平台图标**：`ui/src/assets/vendors/`，平台名前面显示对应 logo（总览面板头、
+  已纳管列表、导入平台选择、平台能力表、悬浮球分组），未收录平台回退成识别色圆点。
 - **`用户提供的文件/` 整个目录不入库**（已在 `.gitignore` 中排除），换机器需自行放回。
 - Android 工程（`src-tauri/gen/`）不入库，图标由 `scripts/build-android.bat`
   在构建前自动重新写入。

@@ -44,3 +44,10 @@ scripts/dev/
 # Python 缓存（测试会 import 生成脚本）
 __pycache__/
 
+
+# 本地运行产生的数据（调试版从仓库根启动时会出现）
+/debug.log
+/device.json
+/logs/
+/.icons-version
+

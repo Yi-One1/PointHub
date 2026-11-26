@@ -472,32 +472,51 @@ impl Engine {
         // 以前用本机导入建的记录没有 platform_uid（令牌轮换过就对不上整串）。
         // 借这次导入顺手问一次平台：能解析出同一个 uid 就先补上，随后 upsert 会合并。
         if let Some(uid) = cred.platform_uid.clone() {
-            let pending: Vec<(String, Credential)> = self
-                .accounts
-                .iter()
-                .filter(|a| a.vendor == vendor && a.platform_uid.is_none())
-                .filter_map(|a| self.vault.get(&a.id).map(|c| (a.id.clone(), c.clone())))
-                .collect();
-            let mut matched = Vec::new();
-            for (id, old) in pending {
-                if let Ok(Some(other)) = provider.identity(&old).await {
-                    if other == uid {
-                        matched.push(id);
-                    }
-                }
-            }
-            if !matched.is_empty() {
-                for id in &matched {
-                    if let Some(a) = self.accounts.iter_mut().find(|a| &a.id == id) {
-                        a.platform_uid = Some(uid.clone());
-                    }
-                }
-                self.store.save_accounts(&self.accounts)?;
-            }
+            self.adopt_identities(vendor, &uid).await?;
         }
         let snap = provider.snapshot(&probe, &cred).await?;
         let (account, updated, merged) = self.upsert_account(vendor, label, cred)?;
         Ok((account, snap, updated, merged))
+    }
+
+    /// 把「同平台、还没有身份」的旧账号按 `uid` 补齐身份，供随后的 upsert 合并。
+    ///
+    /// 旧版本的本机导入拿不到平台用户 id，令牌轮换后又对不上整串令牌，
+    /// 于是同一账号会留下两条。这里用旧凭据问一次平台（Trae 直接读 JWT 的 `data.id`，
+    /// Qoder 走 userinfo），能对上同一个 uid 就先写上。
+    pub async fn adopt_identities(&mut self, vendor: Vendor, uid: &str) -> Result<()> {
+        let uid = uid.trim();
+        if uid.is_empty() {
+            return Ok(());
+        }
+        let pending: Vec<(String, Credential)> = self
+            .accounts
+            .iter()
+            .filter(|a| a.vendor == vendor && a.platform_uid.is_none())
+            .filter_map(|a| self.vault.get(&a.id).map(|c| (a.id.clone(), c.clone())))
+            .collect();
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        let provider = provider_for(vendor);
+        let mut matched = Vec::new();
+        for (id, old) in pending {
+            if let Ok(Some(other)) = provider.identity(&old).await {
+                if other == uid {
+                    matched.push(id);
+                }
+            }
+        }
+        if matched.is_empty() {
+            return Ok(());
+        }
+        for id in &matched {
+            if let Some(a) = self.accounts.iter_mut().find(|a| &a.id == id) {
+                a.platform_uid = Some(uid.to_string());
+            }
+        }
+        self.store.save_accounts(&self.accounts)
     }
 
     /// 替换某账号的凭据（重新导入 / 换 token）。
@@ -1394,6 +1413,54 @@ mod tests {
             b.latest_snapshots().get("remote-1").and_then(|s| s.balance),
             Some(88.5)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn adopt_identity_merges_legacy_trae_record() {
+        fn fake_trae_jwt(uid: &str) -> String {
+            use base64::Engine as _;
+            let enc = |v: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v);
+            let payload = serde_json::json!({ "data": { "id": uid, "type": "user" } });
+            format!("h.{}.s", enc(&serde_json::to_vec(&payload).unwrap()))
+        }
+
+        let dir = tmpdir("adopt-trae");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+
+        // 旧版本本机导入：账号没有 platform_uid，但 access token 是带 data.id 的 JWT。
+        let token = fake_trae_jwt("123456789012345");
+        let (old, _, _) = e
+            .upsert_account(Vendor::TraeCn, "t 本机", Credential::from_access_token(&token))
+            .unwrap();
+        assert!(old.platform_uid.is_none());
+
+        // 网页授权建的账号：有 user_id。
+        let mut web = Credential::from_access_token("web-token");
+        web.platform_uid = Some("123456789012345".into());
+        e.upsert_account(Vendor::TraeCn, "t 网页", web).unwrap();
+        assert_eq!(e.accounts().len(), 2);
+
+        // 模拟浏览器再导入一次：先补旧记录身份，再 upsert 应把两条并成一条。
+        e.adopt_identities(Vendor::TraeCn, "123456789012345")
+            .await
+            .unwrap();
+        assert_eq!(
+            e.accounts()
+                .iter()
+                .find(|a| a.id == old.id)
+                .unwrap()
+                .platform_uid
+                .as_deref(),
+            Some("123456789012345")
+        );
+
+        let mut again = Credential::from_access_token("web-token-2");
+        again.platform_uid = Some("123456789012345".into());
+        let (_, updated, merged) = e.upsert_account(Vendor::TraeCn, "t 网页", again).unwrap();
+        assert!(updated);
+        assert_eq!(merged, 1);
+        assert_eq!(e.accounts().len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

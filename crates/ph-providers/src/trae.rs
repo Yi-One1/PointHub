@@ -378,7 +378,11 @@ impl Provider for TraeCnProvider {
         {
             return Ok(Some(uid.to_string()));
         }
-        // 兜底：Trae 的 access token 是 JWT 时，`sub` 就是平台用户 id。
+        // 本机导入的 access token 是 JWT，用户 id 在 `data.id` 里（没有 `sub`）。
+        if let Some(uid) = cred.access_token.as_deref().and_then(uid_from_jwt) {
+            return Ok(Some(uid));
+        }
+        // 兜底：标准 `sub`。
         Ok(crate::identity::platform_uid(cred))
     }
 
@@ -709,6 +713,27 @@ fn public_pem_from_private(private_pem: &str) -> Result<String> {
         .map_err(|e| Error::Format(format!("导出公钥失败：{e}")))
 }
 
+/// 从 Trae 的 access token（JWT）里取用户 id：`data.id` 优先，其次标准 `sub`。
+fn uid_from_jwt(token: &str) -> Option<String> {
+    use base64::Engine as _;
+
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(payload))
+        .ok()?;
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+
+    let from_data = value.get("data").and_then(|data| match data {
+        Value::Object(_) => http::pick_str(data, &["id", "userId", "user_id"]),
+        Value::String(raw) => serde_json::from_str::<Value>(raw)
+            .ok()
+            .and_then(|v| http::pick_str(&v, &["id", "userId", "user_id"])),
+        _ => None,
+    });
+    from_data.or_else(|| http::pick_str(&value, &["sub", "userId", "user_id", "uid"]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -770,6 +795,30 @@ mod tests {
         assert!(key
             .verify(b"POST\n/trae/api/v3/oauth/Other", &signature)
             .is_err());
+    }
+
+    #[test]
+    fn uid_from_jwt_reads_data_id() {
+        use base64::Engine as _;
+        let payload = json!({
+            "iat": 1,
+            "exp": 2,
+            "data": { "id": "123456789012345", "type": "user", "source": "trae" }
+        });
+        let token = format!(
+            "h.{}.s",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap())
+        );
+        assert_eq!(uid_from_jwt(&token).as_deref(), Some("123456789012345"));
+        assert_eq!(uid_from_jwt("not-a-jwt"), None);
+
+        let sub_token = format!(
+            "h.{}.s",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(br#"{"sub":"sub-user"}"#)
+        );
+        assert_eq!(uid_from_jwt(&sub_token).as_deref(), Some("sub-user"));
     }
 
     #[test]

@@ -606,6 +606,9 @@ pub async fn add_account(
     }
 
     let mut engine = state.engine.lock().await;
+    if let Some(uid) = cred.platform_uid.clone() {
+        let _ = engine.adopt_identities(vendor, &uid).await;
+    }
     let (acc, updated, merged) = engine
         .upsert_account(vendor, payload.label, cred)
         .map_err(|e| e.user_message())?;
@@ -750,6 +753,10 @@ pub async fn import_credential(
 
     let (account_id, label, updated, merged) = {
         let mut engine = state.engine.lock().await;
+        // 浏览器授权拿到的是权威 user_id：先给旧的无身份记录补上，再 upsert 合并。
+        if let Some(uid) = cred.platform_uid.clone() {
+            let _ = engine.adopt_identities(vendor, &uid).await;
+        }
         let base = format!("{} 网页", vendor.display());
         let label = unique_label(&engine, vendor, &base);
         let (acc, updated, merged) = engine

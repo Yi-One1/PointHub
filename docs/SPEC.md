@@ -4,7 +4,7 @@
 > **部分落地**（核心在，缺外壳/缺验证）、**未开始**（说清卡在哪）。
 > 不做「看起来做了」的表述。
 
-版本：v0.5.0 · 2026-11-26
+版本：v0.8.0 · 2026-11-26
 
 ---
 
@@ -17,7 +17,7 @@
 | 3 | 同一 agent 多账号 | 已落地 | 账号模型按 id 独立，凭据各自加密，`phctl account add` 可加多个 |
 | 4 | Windows + Android 双端互通 | 已落地 | 安卓 App 双模式（连接电脑 / 本机）；持久设备配对后可远程查看、远程签到，`/api/sync/pull` 与 `/api/sync/push` 双向同步账号、快照、历史、活动；凭据不跨电脑；每账号唯一执行端（D03 / D15）。安卓端定时调度仍未做，见第 1 条 |
 | 5 | 手动单个签到 + 一键全部签到 | 已落地 | 总览每行「签到」/ 顶部「一键全部签到」/ 悬浮球面板「一键签到」/ 托盘菜单 / `phctl checkin` |
-| 6 | 浏览器授权 + 本机导入 | 部分落地 | **浏览器授权**：WorkBuddy 已走官方插件授权（长效令牌、自动续期），Trae/Qoder 未接；**本机导入**：WorkBuddy 已落地（只读客户端登录态，验证余额后落库，仅 Windows），Trae/Qoder 暂不支持并提示改用手动令牌。三种导入方式统一按 JWT `sub` 去重，同一账号只保留一条 |
+| 6 | 浏览器授权 + 本机导入 | 部分落地 | **浏览器授权**：WorkBuddy 已走官方插件授权（长效令牌、自动续期），Trae/Qoder 未接；**本机导入**：WorkBuddy / Trae CN / Qoder CN 均已落地（只读客户端登录态，验证余额后落库，仅 Windows）；Trae/Qoder 仍可手动令牌兜底。三种导入方式统一按 JWT `sub` 去重，拿不到 `sub` 时按整串令牌相同识别 |
 | 7 | 双端更新功能 | 部分落地 | 检查/下载链路已通：启动自动查 GitHub Releases（可关）+ 设置页「检查 / 下载 / 手动下载」；Windows 下载 `_Setup.exe` 后启动安装向导，安卓跳浏览器下载 APK；来源可切镜像前缀。**未做**：Windows 静默自替换（未接 Tauri updater 签名链）、安卓应用内直接调起安装器（需原生 Intent 插件），见 D08 |
 | 8 | 卸载干净无残留 | 已落地 | 安装包 NSIS 钩子调用 `pointhub.exe --purge-data` / `--purge-app`；默认清理账号、令牌、日志、自启、快捷方式、计划任务、WebView2 缓存，勾选「保留账号数据」则只删程序痕迹；判定标准见 D10 |
 | 9 | Windows 数据目录可自定义 | 已落地 | 发行版默认 `<exe 所在目录>\data`，旧数据首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub`（D20）；设置页「更换数据目录」→ 复制 + 指针文件 + 重启生效；`ph_store::locate` |
@@ -150,12 +150,15 @@ VendorSnapshot     一次采样
 
 ---
 
-## 六、验收状态（v0.6.0）
+## 六、验收状态（v0.8.0）
 
-- [x] `cargo test --workspace` 62 个测试全绿；`cargo check --workspace` 零错误
+- [x] `cargo test --workspace` 77 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
 - [x] 桌面端启动、数据目录可创建、CLI 全链路闭环
 - [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
+- [x] Trae CN 真实账号端到端：状态 / 领取 / 余额均跑通（领取前预检，避免重复「成功」）
+- [x] Qoder CN 真实账号端到端：活动查询 / 领取 / 余额均跑通（免费号实测可领）
+- [x] 本机导入：WorkBuddy / Trae CN / Qoder CN 三平台登录态解密与验证导入
 - [x] 发布版体积实测：exe 5.0 MB / APK 8.0 MB
 - [x] 安卓出包，并在模拟器上验证安装与启动
 - [x] Redmi K80 Pro / Android 17 真机验证（targetSdk 36 后可连局域网）
@@ -170,6 +173,5 @@ VendorSnapshot     一次采样
 
 ## 七、下一步（按优先级）
 
-1. **Trae / Qoder 补齐**：Qoder 领取端点待实测（用户新账号可每日领 100）；
-   Trae 刷新令牌需设备凭据样本。
+1. **Trae / Qoder 浏览器授权导入**：参考公开实现的授权流程，补齐第三种导入方式。
 2. 更细的当前快照与阻塞项见 `progress.md`。

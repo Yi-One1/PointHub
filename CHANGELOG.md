@@ -6,6 +6,36 @@
 > **产物不覆盖**：`dist/` 里已出的包视为交付历史，构建脚本拒绝覆盖或删除。
 > 要再出一版，先升 `Cargo.toml` 的 `[workspace.package] version`。
 
+## [0.8.0] - 2026-11-26
+
+**新增：Trae CN / Qoder CN 端到端**（新功能，按 SemVer 升 MINOR）。
+
+### 新增
+
+- **Trae CN 真实签到与余额**：`Authorization: Cloud-IDE-JWT` + `X-Device-Id` +
+  `X-User-Region: CN`；状态/领取走 `/trae/api/v2/ug/checkin_credits/{status|claim}`，
+  余额取 `/trae/api/v2/pay/ide_user_ent_usage` 的 `total_balance`。
+  领取前先查状态，避免 Trae 对「今天已领」重复返回成功造成误报。
+- **Qoder CN 真实签到与余额**：活动制，`GET /sash/api/v1/me/campaigns` →
+  `POST /sash/api/v1/me/campaigns/{id}/claim`；余额为各配额桶 `remaining` 之和。
+  空响应按最终活动状态判定；免费账号也能领（D07 修正）。
+- **本机导入扩展到三平台**：新增 Trae 登录态解密（AES-128-CBC + SHA-512 校验，
+  设备 id 从 `iCubeAuthInfo://icube-dc:` 取）与 Qoder 登录态解密
+  （`Local State` 的 DPAPI 密钥 + `auth.v1.dat` 的 AES-256-GCM）。
+  仍然只读、不修改客户端文件、不打印令牌。
+
+### 变更
+
+- 引擎只在平台声明 `token_refresh = true` 时调用刷新；Trae / Qoder 直接用 access token，
+  不再产生「刷新失败但沿用旧令牌」的日志噪声。
+- 能力矩阵：Trae CN / Qoder CN 的签到与余额标记为「已实机」。
+
+### 测试
+
+- 新增 12 个单元测试：Qoder 活动筛选/余额汇总/空响应、Trae 设备校验/9074 映射、
+  Trae 明文与密文登录态、Qoder DPAPI+GCM 夹具、过期令牌拒绝、AES/SHA 原语。
+- `cargo test --workspace` 77 个全绿；桌面端 6 个通过；前端 `tsc + vite build` 通过。
+
 ## [0.7.0] - 2026-11-26
 
 **新增：积分自动刷新**（新功能，按 SemVer 升 MINOR）。

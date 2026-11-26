@@ -1,7 +1,7 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.7.0（已验收，产物已出、未发布）**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-26，版本 **v0.8.0（已验收，产物已出、未发布）**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`，本地与远端同步）
 发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.6.0>（0.7.0 尚未发布）
@@ -49,6 +49,18 @@
 - **积分自动刷新（0.7.0）**：设置页可选 关闭 / 5 / 10 / 30 分钟（默认 10）；
   主窗口可见且未最小化时按间隔采样，复用 `run_refresh_inner`；隐藏期间暂停，
   重新可见时补一次。3 个单元测试覆盖关闭与间隔边界。
+- **Trae CN / Qoder CN 端到端（0.8.0）**：
+  - Trae：`Authorization: Cloud-IDE-JWT` + `X-Device-Id` + `X-User-Region: CN`；
+    `POST /trae/api/v2/ug/checkin_credits/{status|claim}`；余额
+    `POST /trae/api/v2/pay/ide_user_ent_usage → total_balance`。
+    领取前先查状态（Trae 对已领会重复返回成功）。真实账号实测余额约 1478、今日已签。
+  - Qoder：活动制 `GET /sash/api/v1/me/campaigns` → `POST .../{id}/claim`；
+    余额 `GET /sash/api/v2/me/usage` 各桶 `remaining` 之和。免费账号实测可领；
+    真实账号余额 909、今日已签，窗口到次日 10:00。
+  - 本机导入扩到三平台：Trae 解密 `storage.json`（AES-128-CBC + SHA-512 校验，
+    设备 id 取 `iCubeAuthInfo://icube-dc:`），Qoder 解密 `auth.v1.dat`
+    （DPAPI 密钥 + AES-256-GCM）。只读、不改客户端文件、不打印令牌。
+  - 引擎只在 `token_refresh = true` 时刷新，Trae/Qoder 直接用 access token。
 - **发布（0.5.0 / 0.6.0）**：两个 tag 与 GitHub Release 均已上线；0.6.0 上传
   便携 exe 5.0 MB、Setup 2.0 MB、APK 8.0 MB。GitHub 会丢弃资产名里的非 ASCII
   前缀，仓库上显示为 `PointHub_v0.6.0_Setup.exe` 等；自动更新按 `_Setup.exe` /
@@ -83,10 +95,8 @@
 ## 未完成的待办
 
 - [ ] **积分自动刷新**：窗口可见时每 10 分钟采样、可关闭（D18，需求 2 的剩余部分）。
-- [ ] **Trae CN / Qoder CN 端到端**：用户 2026-11-26 授权由我获取前置材料。
-      关键新事实：**Qoder 用户不是会员，但新注册账号可每日领 100 积分**，
-      D07「免费账号无资格」的旧结论不成立，需按接口实际返回判断。
-      Qoder 领取端点未知；Trae 的 ExchangeToken 需设备私钥签名样本（P01 / P02）。
+- [ ] **Trae CN / Qoder CN 浏览器授权**：用户 2026-11-26 新要求，参考
+      `CheckinBox-Tools` 的实现补齐第三种导入方式；目前两个平台只有「本机导入 / 手动令牌」。
 - [ ] **自动更新「下载 → 安装」**：发现新版本已验证；真正的下载安装要等下一版发布时真跑一次。
 - [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
 - [ ] **清理大体积构建产物**（2026-11-26 用户选择暂不清理；需要腾空间时再确认）：
@@ -103,7 +113,7 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.7.0.exe`（5.0 MB）、`dist/积分枢纽PointHub_v0.7.0_Setup.exe`（2.0 MB）；0.6.0 已发布 |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.8.0.exe`（5.0 MB）；0.7.0 及更早均在 `dist/` |
 | Android 正式包 | `dist/积分枢纽PointHub_v0.6.0.apk`（8.0 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`（安装版为 `安装目录\data`）；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
@@ -115,7 +125,9 @@
 
 ### 验证过的证据
 
-- `cargo test --workspace` 62 个测试全绿；`cargo check --workspace` 零错误；前端 `tsc` + `vite build` 通过。
+- `cargo test --workspace` 77 个测试全绿；`cargo check --workspace` 零错误；前端 `tsc` + `vite build` 通过。
+- 0.8.0 真实账号联调：Trae 余额 1478.45、Qoder 余额 909、两者 `checked_in=true`；
+  重复调用签到均返回「今天已签」，不重复领取。
 - 数据目录迁移 / 卸载清理：在隔离临时目录用 release exe 验证——旧数据搬到
   `<exe>\data`、旧目录清空；保留模式不动 `data`；删除模式清掉 `data`、旧目录与自启项。
 - `phctl status`：`余额 201.76 / 已签 / 连签 36`，与汇总接口一致。

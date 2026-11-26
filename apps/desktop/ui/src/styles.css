@@ -109,12 +109,24 @@ button:disabled {
   padding: 0 8px 22px;
 }
 
-/* 品牌位：直接用完整彩色应用图标，圆角与浅色底由图形自带，不再叠底板。 */
+/* 品牌位：透明标记直接撑满槽位。深色主题换成提亮版，绿色才够醒目。 */
 .mark {
   width: 30px;
   height: 30px;
   display: block;
   flex: none;
+}
+
+.mark-dark {
+  display: none;
+}
+
+html[data-theme="dark"] .mark-light {
+  display: none;
+}
+
+html[data-theme="dark"] .mark-dark {
+  display: block;
 }
 
 .bname {

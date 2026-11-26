@@ -7,6 +7,7 @@
  * - 平台 logo 只登记已实测的三个平台，未知平台由调用方回退成识别色圆点。
  */
 import brandIcon from "./assets/brand/pointhub-icon.svg";
+import brandMarkDark from "./assets/brand/pointhub-mark-dark.svg";
 import brandMark from "./assets/brand/pointhub-mark.svg";
 import pointsBronze from "./assets/points/points-bronze.png";
 import pointsInk from "./assets/points/points-ink.png";
@@ -17,8 +18,10 @@ import vendorWorkBuddy from "./assets/vendors/workbuddy.png";
 
 /** 完整彩色应用图标：侧栏品牌位、启动页。 */
 export const BRAND_ICON = brandIcon;
-/** 透明底的品牌标记：需要单色/无底色时使用。 */
+/** 透明底的品牌标记：侧栏、启动页、托盘等小尺寸场景。 */
 export const BRAND_MARK = brandMark;
+/** 深色底专用的标记：绿色提亮，留给深色主题与深色托盘。 */
+export const BRAND_MARK_DARK = brandMarkDark;
 
 export type PointsTone = "bronze" | "ink" | "jade";
 

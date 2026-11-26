@@ -165,7 +165,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Installer
 - **应用图标**：源文件在 `用户提供的文件/软件图标/`（不入库）；`scripts/gen-app-icons.py`
   从中生成 `apps/desktop/src-tauri/icons/`（含多尺寸 `icon.ico`）。桌面、任务栏、
   安装包与 Android launcher 用**带浅绿圆角底板**的完整图标；侧栏、启动页、托盘、favicon
-  用**透明底标记**（小尺寸下底板只会变成一块空白）。
+  用**透明底标记**（小尺寸下底板只会变成一块空白）。深色主题/深色任务栏自动换用
+  `*-dark` 提亮版标记，侧栏、启动页、托盘、favicon 都会跟着变。
 - **积分单位**：数字后面不再写「分」，改由 `ui/src/assets/points/` 的彩色图标表示，
   颜色按位置区分（合计/总值青铜、余额/新增玉、平台小计墨）。
 - **平台图标**：`ui/src/assets/vendors/`，平台名前面显示对应 logo。

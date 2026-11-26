@@ -298,14 +298,43 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
         });
 
+    const TRAY_LIGHT: &[u8] = include_bytes!("../icons/tray-32.png");
+    const TRAY_DARK: &[u8] = include_bytes!("../icons/tray-dark-32.png");
+
+    fn tray_image(dark: bool) -> Option<tauri::image::Image<'static>> {
+        let bytes = if dark { TRAY_DARK } else { TRAY_LIGHT };
+        tauri::image::Image::from_bytes(bytes).ok()
+    }
+
+    let window = app.get_webview_window("main");
+    let dark = window
+        .as_ref()
+        .and_then(|w| w.theme().ok())
+        .map(|t| t == tauri::Theme::Dark)
+        .unwrap_or(false);
+
     // 托盘用透明底的品牌标记：浅绿底板在浅色任务栏上看不清，看起来像个空白方块。
-    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-32.png"))
-        .ok()
-        .or_else(|| app.default_window_icon().cloned());
+    // 深色任务栏换成提亮版，绿色才不会发闷。
+    let tray_icon = tray_image(dark).or_else(|| app.default_window_icon().cloned());
     if let Some(icon) = tray_icon {
         builder = builder.icon(icon);
     }
     builder.build(app)?;
+
+    // 系统切换深浅色时同步托盘图标；不监听的话只有重启才更新。
+    if let Some(window) = window {
+        let handle = app.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::ThemeChanged(theme) = event {
+                if let (Some(tray), Some(icon)) = (
+                    handle.tray_by_id("main"),
+                    tray_image(*theme == tauri::Theme::Dark),
+                ) {
+                    let _ = tray.set_icon(Some(icon));
+                }
+            }
+        });
+    }
     Ok(())
 }
 

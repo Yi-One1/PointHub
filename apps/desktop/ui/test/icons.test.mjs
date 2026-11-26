@@ -97,13 +97,17 @@ test("tauri.conf 引用的图标文件都存在", () => {
   assert.ok(icons.includes("icons/icon.ico"), "bundle.icon 应包含 icon.ico");
 });
 
-test("托盘用透明标记，窗口/任务栏用完整底板图标", () => {
-  const tray = path.join(ICONS, "tray-32.png");
-  assert.ok(existsSync(tray), "缺少托盘图标 tray-32.png");
-  assert.deepEqual(pngSize(tray), { width: 32, height: 32 }, "托盘图标应为 32×32");
+test("托盘用透明标记（浅色 + 深色两套），窗口/任务栏用完整底板图标", () => {
+  for (const name of ["tray-32.png", "tray-dark-32.png"]) {
+    const tray = path.join(ICONS, name);
+    assert.ok(existsSync(tray), `缺少托盘图标 ${name}`);
+    assert.deepEqual(pngSize(tray), { width: 32, height: 32 }, `${name} 应为 32×32`);
+  }
 
   const lib = readFileSync(path.join(TAURI_DIR, "src", "lib.rs"), "utf8");
-  assert.match(lib, /include_bytes!\("\.\.\/icons\/tray-32\.png"\)/, "托盘应嵌入 tray-32.png");
+  assert.match(lib, /include_bytes!\("\.\.\/icons\/tray-32\.png"\)/, "托盘应嵌入浅色标记");
+  assert.match(lib, /include_bytes!\("\.\.\/icons\/tray-dark-32\.png"\)/, "托盘应嵌入深色标记");
+  assert.match(lib, /ThemeChanged/, "系统切换深浅色时应同步托盘图标");
   assert.match(lib, /default_window_icon\(\)/, "解码失败时应回退到窗口图标");
 });
 

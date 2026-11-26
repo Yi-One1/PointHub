@@ -37,11 +37,12 @@ ANDROID_LEGACY = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi":
 ADAPTIVE_BG = "#F4FBF7"  # matches the rounded background of pointhub-icon.svg
 # Source artwork keeps ~7% transparent margin on every side. Outputs are trimmed to the
 # artwork and repadded to a thin, uniform edge so the plate stays readable at 16-32px.
-PAD_RATIO = 0.02
+PAD_RATIO = 0.0
 # Small-size tray icon: transparent mark, not the pale plate (plate would vanish on a
-# light taskbar and look like an empty square).
+# light taskbar and look like an empty square). Dark variant follows the OS theme.
 TRAY_SIZE = 32
 MARK_SRC = SRC / "pointhub-mark-256.png"
+MARK_DARK_SRC = SRC / "pointhub-mark-dark-256.png"
 
 
 def source(size: int) -> Path:
@@ -85,9 +86,10 @@ def write_pngs() -> None:
         tight(load(size), size).save(ICONS / name, optimize=True)
         print(f"[icons] wrote {name} ({size}px)")
 
-    tray = Image.open(MARK_SRC).convert("RGBA")
-    tight(tray, TRAY_SIZE).save(ICONS / f"tray-{TRAY_SIZE}.png", optimize=True)
-    print(f"[icons] wrote tray-{TRAY_SIZE}.png")
+    for name, path in (("tray", MARK_SRC), ("tray-dark", MARK_DARK_SRC)):
+        art = Image.open(path).convert("RGBA")
+        tight(art, TRAY_SIZE).save(ICONS / f"{name}-{TRAY_SIZE}.png", optimize=True)
+        print(f"[icons] wrote {name}-{TRAY_SIZE}.png")
 
     frames = [tight(load(s), s) for s in ICO_SIZES]
     frames[-1].save(
@@ -167,16 +169,17 @@ def check(android_res: Path) -> int:
         if bad:
             errors.append(f"{name} {bad}")
 
-    tray = ICONS / f"tray-{TRAY_SIZE}.png"
-    if not tray.is_file():
-        errors.append(f"missing tray-{TRAY_SIZE}.png")
-    else:
+    for name, path in (("tray", MARK_SRC), ("tray-dark", MARK_DARK_SRC)):
+        tray = ICONS / f"{name}-{TRAY_SIZE}.png"
+        if not tray.is_file():
+            errors.append(f"missing {name}-{TRAY_SIZE}.png")
+            continue
         got = Image.open(tray).convert("RGBA")
-        want = tight(Image.open(MARK_SRC).convert("RGBA"), TRAY_SIZE)
+        want = tight(Image.open(path).convert("RGBA"), TRAY_SIZE)
         if got.size != (TRAY_SIZE, TRAY_SIZE):
-            errors.append(f"tray-{TRAY_SIZE}.png size {got.size} != {(TRAY_SIZE, TRAY_SIZE)}")
+            errors.append(f"{name}-{TRAY_SIZE}.png size {got.size} != {(TRAY_SIZE, TRAY_SIZE)}")
         elif mean_diff(got, want) > 0.5:
-            errors.append(f"tray-{TRAY_SIZE}.png differs from the mark artwork")
+            errors.append(f"{name}-{TRAY_SIZE}.png differs from its mark artwork")
 
     ico = ICONS / "icon.ico"
     if not ico.is_file():

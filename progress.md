@@ -2,7 +2,7 @@
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
 > `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-27，版本
-> **v0.10.1**。
+> **v0.11.0**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
 上一发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.10.1>
@@ -38,6 +38,10 @@
   （主窗口、悬浮球、手机页、趋势悬停）。
 - **覆盖升级图标缓存（0.10.1）**：安装包 `POSTINSTALL` 跑 `ie4uinit`，程序首次以新
   版本启动时用 `SHChangeNotify` 重读三个快捷方式；解决「升级后桌面还是旧图标」。
+- **图标清晰度与对齐（0.11.0）**：桌面/任务栏图标统一从 256px 母图缩小（不再放大
+  1.25 倍）；积分图标改基线对齐，视觉中心与数字一致（手机页同步）。
+- **单实例（0.11.0）**：`tauri-plugin-single-instance` 最先注册，第二次启动唤起并
+  置前已有窗口（含托盘最小化）；`scripts/test-single-instance.ps1` 可自动验证。
 - **覆盖升级图标缓存修复（0.10.1）**：NSIS `POSTINSTALL` 重建图标缓存 + 程序首次以新
   版本启动时 `SHChangeNotify` 通知 shell 重读桌面/开始菜单快捷方式（每版本一次）。
 

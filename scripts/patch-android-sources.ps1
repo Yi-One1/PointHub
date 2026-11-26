@@ -28,6 +28,34 @@ foreach ($f in @($manifest, $gradle, $activity)) {
 
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 
+# --- 0. buildSrc BuildTask: point node at the project's Tauri CLI ------------
+# The generated template runs `node tauri android android-studio-script` with
+# cwd = src-tauri. That only works when a `tauri` package is resolvable from
+# there, which it is not: the CLI lives in ui/node_modules. Patch the first
+# argument to the real tauri.js path (relative to src-tauri) so `node` can load
+# it without PATH or global installs.
+$buildTask = Get-ChildItem (Join-Path $AppDir 'src-tauri\gen\android\buildSrc') -Recurse -Filter BuildTask.kt -ErrorAction SilentlyContinue | Select-Object -First 1
+$cliJs = Join-Path $AppDir 'ui\node_modules\@tauri-apps\cli\tauri.js'
+if (-not (Test-Path $cliJs)) {
+    Write-Host "  WARNING: local Tauri CLI not installed: $cliJs (run npm install in apps/desktop/ui)"
+} elseif ($null -eq $buildTask) {
+    Write-Host '  WARNING: buildSrc BuildTask.kt not found, node CLI path left unchanged'
+} else {
+    $bt = [System.IO.File]::ReadAllText($buildTask.FullName)
+    if ($bt -match 'node_modules/@tauri-apps/cli/tauri\.js') {
+        Write-Host '  buildSrc: tauri CLI path already patched'
+    } elseif ($bt -match 'listOf\("tauri", "android", "android-studio-script"\)') {
+        $bt = $bt.Replace(
+            'listOf("tauri", "android", "android-studio-script")',
+            'listOf("../ui/node_modules/@tauri-apps/cli/tauri.js", "android", "android-studio-script")'
+        )
+        [System.IO.File]::WriteAllText($buildTask.FullName, $bt, $utf8)
+        Write-Host '  buildSrc: node -> ui/node_modules/@tauri-apps/cli/tauri.js'
+    } else {
+        Write-Host '  WARNING: tauri CLI args pattern not found, BuildTask.kt left unchanged'
+    }
+}
+
 # --- 1. Kotlin sources ------------------------------------------------------
 New-Item -ItemType Directory -Force -Path $dstRoot | Out-Null
 $copied = 0

@@ -2,15 +2,16 @@
 
 ## 结论先说
 
-能出包。但 Windows 上有**四个坑**，全都会以「编译失败」的形式出现，且报错各不相同。
+能出包。但 Windows 上有**五个坑**，全都会以「编译失败」的形式出现，且报错各不相同。
 本文记录每个坑的现象、根因、以及仓库里已经落地的绕法——你换机器时照着抄就行。
 
 | 坑 | 现象 | 根因 | 绕法 |
 |---|---|---|---|
 | 1. 中文路径 + NDK | `ld.lld: error: cannot open ...` 路径乱码 | NDK 的 `lld` 不认非 ASCII 路径 | `CARGO_TARGET_DIR` 指到纯英文目录 |
-| 2. Gradle 路径检查 | `Your project path contains non-ASCII characters` | AGP 主动拒绝 | `android.overridePathCheck=true` |
-| 3. `npm.bat` 不存在 | `A problem occurred starting process 'command npm.bat'` | Tauri 的 Gradle rust 插件硬调 `npm.bat`；新版 Node 只有 `npm.cmd`，Java 不会补后缀 | `scripts/shims/npm.bat` 垫片，构建脚本把它放 PATH 最前 |
+| 2. Gradle 路径检查 | `Your project path contains non-ASCII characters` | AGP 主动拒绝 | `android.overridePathCheck=true`，由 `patch-android-gradle.ps1` 幂等写入 |
+| 3. `npm.bat` / `node.bat` 不存在 | `A problem occurred starting process 'command npm.bat'`（或 `node.bat`） | Tauri 的 Gradle rust 插件硬调 `npm.bat` / `node.bat`；新版 Node 只有 `npm.cmd` / `node.exe`，Java 不会补后缀 | `scripts/shims/` 下两个垫片，构建脚本把它放 PATH 最前 |
 | 4. 插件回查 CLI 配置 | `npm error ENOENT ... src-tauri/package.json` 或 `cli-options-server.json` 找不到 | 插件在 `src-tauri` 下执行 `npm run tauri android android-studio-script`，靠 CLI 的本地服务取配置 | `src-tauri/package.json` 提供同名脚本（见下） |
+| 5. 插件调 `node tauri` | `Cannot find module '...\src-tauri\tauri'` | 新模板在 `src-tauri` 下执行 `node tauri android android-studio-script`，该目录没有可解析的 `tauri` 模块 | `patch-android-sources.ps1` 把参数改写成 `../ui/node_modules/@tauri-apps/cli/tauri.js` |
 
 ## 一条命令
 
@@ -50,8 +51,9 @@ scripts\build-android.bat release --target aarch64
 
 ## 产物与体积
 
-- 正式包：release + `aarch64` 单架构，**实测 8.0 MB**（`Cargo.toml` 已开
-  `strip = true` + `lto = true`，AGP 默认剥离 native 符号）。
+- 正式包：release + `aarch64` 单架构，**实测 8.3 MB**（`Cargo.toml` 已开
+  `strip = true` + `lto = true`，AGP 默认剥离 native 符号）。不带 `--target` 时
+  会出 universal（4 个 ABI，约 27 MB）；复制脚本优先取 arm64 产物。
 - 调试包：默认 universal（4 个 ABI）并保留调试符号，约 150–180 MB，仅排障用。
 
 ## 界面适配（v0.4.0）
@@ -101,10 +103,14 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 
 ## 最近一次构建
 
-- 2026-11-26，`dist\积分枢纽PointHub_v0.6.0.apk`，**8.0 MB**
-  （release / arm64-v8a / versionName 0.6.0 / debug keystore 签名 /
-  `apksigner verify` 通过）。
+- 2026-11-27，`dist\积分枢纽PointHub_v0.11.0.apk`，**8.3 MB**
+  （release / arm64-v8a / versionName 0.11.0 / versionCode 11000 /
+  targetSdk 36 / debug keystore 签名 / `apksigner verify` 通过 /
+  mipmap 160–640 五档图标齐全）。
+- 2026-11-26，`dist\积分枢纽PointHub_v0.6.0.apk`，8.0 MB（同上配置，历史记录）。
 - 早期 debug 包（约 150–180 MB）只用于排障，不入库、不发布。
+- 验证命令（`aapt` 不认中文路径，先把 APK 复制到纯英文目录再查）：
+  `aapt dump badging ph.apk`、`apksigner verify --print-certs ph.apk`。
 
 ## targetSdk 固定为 36（Android 17 本地网络保护）
 

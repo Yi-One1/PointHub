@@ -3,10 +3,19 @@
 # Artifacts in dist\ are shipped history: never overwrite an existing one.
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $cargo = Join-Path $root 'Cargo.toml'
-$src = Join-Path $root 'apps\desktop\src-tauri\gen\android\app\build\outputs\apk\universal\release\app-universal-release.apk'
+$apkRoot = Join-Path $root 'apps\desktop\src-tauri\gen\android\app\build\outputs\apk'
 $dist = Join-Path $root 'dist'
 
-if (-not (Test-Path $src)) {
+# Prefer the single-ABI arm64 release: it is what earlier releases shipped and
+# keeps the download near 8 MB. Fall back to universal when that flavor was not
+# built (`build-android.bat release` without --target builds all four ABIs).
+$candidates = @(
+    (Join-Path $apkRoot 'arm64\release\app-arm64-release.apk'),
+    (Join-Path $apkRoot 'universal\release\app-universal-release.apk')
+)
+$src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if (-not $src) {
     Write-Host '  release APK not found, skip copy'
     exit 0
 }

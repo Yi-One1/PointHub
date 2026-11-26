@@ -7,9 +7,10 @@ REM   1) Non-ASCII project path breaks NDK ld.lld (cannot open object files)
 REM      -> point CARGO_TARGET_DIR to an ASCII-only directory
 REM   2) Gradle refuses non-ASCII project paths
 REM      -> android.overridePathCheck=true in gen/android/gradle.properties
-REM   3) Tauri's Gradle rust plugin hardcodes `npm.bat`, but modern Node ships
-REM      only `npm.cmd`, and Java does not do PATHEXT lookup
-REM      -> scripts\shims\npm.bat shim, put first on PATH
+REM   3) Tauri's Gradle rust plugin hardcodes `npm.bat` and `node.bat`, but
+REM      modern Node ships only `npm.cmd` / `node.exe`, and Java does not do
+REM      PATHEXT lookup
+REM      -> scripts\shims\npm.bat + node.bat shims, put first on PATH
 REM
 REM  NOTE: keep this file ASCII-only. cmd.exe reads .bat in the OEM codepage;
 REM  UTF-8 Chinese comments here will corrupt parsing.
@@ -29,6 +30,7 @@ echo [1/3] environment check
 if not exist "%ANDROID_HOME%" ( echo   ERROR: ANDROID_HOME not found: %ANDROID_HOME% & exit /b 1 )
 if not exist "%JAVA_HOME%\bin\java.exe" ( echo   ERROR: JAVA_HOME not found: %JAVA_HOME% & exit /b 1 )
 if not exist "%SHIM_DIR%\npm.bat" ( echo   ERROR: npm shim missing: %SHIM_DIR%\npm.bat & exit /b 1 )
+if not exist "%SHIM_DIR%\node.bat" ( echo   ERROR: node shim missing: %SHIM_DIR%\node.bat & exit /b 1 )
 if not exist "%CARGO_TARGET_DIR%" mkdir "%CARGO_TARGET_DIR%"
 echo   ANDROID_HOME=%ANDROID_HOME%
 echo   JAVA_HOME=%JAVA_HOME%

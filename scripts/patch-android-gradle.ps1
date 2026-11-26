@@ -1,21 +1,41 @@
 param(
-    [string] $GradlePath = (Join-Path $PSScriptRoot '..\apps\desktop\src-tauri\gen\android\app\build.gradle.kts')
+    [string] $GradlePath = (Join-Path $PSScriptRoot '..\apps\desktop\src-tauri\gen\android\app\build.gradle.kts'),
+    [string] $PropertiesPath = (Join-Path $PSScriptRoot '..\apps\desktop\src-tauri\gen\android\gradle.properties')
 )
 
 # Tauri regenerates gen/android on `tauri android init`, and gen/ is gitignored.
-# Keep the three build tweaks here (tracked) so a fresh checkout still builds a
+# Keep the four build tweaks here (tracked) so a fresh checkout still builds a
 # small, installable release APK:
 #   1) release uses the debug keystore (self-distribution; no private key to manage)
 #   2) native debug symbols are stripped (keeping them inflates the APK ~2x)
 #   3) targetSdk pinned to 36: Android 17 (API 37) blocks local-network TCP unless
 #      the app holds ACCESS_LOCAL_NETWORK. Targeting 36 keeps the implicit grant
 #      via INTERNET, which is what the PC<->phone LAN pairing relies on.
+#   4) android.overridePathCheck=true in gradle.properties: Gradle rejects
+#      non-ASCII project paths, so a fresh gen/android would fail on any
+#      checkout whose root directory contains Chinese characters.
 $marker = '// PointHub: self-distribution patch (scripts/patch-android-gradle.ps1)'
 $signLine = '            signingConfig = signingConfigs.getByName("debug")'
 
 if (-not (Test-Path $GradlePath)) {
     Write-Host "  gradle file not found: $GradlePath"
     exit 1
+}
+
+# gradle.properties: allow a non-ASCII project path. Idempotent - only append when
+# the key is missing, so repeated builds do not pile up duplicate lines.
+if (Test-Path $PropertiesPath) {
+    $props = [System.IO.File]::ReadAllText($PropertiesPath)
+    if ($props -notmatch '(?m)^\s*android\.overridePathCheck\s*=') {
+        if ($props.Length -gt 0 -and -not $props.EndsWith("`n")) { $props += "`n" }
+        $props += "`n# PointHub: this repo lives under a non-ASCII path; Gradle refuses it by default.`nandroid.overridePathCheck=true`n"
+        [System.IO.File]::WriteAllText($PropertiesPath, $props)
+        Write-Host '  gradle.properties patched: android.overridePathCheck=true'
+    } else {
+        Write-Host '  gradle.properties already allows non-ASCII path'
+    }
+} else {
+    Write-Host "  WARNING: gradle.properties not found: $PropertiesPath"
 }
 
 $text = [System.IO.File]::ReadAllText($GradlePath)

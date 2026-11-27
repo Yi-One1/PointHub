@@ -4,7 +4,8 @@
 //! 所以无法在运行期完全静默处理；这里把唯一一次授权放到安装完成时：
 //!
 //! - 安装器调用 `pointhub.exe --firewall-install`，检查当前安装目录是否已放行；
-//!   已放行则直接返回（原地升级不会重复弹 UAC），否则提权写入一条按程序放行的规则；
+//!   已放行则直接返回（原地升级不会重复弹 UAC），否则以本程序身份请求提权
+//!   （UAC 里显示 PointHub，而不是 powershell.exe），再写入一条按程序放行的规则；
 //! - 规则只对本地子网生效，程序升级、改端口都不受影响；
 //! - 卸载时由 `purge_all` 提权删除全部 PointHub 规则。
 //!
@@ -16,24 +17,25 @@ const RULE_NAME: &str = "PointHub LAN";
 /// 安装完成时调用：确保当前安装路径已有放行规则。
 ///
 /// `quiet` 用于静默安装：没有交互界面，无法弹 UAC，只能跳过。
+/// `elevated` 表示当前进程已经拿到管理员权限（由本程序重新拉起），直接执行。
 #[cfg(windows)]
-pub fn install(quiet: bool) -> Result<(), String> {
-    platform::install(quiet)
+pub fn install(quiet: bool, elevated: bool) -> Result<(), String> {
+    platform::install(quiet, elevated)
 }
 
 /// 卸载时删除全部 PointHub 防火墙规则。
 #[cfg(windows)]
-pub fn purge_all(quiet: bool) -> Result<(), String> {
-    platform::purge_all(quiet)
+pub fn purge_all(quiet: bool, elevated: bool) -> Result<(), String> {
+    platform::purge_all(quiet, elevated)
 }
 
 #[cfg(not(windows))]
-pub fn install(_quiet: bool) -> Result<(), String> {
+pub fn install(_quiet: bool, _elevated: bool) -> Result<(), String> {
     Ok(())
 }
 
 #[cfg(not(windows))]
-pub fn purge_all(_quiet: bool) -> Result<(), String> {
+pub fn purge_all(_quiet: bool, _elevated: bool) -> Result<(), String> {
     Ok(())
 }
 
@@ -82,14 +84,17 @@ mod platform {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     }
 
-    /// 以管理员身份跑一段 PowerShell；用户取消 UAC 时返回明确提示。
-    fn run_elevated(script: &str) -> Result<(), String> {
-        let encoded = utf16le_base64(script);
-        let outer = format!(
-            "try {{ $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru \
-             -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{encoded}'; \
-             exit $p.ExitCode }} catch {{ exit 1223 }}"
-        );
+    /// 以管理员身份重新启动本程序（保留原参数，追加 `--elevated`）。
+    ///
+    /// 提权的对象是 `pointhub.exe` 自己，所以 UAC 弹窗显示应用名称和图标；
+    /// 若直接提权 powershell.exe，用户会看到「Windows PowerShell」而困惑。
+    fn elevate_self(action: &str) -> Result<(), String> {
+        let mut args: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| a != "--elevated")
+            .collect();
+        args.push("--elevated".into());
+        let script = elevated_launch_script(&current_exe(), &args);
         let out = Command::new("powershell")
             .args([
                 "-NoProfile",
@@ -97,7 +102,7 @@ mod platform {
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                &outer,
+                &script,
             ])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
@@ -107,7 +112,7 @@ mod platform {
             return Ok(());
         }
         if code == 1223 {
-            return Err("已取消：修改防火墙需要管理员权限".into());
+            return Err(format!("已取消：{action}"));
         }
         let err = String::from_utf8_lossy(&out.stderr);
         let err = err.trim();
@@ -118,10 +123,19 @@ mod platform {
         })
     }
 
-    fn utf16le_base64(s: &str) -> String {
-        use base64::prelude::{Engine as _, BASE64_STANDARD};
-        let bytes: Vec<u8> = s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-        BASE64_STANDARD.encode(bytes)
+    /// 外层 PowerShell：请求 UAC 拉起本程序，并原样带回退出码。
+    fn elevated_launch_script(exe: &str, args: &[String]) -> String {
+        let exe = ps_quote(exe);
+        let list = args
+            .iter()
+            .map(|a| format!("'{}'", ps_quote(a)))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "try {{ $p = Start-Process -FilePath '{exe}' -ArgumentList {list} \
+             -Verb RunAs -Wait -PassThru -WindowStyle Hidden; exit $p.ExitCode }} \
+             catch {{ exit 1223 }}"
+        )
     }
 
     /// 只读检查：当前 exe 是否已有启用中的入站放行规则。
@@ -164,17 +178,21 @@ mod platform {
          exit 0"
     }
 
-    pub fn install(quiet: bool) -> Result<(), String> {
+    pub fn install(quiet: bool, elevated: bool) -> Result<(), String> {
         if has_rule()? {
             return Ok(());
         }
         if quiet {
             return Err("静默安装无法提权，跳过防火墙规则安装".into());
         }
-        run_elevated(&install_script())
+        if elevated {
+            run_powershell(&install_script())?;
+            return Ok(());
+        }
+        elevate_self("修改防火墙需要管理员权限")
     }
 
-    pub fn purge_all(quiet: bool) -> Result<(), String> {
+    pub fn purge_all(quiet: bool, elevated: bool) -> Result<(), String> {
         let count = count_rules()?;
         if count == 0 {
             return Ok(());
@@ -184,7 +202,11 @@ mod platform {
                 "静默卸载无法提权，跳过 {count} 条防火墙规则清理"
             ));
         }
-        run_elevated(purge_script())
+        if elevated {
+            run_powershell(purge_script())?;
+            return Ok(());
+        }
+        elevate_self("清理防火墙规则需要管理员权限")
     }
 
     fn has_rule() -> Result<bool, String> {
@@ -230,16 +252,24 @@ mod platform {
         }
 
         #[test]
-        fn utf16_base64_roundtrip() {
-            use base64::prelude::{Engine as _, BASE64_STANDARD};
-            let text = "Write-Host 中文";
-            let encoded = utf16le_base64(text);
-            let bytes = BASE64_STANDARD.decode(encoded).unwrap();
-            let units: Vec<u16> = bytes
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect();
-            assert_eq!(String::from_utf16(&units).unwrap(), text);
+        fn elevated_launch_targets_our_own_exe() {
+            let script = elevated_launch_script(
+                r"C:\Apps\PointHub\pointhub.exe",
+                &["--firewall-install".to_string(), "--elevated".to_string()],
+            );
+            assert!(script.contains("-Verb RunAs"), "必须请求提权");
+            assert!(
+                script.contains(r"'C:\Apps\PointHub\pointhub.exe'"),
+                "提权对象应当是应用自己，而不是 powershell.exe"
+            );
+            assert!(
+                script.contains("'--firewall-install','--elevated'"),
+                "重新拉起时要保留原参数并标记已提权"
+            );
+            assert!(
+                !script.contains("powershell.exe' -Verb"),
+                "不能再让 UAC 显示 Windows PowerShell"
+            );
         }
 
         #[test]

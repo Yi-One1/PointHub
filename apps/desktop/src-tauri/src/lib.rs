@@ -78,7 +78,9 @@ pub fn run() {
     #[cfg(all(desktop, windows))]
     if std::env::args().any(|a| a == "--firewall-install") {
         let quiet = std::env::args().any(|a| a == "--quiet");
-        std::process::exit(match firewall::install(quiet) {
+        // `--elevated` 表示本进程就是被提权拉起来的那个，直接执行、避免二次 UAC。
+        let elevated = std::env::args().any(|a| a == "--elevated");
+        std::process::exit(match firewall::install(quiet, elevated) {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("{e}");
@@ -93,7 +95,8 @@ pub fn run() {
     if let Some(mode) = purge_mode_arg() {
         // 静默卸载没有交互界面，无法弹 UAC 清理防火墙规则。
         let quiet = std::env::args().any(|a| a == "--quiet");
-        std::process::exit(purge::run(mode, quiet));
+        let elevated = std::env::args().any(|a| a == "--elevated");
+        std::process::exit(purge::run(mode, quiet, elevated));
     }
 
     #[allow(unused_mut)]

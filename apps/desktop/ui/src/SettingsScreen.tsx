@@ -59,7 +59,6 @@ export default function SettingsScreen({
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Settings>(view.settings);
   const [defaults, setDefaults] = useState<Settings | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [pending, setPending] = useState<{
     title: string;
     message: string;
@@ -185,12 +184,6 @@ export default function SettingsScreen({
       .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    if (saveState !== "saved") return;
-    const timer = setTimeout(() => setSaveState("idle"), 1500);
-    return () => clearTimeout(timer);
-  }, [saveState]);
-
   useEffect(
     () => () => {
       if (mirrorTimer.current) window.clearTimeout(mirrorTimer.current);
@@ -200,9 +193,7 @@ export default function SettingsScreen({
 
   const apply = async (next: Settings) => {
     setDraft(next);
-    setSaveState("saving");
-    const ok = await onSave(next, true);
-    setSaveState(ok ? "saved" : "error");
+    await onSave(next, true);
   };
 
   const change = (next: Settings, confirm?: { title: string; message: string }) => {
@@ -308,15 +299,6 @@ export default function SettingsScreen({
               <p className="sub">{current.hint}</p>
             </div>
             <div className="acts">
-              <span className={`settings-save-state ${saveState}`}>
-                {saveState === "saving"
-                  ? "保存中…"
-                  : saveState === "saved"
-                    ? "已自动保存"
-                    : saveState === "error"
-                      ? "保存失败，请重试"
-                      : "改动立即生效"}
-              </span>
               <button
                 className="btn"
                 onClick={resetSection}

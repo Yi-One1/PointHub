@@ -136,10 +136,19 @@ test("分区标题在卡片外，主页面左下角信息已移除", () => {
   assert.match(SCREEN, /数据只在本机/);
 });
 
-test("设置改动即时保存，不再需要全局保存按钮", () => {
+test("设置改动即时保存，不再有全局保存按钮或状态文字", () => {
   assert.match(SCREEN, /const apply = async/);
   assert.match(SCREEN, /onSave\(next, true\)/, "即时保存应静默，避免每次改动都弹通知");
-  assert.match(SCREEN, /改动立即生效/);
+  assert.doesNotMatch(SCREEN, /改动立即生效|已自动保存|settings-save-state/);
+});
+
+test("镜像前缀输入行沿用卡片内边距", () => {
+  assert.match(SCREEN, /镜像前缀/);
+  assert.match(
+    CSS,
+    /\.settings-body \.panel > \.field\s*\{[\s\S]*?padding:\s*12px 16px 14px/,
+    "输入型设置不能贴着卡片边缘",
+  );
 });
 
 test("每个分区可恢复默认，默认值来自后端", () => {

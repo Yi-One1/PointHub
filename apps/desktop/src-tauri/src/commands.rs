@@ -902,17 +902,6 @@ pub async fn firewall_allow(
         .map_err(|e| format!("防火墙放行任务失败：{e}"))?
 }
 
-/// 清理指向旧版本 / 已删除程序的 PointHub 防火墙规则（会弹 UAC）。
-#[tauri::command]
-pub async fn firewall_cleanup(
-    state: State<'_, SharedState>,
-) -> Result<crate::firewall::FirewallStatus, String> {
-    let port = state.sync_port.load(Ordering::Relaxed);
-    tauri::async_runtime::spawn_blocking(move || crate::firewall::cleanup_stale(port))
-        .await
-        .map_err(|e| format!("防火墙清理任务失败：{e}"))?
-}
-
 // ------------------------------------------------------------------ 远程模式（安卓连电脑）
 
 #[tauri::command]

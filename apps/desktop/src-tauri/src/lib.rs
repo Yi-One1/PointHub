@@ -114,7 +114,6 @@ pub fn run() {
             commands::lan_info,
             commands::firewall_status,
             commands::firewall_allow,
-            commands::firewall_cleanup,
             commands::client_status,
             commands::client_pair,
             commands::client_unpair,

@@ -19,10 +19,8 @@ export const api = {
   lanInfo: () => invoke<LanInfo>("lan_info"),
   /** 手机访问端口的防火墙放行状态（只读检测） */
   firewallStatus: () => invoke<FirewallStatus>("firewall_status"),
-  /** 添加只开当前端口的入站放行规则（会弹 UAC） */
+  /** 手机连不上时，提权放行当前端口（会弹 UAC） */
   firewallAllow: () => invoke<FirewallStatus>("firewall_allow"),
-  /** 清理旧版本残留的 PointHub 防火墙规则（会弹 UAC） */
-  firewallCleanup: () => invoke<FirewallStatus>("firewall_cleanup"),
   refreshAll: () => invoke<StateView>("refresh_all"),
   checkin: (ids?: string[]) => invoke<OutcomeView[]>("checkin", { ids: ids ?? null }),
   travel: (id: string, action: "auto" | "status" | "claim" | "depart" = "auto", location?: number) =>

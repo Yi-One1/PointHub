@@ -1,8 +1,8 @@
 /**
- * 防火墙放行：验证前后端接线与规则边界。
+ * 防火墙放行：验证「按需出现」的接线与规则边界。
  *
  * 不校验系统实际状态（那要管理员权限），只保证：
- * 命令注册、界面入口、规则参数、静默卸载参数没有被改坏。
+ * 命令注册、提示出现条件、规则参数、静默卸载参数没有被改坏。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -25,27 +25,31 @@ const HOOKS = readFileSync(
   "utf8"
 );
 
-test("设置页提供防火墙状态与两个操作入口", () => {
-  assert.match(APP, /防火墙放行/);
+test("防火墙提示只在局域网已启动且确实未放行时出现", () => {
+  assert.match(APP, /lan\?\.running/);
+  assert.match(APP, /firewall\?\.state === "missing"/);
+  assert.match(APP, /Windows 防火墙拦住了手机访问端口/);
+  // 不再常驻设置页
+  assert.doesNotMatch(APP, /<div className="row-title">防火墙放行<\/div>/);
+});
+
+test("界面只保留放行入口，不暴露清理等系统概念", () => {
   assert.match(APP, /\.firewallStatus\(\)/);
   assert.match(APP, /\.firewallAllow\(\)/);
-  assert.match(APP, /\.firewallCleanup\(\)/);
+  assert.doesNotMatch(APP, /firewallCleanup/);
   assert.match(API, /invoke<FirewallStatus>\("firewall_status"\)/);
   assert.match(API, /invoke<FirewallStatus>\("firewall_allow"\)/);
-  assert.match(API, /invoke<FirewallStatus>\("firewall_cleanup"\)/);
+  assert.doesNotMatch(API, /firewall_cleanup/);
   assert.match(TYPES, /interface FirewallStatus/);
 });
 
-test("放行规则只开当前端口并限制本地子网", () => {
+test("放行规则只开当前端口、限制本地子网，并顺手清理旧规则", () => {
   assert.match(FW, /localport=\{port\}/);
   assert.match(FW, /remoteip=localsubnet/);
   assert.match(FW, /profile=domain,private,public/);
   assert.match(FW, /dir=in action=allow/);
-});
-
-test("清理旧规则时保留当前版本与本次规则", () => {
-  assert.match(FW, /-eq \$own -and \$enabled/, "清理时必须保留本次创建的规则");
-  assert.match(FW, /-ieq \$exe/, "清理时必须保留当前运行的 exe");
+  assert.match(FW, /-eq \$own -and \$enabled/, "必须保留本次创建的规则");
+  assert.match(FW, /-ieq \$exe/, "必须保留当前运行的 exe");
   assert.match(FW, /DisplayName 'PointHub\*'/);
 });
 

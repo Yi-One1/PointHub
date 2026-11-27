@@ -44,6 +44,10 @@
   置前已有窗口（含托盘最小化）；`scripts/test-single-instance.ps1` 可自动验证。
 - **安卓重打（0.11.0）**：APK 从 0.6.0 直接重打到 0.11.0（arm64 / 8.3 MB），
   含新图标、平台 logo、积分图标与新 UI；构建链的 Windows 兼容问题全部脚本化。
+- **防火墙自动放行（未发版）**：安装器 `POSTINSTALL` 调用
+  `pointhub.exe --firewall-install`，按程序写入只允许**本地子网**的入站规则；
+  已放行则直接跳过（原地升级不弹 UAC）；运行期无检测、无提示、无设置项；
+  卸载时提权清除全部 `PointHub*` 规则。便携版/调试版仍由 Windows 原生弹窗处理。
 
 ---
 
@@ -67,15 +71,12 @@
     Gradle 非 ASCII 路径、`node.bat` / `npm.bat` 垫片、`node tauri` 入口改写
     （详见 `docs/ANDROID.md` 的五个坑）；发布包优先 arm64 单架构。
 
-详见 `DECISIONS.md` D01–D22。
+详见 `DECISIONS.md` D01–D25。
 
 ---
 
 ## 未完成的待办
 
-- [ ] **自动更新「下载 → 安装」真跑**：检查/下载链路已验证；v0.11.0 发布后在旧版
-      上完整走一次下载与安装向导。
-- [ ] **Windows 防火墙**：首次监听 47821 若局域网连不上，需手动放行入站（管理员权限）。
 - [ ] **安卓应用内直接调起安装器**：目前跳浏览器下载 APK（需原生 Intent 插件，见 D08）。
 
 ---
@@ -95,7 +96,9 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（需先 `npm install` 于 `apps\desktop\ui`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（20 项） |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（25 项） |
+| 桌面端测试 | `cargo test --manifest-path apps\desktop\src-tauri\Cargo.toml`（13 项） |
+| 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
 | 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
 
@@ -125,7 +128,8 @@
 ### 验证过的证据
 
 - `cargo test --workspace` **90 个测试全绿**；`cargo check --workspace` 零错误。
-- 前端 **20/20**、`tsc --noEmit`、`vite build` 通过；`gen-app-icons.py --check` 通过。
+- 桌面端 **13/13**；前端 **25/25**、`tsc --noEmit`、`vite build` 通过；
+  `gen-app-icons.py --check` 通过。
 - 0.11.0 APK：`aapt dump badging` 显示 versionName 0.11.0 / versionCode 11000 /
   targetSdk 36 / native-code 仅 arm64-v8a；mipmap 160–640 五档齐全；
   `apksigner verify` 通过（debug 证书）。

@@ -68,7 +68,12 @@ Qoder 问 `userinfo`，WorkBuddy 读 JWT `sub`，浏览器授权直接拿 `user_
 1. **同一 Wi-Fi**——手机没连 Wi-Fi，或连的是访客网络、与电脑不在同一网段，都连不上；
 2. **地址填对**——要带端口，形如 `192.168.1.5:47821`（`http://` 可省）；
 3. **配对码过期**——超过 5 分钟或已经用过，回电脑上看新码；
-4. **防火墙**——Windows 第一次会弹「是否允许访问网络」，要选「专用网络」允许；
+4. **防火墙**——安装版在安装完成时已自动放行（只允许本地子网）；便携版第一次运行时
+   Windows 会弹「是否允许访问网络」，选「专用网络」允许。若安装时取消了 UAC，可用
+   管理员终端执行（把 `<exe 完整路径>` 换成实际路径）：
+   ```powershell
+   netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet
+   ```
 5. **Android 17 本地网络保护**——系统会拦截应用访问局域网。本项目构建时已把
    `targetSdk` 固定为 36（见 `scripts/patch-android-gradle.ps1`），装官方产物直接可用；
    若你自己重新出包，别把 targetSdk 改回 37，否则表现是「一直转圈最后超时」，

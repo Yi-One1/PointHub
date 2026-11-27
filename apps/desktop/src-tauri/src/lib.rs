@@ -9,6 +9,7 @@
 
 pub mod browser_login;
 pub mod lan;
+pub mod firewall;
 pub mod commands;
 pub mod login;
 #[cfg(target_os = "android")]
@@ -72,7 +73,9 @@ pub fn run() {
     // 必须在 Engine::open 之前退出，否则打开引擎会重新创建数据目录。
     #[cfg(all(desktop, windows))]
     if let Some(mode) = purge_mode_arg() {
-        std::process::exit(purge::run(mode));
+        // 静默卸载没有交互界面，无法弹 UAC 清理防火墙规则。
+        let quiet = std::env::args().any(|a| a == "--quiet");
+        std::process::exit(purge::run(mode, quiet));
     }
 
     #[allow(unused_mut)]
@@ -109,6 +112,9 @@ pub fn run() {
             commands::show_main,
             commands::quit_app,
             commands::lan_info,
+            commands::firewall_status,
+            commands::firewall_allow,
+            commands::firewall_cleanup,
             commands::client_status,
             commands::client_pair,
             commands::client_unpair,

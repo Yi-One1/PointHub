@@ -878,6 +878,41 @@ pub async fn lan_info(state: State<'_, SharedState>) -> Result<LanInfo, String> 
     })
 }
 
+// ------------------------------------------------------------------ 防火墙
+
+/// 检测手机访问端口是否被防火墙放行（只读，不需要管理员权限）。
+#[tauri::command]
+pub async fn firewall_status(
+    state: State<'_, SharedState>,
+) -> Result<crate::firewall::FirewallStatus, String> {
+    let port = state.sync_port.load(Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || crate::firewall::status(port))
+        .await
+        .map_err(|e| format!("防火墙检测任务失败：{e}"))
+}
+
+/// 添加一条只开当前端口、只允许本地子网的入站规则（会弹 UAC）。
+#[tauri::command]
+pub async fn firewall_allow(
+    state: State<'_, SharedState>,
+) -> Result<crate::firewall::FirewallStatus, String> {
+    let port = state.sync_port.load(Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || crate::firewall::allow(port))
+        .await
+        .map_err(|e| format!("防火墙放行任务失败：{e}"))?
+}
+
+/// 清理指向旧版本 / 已删除程序的 PointHub 防火墙规则（会弹 UAC）。
+#[tauri::command]
+pub async fn firewall_cleanup(
+    state: State<'_, SharedState>,
+) -> Result<crate::firewall::FirewallStatus, String> {
+    let port = state.sync_port.load(Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || crate::firewall::cleanup_stale(port))
+        .await
+        .map_err(|e| format!("防火墙清理任务失败：{e}"))?
+}
+
 // ------------------------------------------------------------------ 远程模式（安卓连电脑）
 
 #[tauri::command]

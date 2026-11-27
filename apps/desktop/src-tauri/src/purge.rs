@@ -29,8 +29,13 @@ pub enum Mode {
 
 /// 执行清理并返回进程退出码。清理失败也返回 0：
 /// 卸载器不该因为「某个文件删不掉」而中断整个卸载。
-pub fn run(mode: Mode) -> i32 {
+pub fn run(mode: Mode, quiet: bool) -> i32 {
     let mut failures: Vec<String> = Vec::new();
+
+    // 一键放行可能留下防火墙规则；静默卸载无法弹 UAC，只能记录并跳过。
+    if let Err(e) = crate::firewall::purge_all(quiet) {
+        failures.push(format!("清理防火墙规则失败：{e}"));
+    }
 
     // 自启项无论是否保留数据都要删，否则下次开机会启动一个已经删掉的 exe。
     if let Err(e) = clean_autostart() {

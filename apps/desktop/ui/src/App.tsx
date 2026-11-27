@@ -8,6 +8,7 @@ import type {
   AccountView,
   ClientStatus,
   DayPoint,
+  FirewallStatus,
   LanInfo,
   LocalImportStatus,
   Settings,
@@ -986,6 +987,10 @@ function SettingsPage({
   const [newDir, setNewDir] = useState("");
   // 配对码会过期，隔一会儿拉一次；界面停留时保持最新
   const [lan, setLan] = useState<LanInfo | null>(null);
+  // 防火墙检测要起 PowerShell，比较慢：只在进入设置时查一次，操作后再查
+  const [firewall, setFirewall] = useState<FirewallStatus | null>(null);
+  const [fwBusy, setFwBusy] = useState<null | "allow" | "clean">(null);
+  const [fwChecked, setFwChecked] = useState(false);
   // 安卓端自己就是手机，再显示「手机访问」没有意义
   const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
@@ -1084,6 +1089,45 @@ function SettingsPage({
       clearInterval(timer);
     };
   }, []);
+
+  const pullFirewall = useCallback(() => {
+    if (isPhone) return;
+    api
+      .firewallStatus()
+      .then(setFirewall)
+      .catch(() => setFirewall(null))
+      .finally(() => setFwChecked(true));
+  }, [isPhone]);
+
+  useEffect(() => {
+    pullFirewall();
+  }, [pullFirewall]);
+
+  const allowFirewall = async () => {
+    setFwBusy("allow");
+    try {
+      setFirewall(await api.firewallAllow());
+      notify("防火墙已放行", "ok");
+    } catch (e) {
+      notify(String(e), "warn");
+      pullFirewall();
+    } finally {
+      setFwBusy(null);
+    }
+  };
+
+  const cleanupFirewall = async () => {
+    setFwBusy("clean");
+    try {
+      setFirewall(await api.firewallCleanup());
+      notify("旧防火墙规则已清理", "ok");
+    } catch (e) {
+      notify(String(e), "warn");
+      pullFirewall();
+    } finally {
+      setFwBusy(null);
+    }
+  };
 
   const patch = (p: Partial<Settings>) => setDraft({ ...draft, ...p });
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.settings);
@@ -1209,6 +1253,38 @@ function SettingsPage({
             onChange={(v) => patch({ sync: { ...draft.sync, enabled: v } })}
             label="局域网访问"
           />
+        </div>
+
+        <div className="row">
+          <div>
+            <div className="row-title">防火墙放行</div>
+            <div className="row-desc">
+              {!fwChecked
+                ? "正在检测防火墙…"
+                : !firewall
+                  ? "检测失败，可稍后重新进入设置查看"
+                  : firewall.state === "allowed"
+                    ? firewall.detail
+                    : firewall.state === "unknown"
+                      ? `检测失败：${firewall.detail}`
+                      : `${firewall.detail}；点「一键放行」并在系统弹窗中允许`}
+              {firewall && firewall.stale_rules > 0
+                ? `；另有 ${firewall.stale_rules} 条旧版本残留规则`
+                : ""}
+            </div>
+          </div>
+          <div className="acts">
+            {firewall?.state === "missing" && (
+              <button className="btn" onClick={allowFirewall} disabled={fwBusy !== null}>
+                {fwBusy === "allow" ? "处理中…" : "一键放行"}
+              </button>
+            )}
+            {firewall && firewall.stale_rules > 0 && (
+              <button className="btn" onClick={cleanupFirewall} disabled={fwBusy !== null}>
+                {fwBusy === "clean" ? "清理中…" : "清理旧规则"}
+              </button>
+            )}
+          </div>
         </div>
 
         {lan?.running ? (

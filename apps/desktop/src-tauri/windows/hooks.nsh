@@ -22,9 +22,17 @@
   ; $DeleteAppDataCheckboxState is set when the confirm page is left.
   ; Empty means the page was skipped (silent uninstall) -> default: delete.
   ${If} $DeleteAppDataCheckboxState == "1"
-    nsExec::Exec '"$INSTDIR\pointhub.exe" --purge-app'
+    ${If} ${Silent}
+      nsExec::Exec '"$INSTDIR\pointhub.exe" --purge-app --quiet'
+    ${Else}
+      nsExec::Exec '"$INSTDIR\pointhub.exe" --purge-app'
+    ${EndIf}
   ${Else}
-    nsExec::Exec '"$INSTDIR\pointhub.exe" --purge-data'
+    ${If} ${Silent}
+      nsExec::Exec '"$INSTDIR\pointhub.exe" --purge-data --quiet'
+    ${Else}
+      nsExec::Exec '"$INSTDIR\pointhub.exe" --purge-data'
+    ${EndIf}
   ${EndIf}
   Pop $0
 

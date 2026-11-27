@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ClientStatus,
-  FirewallStatus,
   LanInfo,
   LocalImportStatus,
   OutcomeView,
@@ -17,10 +16,6 @@ import type {
 export const api = {
   bootstrap: () => invoke<StateView>("bootstrap"),
   lanInfo: () => invoke<LanInfo>("lan_info"),
-  /** 手机访问端口的防火墙放行状态（只读检测） */
-  firewallStatus: () => invoke<FirewallStatus>("firewall_status"),
-  /** 手机连不上时，提权放行当前端口（会弹 UAC） */
-  firewallAllow: () => invoke<FirewallStatus>("firewall_allow"),
   refreshAll: () => invoke<StateView>("refresh_all"),
   checkin: (ids?: string[]) => invoke<OutcomeView[]>("checkin", { ids: ids ?? null }),
   travel: (id: string, action: "auto" | "status" | "claim" | "depart" = "auto", location?: number) =>

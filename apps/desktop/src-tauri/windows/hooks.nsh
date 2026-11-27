@@ -12,6 +12,15 @@
   Pop $0
   nsExec::Exec '"$SYSDIR\ie4uinit.exe" -ClearIconCache'
   Pop $0
+
+  ; Runtime cannot change Windows Firewall without UAC, so ask once here.
+  ; Already-allowed installs return immediately (in-place upgrades won't prompt).
+  ${If} ${Silent}
+    nsExec::Exec '"$INSTDIR\pointhub.exe" --firewall-install --quiet'
+  ${Else}
+    nsExec::Exec '"$INSTDIR\pointhub.exe" --firewall-install'
+  ${EndIf}
+  Pop $0
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

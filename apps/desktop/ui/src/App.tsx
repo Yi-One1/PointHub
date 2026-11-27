@@ -8,7 +8,6 @@ import type {
   AccountView,
   ClientStatus,
   DayPoint,
-  FirewallStatus,
   LanInfo,
   LocalImportStatus,
   Settings,
@@ -987,9 +986,6 @@ function SettingsPage({
   const [newDir, setNewDir] = useState("");
   // 配对码会过期，隔一会儿拉一次；界面停留时保持最新
   const [lan, setLan] = useState<LanInfo | null>(null);
-  // 只在局域网服务已启动时检测；没启动就不检测、不占界面
-  const [firewall, setFirewall] = useState<FirewallStatus | null>(null);
-  const [fwBusy, setFwBusy] = useState(false);
   // 安卓端自己就是手机，再显示「手机访问」没有意义
   const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
@@ -1088,38 +1084,6 @@ function SettingsPage({
       clearInterval(timer);
     };
   }, []);
-
-  // 局域网服务起来后才检测防火墙；服务没开时手机本来就进不来
-  useEffect(() => {
-    if (isPhone || !lan?.running) {
-      setFirewall(null);
-      return;
-    }
-    let alive = true;
-    api
-      .firewallStatus()
-      .then((v) => {
-        if (alive) setFirewall(v);
-      })
-      .catch(() => {
-        if (alive) setFirewall(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [isPhone, lan?.running]);
-
-  const allowFirewall = async () => {
-    setFwBusy(true);
-    try {
-      setFirewall(await api.firewallAllow());
-      notify("已放行，手机现在可以访问了", "ok");
-    } catch (e) {
-      notify(String(e), "warn");
-    } finally {
-      setFwBusy(false);
-    }
-  };
 
   const patch = (p: Partial<Settings>) => setDraft({ ...draft, ...p });
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.settings);
@@ -1281,17 +1245,6 @@ function SettingsPage({
               </div>
               <div className="pin">{lan.code ?? "······"}</div>
             </div>
-
-            {firewall?.state === "missing" && (
-              <div className="row">
-                <div className="row-desc">
-                  手机打不开上面的地址？可能是 Windows 防火墙拦住了手机访问端口
-                </div>
-                <button className="btn" onClick={allowFirewall} disabled={fwBusy}>
-                  {fwBusy ? "处理中…" : "放行"}
-                </button>
-              </div>
-            )}
           </>
         ) : (
           <div className="row">

@@ -72,18 +72,6 @@ export interface LanInfo {
   allow_checkin: boolean;
 }
 
-/** 手机访问端口的防火墙放行状态 */
-export interface FirewallStatus {
-  supported: boolean;
-  port: number;
-  rule_name: string;
-  /** allowed / missing / unknown / unsupported */
-  state: string;
-  detail: string;
-  /** 当前运行的 exe 是否已被 Windows 按程序放行 */
-  current_exe_allowed: boolean;
-}
-
 export interface Settings {
   mode: AppMode;
   theme: ThemeMode;

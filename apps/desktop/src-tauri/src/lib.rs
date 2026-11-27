@@ -69,6 +69,20 @@ fn mobile_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[cfg_attr(mobile, allow(unused_variables))]
 pub fn run() {
+    // 安装完成后：由安装包钩子带参数启动本 exe，给当前安装路径补防火墙放行规则。
+    // 已放行时直接返回，原地升级不会重复弹 UAC。
+    #[cfg(all(desktop, windows))]
+    if std::env::args().any(|a| a == "--firewall-install") {
+        let quiet = std::env::args().any(|a| a == "--quiet");
+        std::process::exit(match firewall::install(quiet) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        });
+    }
+
     // 卸载清理：安装包钩子会在删程序文件前带参数启动本 exe。
     // 必须在 Engine::open 之前退出，否则打开引擎会重新创建数据目录。
     #[cfg(all(desktop, windows))]
@@ -112,8 +126,6 @@ pub fn run() {
             commands::show_main,
             commands::quit_app,
             commands::lan_info,
-            commands::firewall_status,
-            commands::firewall_allow,
             commands::client_status,
             commands::client_pair,
             commands::client_unpair,

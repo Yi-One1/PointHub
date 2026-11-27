@@ -1,63 +1,40 @@
-//! Windows 防火墙：检查手机访问端口是否放行，必要时提权补一条窄规则。
+//! Windows 防火墙：安装时自动放行手机访问，卸载时自动清理。
 //!
-//! 手机访问走 TCP 入站，Windows 防火墙默认拦截。首次监听时系统通常会弹窗
-//! 生成一条按程序放行规则；弹窗被取消、程序换了路径时，手机就会一直连不上。
+//! 手机访问走 TCP 入站，Windows 防火墙默认拦截。防火墙规则只有管理员能改，
+//! 所以无法在运行期完全静默处理；这里把唯一一次授权放到安装完成时：
 //!
-//! 界面只在「局域网服务已启动、但当前版本没有放行规则」时才出现一条提示，
-//! 其他情况完全静默，避免把系统概念暴露给普通用户。
+//! - 安装器调用 `pointhub.exe --firewall-install`，检查当前安装目录是否已放行；
+//!   已放行则直接返回（原地升级不会重复弹 UAC），否则提权写入一条按程序放行的规则；
+//! - 规则只对本地子网生效，程序升级、改端口都不受影响；
+//! - 卸载时由 `purge_all` 提权删除全部 PointHub 规则。
 //!
-//! 检测只读、不需要提权；新增规则需要 UAC。
-
-use serde::Serialize;
-
-/// 我们自己创建的规则名前缀，后面接端口；清理时按 `PointHub*` 识别。
-const RULE_PREFIX: &str = "PointHub LAN";
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FirewallStatus {
-    pub supported: bool,
-    pub port: u16,
-    pub rule_name: String,
-    /// allowed / missing / unknown / unsupported
-    pub state: String,
-    /// 给人看的说明
-    pub detail: String,
-    /// 当前运行的 exe 是否已被 Windows 按程序放行
-    pub current_exe_allowed: bool,
-}
-
-pub fn rule_name(port: u16) -> String {
-    format!("{RULE_PREFIX} {port}")
-}
+//! 便携版没有安装器，由 Windows 首次监听时的原生弹窗处理；应用内不再提示。
 
 #[cfg(windows)]
-pub use platform::{allow, purge_all, status};
+const RULE_NAME: &str = "PointHub LAN";
+
+/// 安装完成时调用：确保当前安装路径已有放行规则。
+///
+/// `quiet` 用于静默安装：没有交互界面，无法弹 UAC，只能跳过。
+#[cfg(windows)]
+pub fn install(quiet: bool) -> Result<(), String> {
+    platform::install(quiet)
+}
+
+/// 卸载时删除全部 PointHub 防火墙规则。
+#[cfg(windows)]
+pub fn purge_all(quiet: bool) -> Result<(), String> {
+    platform::purge_all(quiet)
+}
 
 #[cfg(not(windows))]
-pub use other::{allow, purge_all, status};
+pub fn install(_quiet: bool) -> Result<(), String> {
+    Ok(())
+}
 
 #[cfg(not(windows))]
-mod other {
-    use super::*;
-
-    pub fn status(port: u16) -> FirewallStatus {
-        FirewallStatus {
-            supported: false,
-            port,
-            rule_name: rule_name(port),
-            state: "unsupported".into(),
-            detail: "只有 Windows 需要配置防火墙".into(),
-            current_exe_allowed: false,
-        }
-    }
-
-    pub fn allow(_port: u16) -> Result<FirewallStatus, String> {
-        Err("只有 Windows 需要放行防火墙".into())
-    }
-
-    pub fn purge_all(_quiet: bool) -> Result<(), String> {
-        Ok(())
-    }
+pub fn purge_all(_quiet: bool) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -68,12 +45,6 @@ mod platform {
 
     /// 发布版没有控制台；子进程也不该闪黑框。
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    #[derive(serde::Deserialize)]
-    struct RawStatus {
-        own: bool,
-        current: bool,
-    }
 
     /// PowerShell 单引号字符串里，单引号本身要写两次。
     fn ps_quote(s: &str) -> String {
@@ -136,14 +107,14 @@ mod platform {
             return Ok(());
         }
         if code == 1223 {
-            return Err("已取消：放行防火墙需要管理员权限".into());
+            return Err("已取消：修改防火墙需要管理员权限".into());
         }
         let err = String::from_utf8_lossy(&out.stderr);
         let err = err.trim();
         Err(if err.is_empty() {
-            format!("放行失败（退出码 {code}）")
+            format!("操作失败（退出码 {code}）")
         } else {
-            format!("放行失败（退出码 {code}）：{err}")
+            format!("操作失败（退出码 {code}）：{err}")
         })
     }
 
@@ -153,89 +124,37 @@ mod platform {
         BASE64_STANDARD.encode(bytes)
     }
 
-    fn status_script(port: u16) -> String {
-        let name = ps_quote(&rule_name(port));
+    /// 只读检查：当前 exe 是否已有启用中的入站放行规则。
+    fn has_rule_script() -> String {
         let exe = ps_quote(&current_exe());
         format!(
             "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8\n\
              $exe='{exe}'\n\
-             $own='{name}'\n\
-             $rules=@(Get-NetFirewallRule -DisplayName 'PointHub*' -ErrorAction SilentlyContinue)\n\
-             $ownOk=$false; $curOk=$false\n\
-             foreach($r in $rules){{\n\
+             $ok=$false\n\
+             foreach($r in @(Get-NetFirewallRule -DisplayName 'PointHub*' -ErrorAction SilentlyContinue)){{\n\
                $enabled = ($r.Enabled -eq 'True') -and ($r.Direction -eq 'Inbound') -and ($r.Action -eq 'Allow')\n\
-               if($r.DisplayName -eq $own){{ if($enabled){{$ownOk=$true}}; continue }}\n\
+               if(-not $enabled){{ continue }}\n\
                $app=$r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue\n\
-               $prog=$app.Program\n\
-               if($enabled -and $prog -and ($prog -ieq $exe)){{ $curOk=$true }}\n\
+               if($app.Program -and ($app.Program -ieq $exe)){{ $ok=$true; break }}\n\
              }}\n\
-             [pscustomobject]@{{own=$ownOk;current=$curOk}} | ConvertTo-Json -Compress"
+             if($ok){{'YES'}}else{{'NO'}}"
         )
     }
 
-    fn parse_status(raw: &str) -> Result<RawStatus, String> {
-        serde_json::from_str(raw.trim()).map_err(|e| format!("无法解析防火墙检测结果：{e}"))
-    }
-
-    fn unknown_status(port: u16, detail: String) -> FirewallStatus {
-        FirewallStatus {
-            supported: true,
-            port,
-            rule_name: rule_name(port),
-            state: "unknown".into(),
-            detail,
-            current_exe_allowed: false,
-        }
-    }
-
-    pub fn status(port: u16) -> FirewallStatus {
-        let raw = match run_powershell(&status_script(port)) {
-            Ok(out) => out,
-            Err(e) => return unknown_status(port, e),
-        };
-        let parsed = match parse_status(&raw) {
-            Ok(v) => v,
-            Err(e) => return unknown_status(port, e),
-        };
-
-        let allowed = parsed.own || parsed.current;
-        let detail = if parsed.own {
-            "已放行：仅手机访问端口，允许本地子网访问".to_string()
-        } else if parsed.current {
-            "Windows 已放行当前版本".to_string()
-        } else {
-            "当前版本还没有被防火墙放行".to_string()
-        };
-        FirewallStatus {
-            supported: true,
-            port,
-            rule_name: rule_name(port),
-            state: if allowed { "allowed" } else { "missing" }.into(),
-            detail,
-            current_exe_allowed: parsed.current,
-        }
-    }
-
-    /// 补一条窄规则前，顺手删掉指向旧版本的历史规则；当前版本与本次规则保留。
-    fn allow_script(port: u16) -> String {
-        let name = ps_quote(&rule_name(port));
+    /// 提权脚本：清掉所有历史 PointHub 规则，再给当前 exe 建一条本地子网规则。
+    fn install_script() -> String {
         let exe = ps_quote(&current_exe());
         format!(
-            "$ProgressPreference='SilentlyContinue'\n\
+            "$ErrorActionPreference='Stop'\n\
+             $ProgressPreference='SilentlyContinue'\n\
              $exe='{exe}'\n\
-             $own='{name}'\n\
-             Get-NetFirewallRule -DisplayName 'PointHub*' -ErrorAction SilentlyContinue | ForEach-Object {{\n\
-               $enabled = ($_.Enabled -eq 'True') -and ($_.Direction -eq 'Inbound') -and ($_.Action -eq 'Allow')\n\
-               if($_.DisplayName -eq $own -and $enabled){{ return }}\n\
-               $app=$_ | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue\n\
-               $prog=$app.Program\n\
-               if($enabled -and $prog -and ($prog -ieq $exe)){{ return }}\n\
-               Remove-NetFirewallRule -Name $_.Name -ErrorAction SilentlyContinue\n\
-             }}\n\
-             netsh advfirewall firewall delete rule name=\"{name}\" | Out-Null\n\
-             netsh advfirewall firewall add rule name=\"{name}\" dir=in action=allow \
-             protocol=TCP localport={port} profile=domain,private,public remoteip=localsubnet enable=yes | Out-Null\n\
-             exit $LASTEXITCODE"
+             Get-NetFirewallRule -DisplayName 'PointHub*' -ErrorAction SilentlyContinue | \
+             Remove-NetFirewallRule -ErrorAction SilentlyContinue\n\
+             New-NetFirewallRule -DisplayName '{rule}' -Direction Inbound -Action Allow \
+             -Program $exe -Protocol TCP -Profile Domain,Private,Public \
+             -RemoteAddress LocalSubnet -Enabled True | Out-Null\n\
+             exit 0",
+            rule = RULE_NAME
         )
     }
 
@@ -245,14 +164,16 @@ mod platform {
          exit 0"
     }
 
-    pub fn allow(port: u16) -> Result<FirewallStatus, String> {
-        run_elevated(&allow_script(port))?;
-        Ok(status(port))
+    pub fn install(quiet: bool) -> Result<(), String> {
+        if has_rule()? {
+            return Ok(());
+        }
+        if quiet {
+            return Err("静默安装无法提权，跳过防火墙规则安装".into());
+        }
+        run_elevated(&install_script())
     }
 
-    /// 卸载时删除所有 PointHub 规则。
-    ///
-    /// 静默卸载没有交互界面，无法弹 UAC，只能跳过并在卸载日志里留痕。
     pub fn purge_all(quiet: bool) -> Result<(), String> {
         let count = count_rules()?;
         if count == 0 {
@@ -264,6 +185,10 @@ mod platform {
             ));
         }
         run_elevated(purge_script())
+    }
+
+    fn has_rule() -> Result<bool, String> {
+        Ok(run_powershell(&has_rule_script())?.trim().eq_ignore_ascii_case("YES"))
     }
 
     fn count_rules() -> Result<usize, String> {
@@ -280,35 +205,28 @@ mod platform {
         use super::*;
 
         #[test]
-        fn rule_name_contains_port() {
-            assert_eq!(rule_name(47821), "PointHub LAN 47821");
-            assert_eq!(rule_name(1234), "PointHub LAN 1234");
+        fn install_rule_is_program_scoped_and_local_subnet() {
+            let s = install_script();
+            assert!(s.contains("-Program $exe"), "必须绑定当前程序");
+            assert!(s.contains("LocalSubnet"), "必须限制为本地子网");
+            assert!(s.contains("Domain,Private,Public"));
+            assert!(s.contains("Direction Inbound"));
+            assert!(s.contains("Action Allow"));
         }
 
         #[test]
-        fn parses_status_json() {
-            let raw = r#"{"own":false,"current":true}"#;
-            let v = parse_status(raw).unwrap();
-            assert!(!v.own);
-            assert!(v.current);
-        }
-
-        #[test]
-        fn allow_script_is_narrow() {
-            let s = allow_script(47821);
-            assert!(s.contains("localport=47821"), "必须只开当前端口");
-            assert!(s.contains("remoteip=localsubnet"), "必须限制为本地子网");
-            assert!(s.contains("dir=in"), "只放行入站");
-            assert!(s.contains("PointHub LAN 47821"));
-        }
-
-        #[test]
-        fn allow_script_cleans_old_rules_but_keeps_current() {
-            let s = allow_script(47821);
-            assert!(s.contains("-eq $own -and $enabled"), "必须保留本次创建的规则");
-            assert!(s.contains("-ieq $exe"), "必须保留当前运行的 exe");
-            assert!(s.contains("Remove-NetFirewallRule"), "必须清理旧版本残留");
+        fn install_clears_old_point_hub_rules_first() {
+            let s = install_script();
             assert!(s.contains("DisplayName 'PointHub*'"));
+            assert!(s.contains("Remove-NetFirewallRule"));
+        }
+
+        #[test]
+        fn has_rule_checks_current_exe() {
+            let s = has_rule_script();
+            assert!(s.contains("-ieq $exe"));
+            assert!(s.contains("PointHub*"));
+            assert!(s.contains("YES"));
         }
 
         #[test]

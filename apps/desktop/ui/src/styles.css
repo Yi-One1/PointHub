@@ -21,6 +21,8 @@
   --danger: #b42318;
   --btn-line: #cfd6e0;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-hover: 0 4px 12px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
+  --rail-w: 212px;
 }
 
 html[data-theme="dark"] {
@@ -38,6 +40,7 @@ html[data-theme="dark"] {
   --danger: #f87171;
   --btn-line: #2c3a50;
   --shadow: none;
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -83,7 +86,7 @@ button:disabled {
 
 .app {
   display: grid;
-  grid-template-columns: 212px minmax(0, 1fr);
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -128,6 +131,22 @@ html[data-theme="dark"] .mark-dark {
   font-weight: 600;
 }
 
+.bname-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bver {
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
 .bsub {
   font-size: 10px;
   letter-spacing: 0.14em;
@@ -151,10 +170,21 @@ nav {
   color: var(--muted);
   font-size: 13px;
   text-align: left;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .nav:hover {
   color: var(--text);
+  background: var(--bg);
+  box-shadow: var(--shadow-hover);
+}
+
+.nav-ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  opacity: 0.9;
 }
 
 .nav.on {
@@ -171,13 +201,19 @@ nav {
   font-variant-numeric: tabular-nums;
 }
 
-.afoot {
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
-  padding: 12px 8px 0;
-  font-size: 11px;
-  color: var(--faint);
-  line-height: 1.7;
+/* 设置入口固定在左下角，并用一条横线与上面的标签分开。 */
+.rail nav {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (min-width: 761px) {
+  .rail-settings {
+    margin-top: auto;
+    border-top-color: var(--line);
+    border-radius: 0 0 9px 9px;
+    padding-top: 12px;
+  }
 }
 
 main {
@@ -1550,8 +1586,8 @@ html[data-window="ball"] body {
 
 /* 横屏手机：侧栏压窄，但矮屏上仍要给手指留够高度 */
 @media (min-width: 761px) and (max-width: 860px) and (orientation: landscape) {
-  .app {
-    grid-template-columns: 172px minmax(0, 1fr);
+  :root {
+    --rail-w: 172px;
   }
   .kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1566,80 +1602,91 @@ html[data-window="ball"] body {
 
 /* ------------------------------------------------------------ 设置页 */
 
-/* 导航列拉满，齿轮靠 margin-top:auto 固定在左下角；手机端由底部标签栏接管。 */
-.rail nav {
-  flex: 1;
-  min-height: 0;
-}
-
-@media (min-width: 761px) {
-  .rail-settings {
-    margin-top: auto;
-  }
-}
-
 .settings-screen {
   position: fixed;
   inset: 0;
   z-index: 60;
   background: var(--bg);
   display: flex;
-  flex-direction: column;
   min-height: 0;
-}
-
-.settings-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.settings-back {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  padding: 6px 8px;
-  border-radius: 8px;
-}
-
-.settings-back:hover {
-  color: var(--text);
-  background: var(--bg);
-}
-
-.settings-top-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.settings-top-version {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--faint);
 }
 
 .settings-main {
   flex: 1;
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
   min-height: 0;
 }
 
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 14px 10px;
-  overflow-y: auto;
+  gap: 8px;
+  min-height: 0;
+  padding: 16px 12px;
   background: var(--surface);
   border-right: 1px solid var(--line);
 }
 
+.settings-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+.settings-back:hover {
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: var(--shadow-hover);
+}
+
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--faint);
+}
+
+.settings-search input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.settings-search:focus-within {
+  border-color: var(--btn-line);
+}
+
+.settings-nav-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
   text-align: left;
   padding: 8px 10px;
   border: 1px solid transparent;
@@ -1647,10 +1694,13 @@ html[data-window="ball"] body {
   background: transparent;
   color: var(--muted);
   font-size: 13px;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .settings-nav-item:hover {
   color: var(--text);
+  background: var(--bg);
+  box-shadow: var(--shadow-hover);
 }
 
 .settings-nav-item.on {
@@ -1660,10 +1710,22 @@ html[data-window="ball"] body {
   font-weight: 500;
 }
 
+.settings-nav-ico {
+  display: flex;
+  flex: none;
+  opacity: 0.9;
+}
+
+.settings-nav-empty {
+  padding: 10px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
 .settings-body {
   min-width: 0;
   overflow-y: auto;
-  padding: 20px 26px 28px;
+  padding: 22px 28px 28px;
 }
 
 .settings-body-head {
@@ -1671,11 +1733,22 @@ html[data-window="ball"] body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 4px;
 }
 
 .settings-body-head h1 {
   margin: 0 0 4px;
+}
+
+.settings-group {
+  margin: 18px 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.settings-body-head + .settings-group {
+  margin-top: 14px;
 }
 
 .settings-body .panel + .panel {
@@ -1683,27 +1756,27 @@ html[data-window="ball"] body {
 }
 
 @media (max-width: 760px) {
-  .settings-top {
-    padding: 10px 14px;
-  }
-
   .settings-main {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }
 
   .settings-nav {
-    flex-direction: row;
-    gap: 6px;
+    gap: 8px;
     padding: 8px 10px;
-    overflow-x: auto;
-    overflow-y: hidden;
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
 
-  .settings-nav-item {
+  .settings-nav-list {
     flex: none;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .settings-nav-item {
+    width: auto;
     white-space: nowrap;
     padding: 8px 12px;
   }
@@ -1715,5 +1788,9 @@ html[data-window="ball"] body {
   .settings-body-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .settings-group {
+    margin-top: 14px;
   }
 }

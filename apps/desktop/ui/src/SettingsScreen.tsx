@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
+import type { ReactElement } from "react";
 import { api } from "./api";
-import { SETTINGS_SECTIONS } from "./settings";
+import {
+  IconAbout,
+  IconAppearance,
+  IconBack,
+  IconCheckin,
+  IconData,
+  IconGeneral,
+  IconPhone,
+  IconSearch,
+  IconUpdate,
+} from "./icons";
+import { SETTINGS_SECTIONS, type SettingsSectionId } from "./settings";
 import { Switch } from "./ui";
 import { VendorIcon } from "./VendorIcon";
 import type {
@@ -11,6 +23,16 @@ import type {
   ThemeMode,
   UpdateCheck,
 } from "./types";
+
+const SECTION_ICONS: Record<SettingsSectionId, () => ReactElement> = {
+  general: IconGeneral,
+  appearance: IconAppearance,
+  checkin: IconCheckin,
+  phone: IconPhone,
+  update: IconUpdate,
+  data: IconData,
+  about: IconAbout,
+};
 
 /**
  * 独立设置页：左侧分类、右侧分区卡片（参考 Trae / QQ 电脑端）。
@@ -32,6 +54,7 @@ export default function SettingsScreen({
   onClose: () => void;
 }) {
   const [active, setActive] = useState(SETTINGS_SECTIONS[0].id);
+  const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Settings>(view.settings);
   const [newDir, setNewDir] = useState("");
   // 配对码会过期，隔一会儿拉一次；界面停留时保持最新
@@ -148,27 +171,54 @@ export default function SettingsScreen({
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.settings);
   const current = SETTINGS_SECTIONS.find((s) => s.id === active) ?? SETTINGS_SECTIONS[0];
 
+  const q = query.trim().toLowerCase();
+  const visibleSections = q
+    ? SETTINGS_SECTIONS.filter(
+        (s) =>
+          s.label.toLowerCase().includes(q) ||
+          s.keywords.some((k) => k.toLowerCase().includes(q)),
+      )
+    : SETTINGS_SECTIONS;
+
   return (
     <div className="settings-screen" role="dialog" aria-modal="true" aria-label="设置">
-      <header className="settings-top">
-        <button className="settings-back" onClick={onClose}>
-          ← 返回应用
-        </button>
-        <span className="settings-top-title">设置</span>
-        <span className="settings-top-version">v{view.version}</span>
-      </header>
-
       <div className="settings-main">
         <aside className="settings-nav" aria-label="设置分类">
-          {SETTINGS_SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              className={`settings-nav-item ${active === s.id ? "on" : ""}`}
-              onClick={() => setActive(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
+          <button className="settings-back" onClick={onClose}>
+            <IconBack />
+            <span>返回应用</span>
+          </button>
+
+          <label className="settings-search">
+            <IconSearch />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索设置…"
+              spellCheck={false}
+            />
+          </label>
+
+          <div className="settings-nav-list">
+            {visibleSections.map((s) => {
+              const SectionIcon = SECTION_ICONS[s.id];
+              return (
+                <button
+                  key={s.id}
+                  className={`settings-nav-item ${active === s.id ? "on" : ""}`}
+                  onClick={() => setActive(s.id)}
+                >
+                  <span className="settings-nav-ico">
+                    <SectionIcon />
+                  </span>
+                  <span>{s.label}</span>
+                </button>
+              );
+            })}
+            {visibleSections.length === 0 && (
+              <div className="settings-nav-empty">没有匹配的分类</div>
+            )}
+          </div>
         </aside>
 
         <section className="settings-body">
@@ -192,10 +242,9 @@ export default function SettingsScreen({
           </div>
 
           {active === "general" && (
-            <section className="panel">
-              <div className="phead">
-                <span className="pname">启动与关闭</span>
-              </div>
+            <>
+              <h2 className="settings-group">启动与关闭</h2>
+              <section className="panel">
               {isPhone ? (
                 <div className="row">
                   <div className="row-desc">
@@ -229,14 +278,14 @@ export default function SettingsScreen({
                   </div>
                 </>
               )}
-            </section>
+              </section>
+            </>
           )}
 
           {active === "appearance" && (
-            <section className="panel">
-              <div className="phead">
-                <span className="pname">主题与桌面</span>
-              </div>
+            <>
+              <h2 className="settings-group">主题与桌面</h2>
+              <section className="panel">
 
               <div className="row">
                 <div>
@@ -318,14 +367,14 @@ export default function SettingsScreen({
                   </div>
                 </>
               )}
-            </section>
+              </section>
+            </>
           )}
 
           {active === "checkin" && (
-            <section className="panel">
-              <div className="phead">
-                <span className="pname">签到与提醒</span>
-              </div>
+            <>
+              <h2 className="settings-group">签到与提醒</h2>
+              <section className="panel">
 
               <div className="row">
                 <div>
@@ -397,15 +446,14 @@ export default function SettingsScreen({
                 </div>
               </div>
             </section>
+            </>
           )}
 
           {active === "phone" &&
             (isPhone ? (
-              <section className="panel">
-                <div className="phead">
-                  <span className="pname">连接方式</span>
-                  {client?.paired && <span className="pnote">已连接 {client.server_name}</span>}
-                </div>
+              <>
+                <h2 className="settings-group">连接方式</h2>
+                <section className="panel">
 
                 <div className="row">
                   <div>
@@ -484,13 +532,12 @@ export default function SettingsScreen({
                       </button>
                     </>
                   ))}
-              </section>
+                </section>
+              </>
             ) : (
-              <section className="panel">
-                <div className="phead">
-                  <span className="pname">手机访问</span>
-                  {lan?.running && <span className="pnote">同一 Wi-Fi 下可用</span>}
-                </div>
+              <>
+                <h2 className="settings-group">手机访问</h2>
+                <section className="panel">
 
                 <div className="row">
                   <div>
@@ -564,15 +611,14 @@ export default function SettingsScreen({
                     label="允许手机签到"
                   />
                 </div>
-              </section>
+                </section>
+              </>
             ))}
 
           {active === "update" && (
-            <section className="panel">
-              <div className="phead">
-                <span className="pname">更新</span>
-                <span className="pnote">当前 v{view.version}</span>
-              </div>
+            <>
+              <h2 className="settings-group">更新</h2>
+              <section className="panel">
 
               <div className="row">
                 <div>
@@ -677,16 +723,15 @@ export default function SettingsScreen({
                   </button>
                 </div>
               )}
-            </section>
+              </section>
+            </>
           )}
 
           {active === "data" && (
-            <section className="panel">
-              <div className="phead">
-                <span className="pname">数据</span>
-              </div>
-
-              <div className="row">
+            <>
+              <h2 className="settings-group">数据位置</h2>
+              <section className="panel">
+                <div className="row">
                 <div>
                   <div className="row-title">数据目录</div>
                   <div className="row-desc mono">{view.data_dir}</div>
@@ -726,10 +771,23 @@ export default function SettingsScreen({
                   </button>
                 </div>
               </div>
+              </section>
 
-              <div className="row">
-                <div>
-                  <div className="row-title">凭据保护</div>
+              <h2 className="settings-group">安全</h2>
+              <section className="panel">
+                <div className="row">
+                  <div>
+                    <div className="row-title">数据只在本机</div>
+                    <div className="row-desc">
+                      账号、凭据与历史只保存在这台设备，不上传任何服务器。
+                    </div>
+                  </div>
+                  <span className="tag tag-ok">仅本机</span>
+                </div>
+
+                <div className="row">
+                  <div>
+                    <div className="row-title">凭据保护</div>
                   <div className="row-desc">
                     {isPhone
                       ? `${view.vault_kind}，卸载或清除数据后需重新导入`
@@ -738,15 +796,14 @@ export default function SettingsScreen({
                 </div>
                 <span className="tag tag-ok">已加密</span>
               </div>
-            </section>
+              </section>
+            </>
           )}
 
           {active === "about" && (
             <>
+              <h2 className="settings-group">平台能力</h2>
               <section className="panel">
-                <div className="phead">
-                  <span className="pname">平台能力</span>
-                </div>
                 <table className="cap-table">
                   <thead>
                     <tr>
@@ -782,10 +839,8 @@ export default function SettingsScreen({
                 </table>
               </section>
 
+              <h2 className="settings-group">关于</h2>
               <section className="panel">
-                <div className="phead">
-                  <span className="pname">关于</span>
-                </div>
                 <div className="row">
                   <div>
                     <div className="row-title">积分枢纽 PointHub v{view.version}</div>

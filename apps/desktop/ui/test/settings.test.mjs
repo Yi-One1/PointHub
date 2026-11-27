@@ -16,6 +16,8 @@ const SETTINGS = readFileSync(path.join(UI_DIR, "src", "settings.ts"), "utf8");
 const TYPES = readFileSync(path.join(UI_DIR, "src", "types.ts"), "utf8");
 const APP = readFileSync(path.join(UI_DIR, "src", "App.tsx"), "utf8");
 const SCREEN = readFileSync(path.join(UI_DIR, "src", "SettingsScreen.tsx"), "utf8");
+const ICONS = readFileSync(path.join(UI_DIR, "src", "icons.tsx"), "utf8");
+const CSS = readFileSync(path.join(UI_DIR, "src", "styles.css"), "utf8");
 
 function sectionIds() {
   return [...SETTINGS.matchAll(/\{ id: "([^"]+)", label: "([^"]+)"/g)].map((m) => m[1]);
@@ -70,4 +72,55 @@ test("设置页是独立页面：返回应用 + 左侧分类 + 右侧内容", ()
   assert.match(SCREEN, /返回应用/);
   assert.match(SCREEN, /settings-nav/);
   assert.match(SCREEN, /settings-body/);
+});
+
+test("设置页与主页面共用同一个侧栏宽度", () => {
+  assert.match(CSS, /--rail-w:\s*212px/);
+  assert.match(CSS, /\.app\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-w\)/);
+  assert.match(CSS, /\.settings-main\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-w\)/);
+});
+
+test("菜单悬停有阴影反馈，齿轮上方有分隔线", () => {
+  assert.match(CSS, /\.nav:hover\s*\{[\s\S]*?box-shadow:\s*var\(--shadow-hover\)/);
+  assert.match(
+    CSS,
+    /\.settings-nav-item:hover\s*\{[\s\S]*?box-shadow:\s*var\(--shadow-hover\)/,
+  );
+  assert.match(CSS, /\.rail-settings\s*\{[\s\S]*?border-top-color:\s*var\(--line\)/);
+});
+
+test("所有菜单项都有图标", () => {
+  for (const name of [
+    "IconOverview",
+    "IconAccounts",
+    "IconGear",
+    "IconGeneral",
+    "IconAppearance",
+    "IconCheckin",
+    "IconPhone",
+    "IconUpdate",
+    "IconData",
+    "IconAbout",
+  ]) {
+    assert.match(ICONS, new RegExp(`export function ${name}\\(`), `缺少 ${name}`);
+  }
+  assert.match(APP, /<IconOverview \/>/);
+  assert.match(APP, /<IconAccounts \/>/);
+  assert.match(APP, /<IconGear \/>/);
+  assert.match(SCREEN, /SECTION_ICONS/);
+});
+
+test("设置页顶部有搜索框，且按关键词筛选分类", () => {
+  assert.match(SCREEN, /placeholder="搜索设置…"/);
+  assert.match(SCREEN, /settings-search/);
+  assert.match(SCREEN, /visibleSections/);
+  assert.match(SETTINGS, /keywords:/);
+});
+
+test("分区标题在卡片外，主页面左下角信息已移除", () => {
+  assert.match(SCREEN, /className="settings-group"/);
+  assert.doesNotMatch(SCREEN, /className="phead"/);
+  assert.doesNotMatch(APP, /className="afoot"/);
+  assert.match(APP, /className="bver"/);
+  assert.match(SCREEN, /数据只在本机/);
 });

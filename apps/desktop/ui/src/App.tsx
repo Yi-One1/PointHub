@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { api } from "./api";
 import { BRAND_MARK, BRAND_MARK_DARK } from "./assets";
 import { useTheme } from "./theme";
 import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
+import { IconAccounts, IconGear, IconOverview } from "./icons";
 import SettingsScreen from "./SettingsScreen";
 import { Modal } from "./ui";
 import type {
@@ -87,11 +89,6 @@ export default function App() {
     return () => clearInterval(timer);
   }, [view?.mode]);
 
-  const platformCount = useMemo(
-    () => view?.platforms.reduce((n, p) => n + (p.checkin ? 1 : 0), 0) ?? 0,
-    [view]
-  );
-
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
     try {
@@ -166,18 +163,27 @@ export default function App() {
           <img className="mark mark-light" src={BRAND_MARK} alt="" aria-hidden />
           <img className="mark mark-dark" src={BRAND_MARK_DARK} alt="" aria-hidden />
           <div>
-            <div className="bname">积分枢纽</div>
+            <div className="bname-row">
+              <div className="bname">积分枢纽</div>
+              <span className="bver">v{view.version}</span>
+            </div>
             <div className="bsub">POINTHUB</div>
           </div>
         </div>
 
         <nav>
-          <NavItem active={tab === "overview"} onClick={() => setTab("overview")} label="总览" />
+          <NavItem
+            active={tab === "overview"}
+            onClick={() => setTab("overview")}
+            label="总览"
+            icon={<IconOverview />}
+          />
           <NavItem
             active={tab === "accounts"}
             onClick={() => setTab("accounts")}
             label="账号"
             badge={view.accounts.length}
+            icon={<IconAccounts />}
           />
           <button
             className="nav rail-settings"
@@ -185,31 +191,12 @@ export default function App() {
             aria-label="设置"
             title="设置"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
+            <span className="nav-ico">
+              <IconGear />
+            </span>
             <span>设置</span>
           </button>
         </nav>
-
-        <div className="afoot">
-          数据只在本机
-          <br />
-          {view.vault_kind}
-          <br />
-          v{view.version} · {platformCount} 个平台
-        </div>
       </aside>
 
       <main>
@@ -1000,14 +987,17 @@ function NavItem({
   onClick,
   label,
   badge,
+  icon,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   badge?: number;
+  icon: ReactNode;
 }) {
   return (
     <button className={`nav ${active ? "on" : ""}`} onClick={onClick}>
+      <span className="nav-ico">{icon}</span>
       <span>{label}</span>
       {badge !== undefined && badge > 0 && <span className="cnt">{badge}</span>}
     </button>

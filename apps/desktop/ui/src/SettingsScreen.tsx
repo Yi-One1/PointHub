@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { api } from "./api";
 import {
@@ -12,8 +12,12 @@ import {
   IconSearch,
   IconUpdate,
 } from "./icons";
-import { SETTINGS_SECTIONS, type SettingsSectionId } from "./settings";
-import { Switch } from "./ui";
+import {
+  SETTINGS_FIELD_SECTIONS,
+  SETTINGS_SECTIONS,
+  type SettingsSectionId,
+} from "./settings";
+import { Modal, Switch } from "./ui";
 import { VendorIcon } from "./VendorIcon";
 import type {
   ClientStatus,
@@ -42,20 +46,27 @@ const SECTION_ICONS: Record<SettingsSectionId, () => ReactElement> = {
  */
 export default function SettingsScreen({
   view,
-  busy,
   onSave,
   notify,
   onClose,
 }: {
   view: StateView;
-  busy: string | null;
-  onSave: (s: Settings) => void;
+  onSave: (s: Settings, silent?: boolean) => Promise<boolean>;
   notify: (t: string, k?: "ok" | "warn") => void;
   onClose: () => void;
 }) {
   const [active, setActive] = useState(SETTINGS_SECTIONS[0].id);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Settings>(view.settings);
+  const [defaults, setDefaults] = useState<Settings | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [pending, setPending] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    run: () => void;
+  } | null>(null);
+  const mirrorTimer = useRef<number | undefined>(undefined);
   const [newDir, setNewDir] = useState("");
   // 配对码会过期，隔一会儿拉一次；界面停留时保持最新
   const [lan, setLan] = useState<LanInfo | null>(null);
@@ -116,7 +127,7 @@ export default function SettingsScreen({
     try {
       const c = await api.clientPair(baseUrl.trim(), code.trim());
       setClient(c);
-      setDraft({ ...draft, mode: "remote" });
+      void apply({ ...draft, mode: "remote" });
       setCode("");
       notify(`已连接 ${c.server_name ?? "电脑"}`, "ok");
     } catch (e) {
@@ -131,7 +142,7 @@ export default function SettingsScreen({
     try {
       const c = await api.clientUnpair();
       setClient(c);
-      setDraft({ ...draft, mode: "local" });
+      void apply({ ...draft, mode: "local" });
       notify("已断开，回到本机模式", "ok");
     } catch (e) {
       notify(String(e), "warn");
@@ -167,9 +178,78 @@ export default function SettingsScreen({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const patch = (p: Partial<Settings>) => setDraft({ ...draft, ...p });
-  const dirty = JSON.stringify(draft) !== JSON.stringify(view.settings);
+  useEffect(() => {
+    api
+      .defaultSettings()
+      .then(setDefaults)
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    const timer = setTimeout(() => setSaveState("idle"), 1500);
+    return () => clearTimeout(timer);
+  }, [saveState]);
+
+  useEffect(
+    () => () => {
+      if (mirrorTimer.current) window.clearTimeout(mirrorTimer.current);
+    },
+    [],
+  );
+
+  const apply = async (next: Settings) => {
+    setDraft(next);
+    setSaveState("saving");
+    const ok = await onSave(next, true);
+    setSaveState(ok ? "saved" : "error");
+  };
+
+  const change = (next: Settings, confirm?: { title: string; message: string }) => {
+    if (confirm) {
+      setPending({
+        ...confirm,
+        confirmText: "确认",
+        run: () => {
+          void apply(next);
+        },
+      });
+    } else {
+      void apply(next);
+    }
+  };
+
+  // 镜像前缀是输入框：先更新界面，停顿 500ms 再落盘，避免每敲一个字都保存。
+  const patchMirror = (mirror: string) => {
+    const next = { ...draft, update: { ...draft.update, mirror } };
+    setDraft(next);
+    if (mirrorTimer.current) window.clearTimeout(mirrorTimer.current);
+    mirrorTimer.current = window.setTimeout(() => {
+      void apply(next);
+    }, 500);
+  };
+
   const current = SETTINGS_SECTIONS.find((s) => s.id === active) ?? SETTINGS_SECTIONS[0];
+  const sectionKeys = (Object.keys(SETTINGS_FIELD_SECTIONS) as (keyof Settings)[]).filter(
+    (key) => SETTINGS_FIELD_SECTIONS[key] === active,
+  );
+  const canReset = sectionKeys.length > 0 && defaults !== null;
+
+  const resetSection = () => {
+    if (!defaults) return;
+    setPending({
+      title: `恢复「${current.label}」默认设置？`,
+      message: "只重置本分区的设置，其他分区不受影响；恢复后立即生效。",
+      confirmText: "恢复默认",
+      run: () => {
+        const next = { ...draft };
+        const target = next as unknown as Record<string, unknown>;
+        const source = defaults as unknown as Record<string, unknown>;
+        for (const key of sectionKeys) target[key] = source[key];
+        void apply(next);
+      },
+    });
+  };
 
   const q = query.trim().toLowerCase();
   const visibleSections = q
@@ -228,15 +308,22 @@ export default function SettingsScreen({
               <p className="sub">{current.hint}</p>
             </div>
             <div className="acts">
-              <button className="btn" onClick={() => setDraft(view.settings)} disabled={!dirty}>
-                还原
-              </button>
+              <span className={`settings-save-state ${saveState}`}>
+                {saveState === "saving"
+                  ? "保存中…"
+                  : saveState === "saved"
+                    ? "已自动保存"
+                    : saveState === "error"
+                      ? "保存失败，请重试"
+                      : "改动立即生效"}
+              </span>
               <button
-                className="btn primary"
-                onClick={() => onSave(draft)}
-                disabled={!dirty || busy !== null}
+                className="btn"
+                onClick={resetSection}
+                disabled={!canReset}
+                title={canReset ? undefined : "本分区没有可恢复的设置"}
               >
-                {busy === "settings" ? "保存中…" : "保存"}
+                恢复默认设置
               </button>
             </div>
           </div>
@@ -260,7 +347,7 @@ export default function SettingsScreen({
                     </div>
                     <Switch
                       checked={draft.autostart}
-                      onChange={(v) => patch({ autostart: v })}
+                      onChange={(v) => change({ ...draft, autostart: v })}
                       label="开机自启"
                     />
                   </div>
@@ -272,7 +359,18 @@ export default function SettingsScreen({
                     </div>
                     <Switch
                       checked={draft.minimize_to_tray}
-                      onChange={(v) => patch({ minimize_to_tray: v })}
+                      onChange={(v) =>
+                        change(
+                          { ...draft, minimize_to_tray: v },
+                          v
+                            ? undefined
+                            : {
+                                title: "关闭「最小化到托盘」？",
+                                message:
+                                  "关闭后点窗口右上角 × 会直接退出程序，自动签到也会停止。",
+                              },
+                        )
+                      }
                       label="最小化到托盘"
                     />
                   </div>
@@ -301,7 +399,7 @@ export default function SettingsScreen({
                     <button
                       key={m}
                       className={`seg-item ${draft.theme === m ? "active" : ""}`}
-                      onClick={() => patch({ theme: m })}
+                      onClick={() => change({ ...draft, theme: m })}
                     >
                       {m === "light" ? (isPhone ? "正常" : "浅色") : m === "dark" ? "深色" : "跟随系统"}
                     </button>
@@ -318,7 +416,7 @@ export default function SettingsScreen({
                     </div>
                     <Switch
                       checked={draft.ball.enabled}
-                      onChange={(v) => patch({ ball: { ...draft.ball, enabled: v } })}
+                      onChange={(v) => change({ ...draft, ball: { ...draft.ball, enabled: v } })}
                       label="悬浮球"
                     />
                   </div>
@@ -332,7 +430,7 @@ export default function SettingsScreen({
                       className="select"
                       value={draft.ball.selected ?? ""}
                       onChange={(e) =>
-                        patch({ ball: { ...draft.ball, selected: e.target.value || null } })
+                        change({ ...draft, ball: { ...draft.ball, selected: e.target.value || null } })
                       }
                       disabled={view.accounts.length === 0}
                     >
@@ -353,13 +451,13 @@ export default function SettingsScreen({
                     <div className="seg">
                       <button
                         className={`seg-item ${draft.ball.show === "total_credits" ? "active" : ""}`}
-                        onClick={() => patch({ ball: { ...draft.ball, show: "total_credits" } })}
+                        onClick={() => change({ ...draft, ball: { ...draft.ball, show: "total_credits" } })}
                       >
                         积分
                       </button>
                       <button
                         className={`seg-item ${draft.ball.show === "pending_count" ? "active" : ""}`}
-                        onClick={() => patch({ ball: { ...draft.ball, show: "pending_count" } })}
+                        onClick={() => change({ ...draft, ball: { ...draft.ball, show: "pending_count" } })}
                       >
                         待签数
                       </button>
@@ -383,7 +481,17 @@ export default function SettingsScreen({
                 </div>
                 <Switch
                   checked={draft.scheduler_enabled}
-                  onChange={(v) => patch({ scheduler_enabled: v })}
+                  onChange={(v) =>
+                    change(
+                      { ...draft, scheduler_enabled: v },
+                      v
+                        ? undefined
+                        : {
+                            title: "关闭定时自动签到？",
+                            message: "关闭后所有账号都不再自动签到，只能手动点「签到」。",
+                          },
+                    )
+                  }
                   label="定时签到"
                 />
               </div>
@@ -395,7 +503,17 @@ export default function SettingsScreen({
                 </div>
                 <Switch
                   checked={draft.catch_up_missed}
-                  onChange={(v) => patch({ catch_up_missed: v })}
+                  onChange={(v) =>
+                    change(
+                      { ...draft, catch_up_missed: v },
+                      v
+                        ? undefined
+                        : {
+                            title: "关闭错过补签？",
+                            message: "关闭后当天错过的签到窗口不再自动补签。",
+                          },
+                    )
+                  }
                   label="补签"
                 />
               </div>
@@ -416,7 +534,7 @@ export default function SettingsScreen({
                       <button
                         key={o.v}
                         className={`seg-item ${draft.auto_refresh_minutes === o.v ? "active" : ""}`}
-                        onClick={() => patch({ auto_refresh_minutes: o.v })}
+                        onClick={() => change({ ...draft, auto_refresh_minutes: o.v })}
                       >
                         {o.label}
                       </button>
@@ -433,13 +551,17 @@ export default function SettingsScreen({
                 <div className="seg">
                   <button
                     className={`seg-item ${draft.notify_on_checkin ? "active" : ""}`}
-                    onClick={() => patch({ notify_on_checkin: !draft.notify_on_checkin })}
+                    onClick={() =>
+                      change({ ...draft, notify_on_checkin: !draft.notify_on_checkin })
+                    }
                   >
                     成功 {draft.notify_on_checkin ? "开" : "关"}
                   </button>
                   <button
                     className={`seg-item ${draft.notify_on_failure ? "active" : ""}`}
-                    onClick={() => patch({ notify_on_failure: !draft.notify_on_failure })}
+                    onClick={() =>
+                      change({ ...draft, notify_on_failure: !draft.notify_on_failure })
+                    }
                   >
                     失败 {draft.notify_on_failure ? "开" : "关"}
                   </button>
@@ -465,13 +587,13 @@ export default function SettingsScreen({
                   <div className="seg">
                     <button
                       className={`seg-item ${draft.mode === "local" ? "active" : ""}`}
-                      onClick={() => patch({ mode: "local" })}
+                      onClick={() => change({ ...draft, mode: "local" })}
                     >
                       本机模式
                     </button>
                     <button
                       className={`seg-item ${draft.mode === "remote" ? "active" : ""}`}
-                      onClick={() => patch({ mode: "remote" })}
+                      onClick={() => change({ ...draft, mode: "remote" })}
                     >
                       连接电脑
                     </button>
@@ -543,12 +665,22 @@ export default function SettingsScreen({
                   <div>
                     <div className="row-title">局域网访问</div>
                     <div className="row-desc">
-                      手机和电脑连同一个 Wi-Fi，用手机浏览器打开地址即可；改了开关要重启应用才生效
+                      手机和电脑连同一个 Wi-Fi，用手机浏览器打开地址即可；开关即时生效
                     </div>
                   </div>
                   <Switch
                     checked={draft.sync.enabled}
-                    onChange={(v) => patch({ sync: { ...draft.sync, enabled: v } })}
+                    onChange={(v) =>
+                    change(
+                      { ...draft, sync: { ...draft.sync, enabled: v } },
+                      v
+                        ? undefined
+                        : {
+                            title: "关闭局域网访问？",
+                            message: "关闭后手机将立即无法连接这台电脑。",
+                          },
+                    )
+                  }
                     label="局域网访问"
                   />
                 </div>
@@ -595,7 +727,7 @@ export default function SettingsScreen({
                     <div className="row-desc">
                       {lan?.enabled
                         ? `服务没起来，端口 ${lan.port} 可能被别的程序占了`
-                        : "局域网访问已关闭，打开开关并重启应用后生效"}
+                        : "局域网访问已关闭，打开开关后立即生效"}
                     </div>
                   </div>
                 )}
@@ -607,7 +739,17 @@ export default function SettingsScreen({
                   </div>
                   <Switch
                     checked={draft.sync.allow_remote_checkin}
-                    onChange={(v) => patch({ sync: { ...draft.sync, allow_remote_checkin: v } })}
+                    onChange={(v) =>
+                    change(
+                      { ...draft, sync: { ...draft.sync, allow_remote_checkin: v } },
+                      v
+                        ? undefined
+                        : {
+                            title: "关闭手机签到？",
+                            message: "关闭后手机只能查看账本，不能替你点签到。",
+                          },
+                    )
+                  }
                     label="允许手机签到"
                   />
                 </div>
@@ -627,7 +769,7 @@ export default function SettingsScreen({
                 </div>
                 <Switch
                   checked={draft.update.enabled}
-                  onChange={(v) => patch({ update: { ...draft.update, enabled: v } })}
+                  onChange={(v) => change({ ...draft, update: { ...draft.update, enabled: v } })}
                   label="自动检查"
                 />
               </div>
@@ -640,13 +782,13 @@ export default function SettingsScreen({
                 <div className="seg">
                   <button
                     className={`seg-item ${draft.update.source === "github" ? "active" : ""}`}
-                    onClick={() => patch({ update: { ...draft.update, source: "github" } })}
+                    onClick={() => change({ ...draft, update: { ...draft.update, source: "github" } })}
                   >
                     GitHub
                   </button>
                   <button
                     className={`seg-item ${draft.update.source === "mirror" ? "active" : ""}`}
-                    onClick={() => patch({ update: { ...draft.update, source: "mirror" } })}
+                    onClick={() => change({ ...draft, update: { ...draft.update, source: "mirror" } })}
                   >
                     镜像
                   </button>
@@ -658,7 +800,7 @@ export default function SettingsScreen({
                   <label>镜像前缀</label>
                   <input
                     value={draft.update.mirror}
-                    onChange={(e) => patch({ update: { ...draft.update, mirror: e.target.value } })}
+                    onChange={(e) => patchMirror(e.target.value)}
                     placeholder="https://ghfast.top/"
                     spellCheck={false}
                   />
@@ -758,14 +900,22 @@ export default function SettingsScreen({
                   <button
                     className="btn"
                     disabled={!newDir.trim()}
-                    onClick={async () => {
-                      try {
-                        const msg = await api.relocateData(newDir.trim());
-                        notify(msg);
-                      } catch (e) {
-                        notify(String(e), "warn");
-                      }
-                    }}
+                    onClick={() =>
+                      setPending({
+                        title: "更换数据目录？",
+                        message: `会把现有数据复制到 ${newDir.trim()}，重启应用后生效。`,
+                        confirmText: "开始搬迁",
+                        run: () => {
+                          void (async () => {
+                            try {
+                              notify(await api.relocateData(newDir.trim()));
+                            } catch (e) {
+                              notify(String(e), "warn");
+                            }
+                          })();
+                        },
+                      })
+                    }
                   >
                     搬迁
                   </button>
@@ -860,6 +1010,27 @@ export default function SettingsScreen({
           )}
         </section>
       </div>
+
+      {pending && (
+        <Modal title={pending.title} onClose={() => setPending(null)}>
+          <p className="modal-text">{pending.message}</p>
+          <div className="modal-actions">
+            <button className="btn" onClick={() => setPending(null)}>
+              取消
+            </button>
+            <button
+              className="btn primary"
+              onClick={() => {
+                const run = pending.run;
+                setPending(null);
+                run();
+              }}
+            >
+              {pending.confirmText}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

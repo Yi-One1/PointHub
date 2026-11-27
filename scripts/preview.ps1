@@ -21,6 +21,15 @@ $ui = Join-Path $root "apps\desktop\ui"
 $crate = Join-Path $root "apps\desktop\src-tauri"
 $exe = Join-Path $crate "target\debug\pointhub.exe"
 
+# A running instance (preview or installed) wins the single-instance race and
+# would show stale UI. Close it first so this launch always shows the new build.
+$running = Get-Process pointhub -ErrorAction SilentlyContinue
+if ($running) {
+    Write-Host "[0/2] closing running PointHub..." -ForegroundColor DarkGray
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 400
+}
+
 if (-not (Test-Path (Join-Path $ui "package.json"))) {
     Write-Host "[ERROR] preview.ps1 must live in <project>\scripts" -ForegroundColor Red
     exit 1

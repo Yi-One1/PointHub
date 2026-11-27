@@ -940,6 +940,11 @@ pub async fn client_unpair(
 // ------------------------------------------------------------------ 设置
 
 #[tauri::command]
+pub fn default_settings() -> Settings {
+    Settings::default()
+}
+
+#[tauri::command]
 pub async fn save_settings(
     app: AppHandle,
     state: State<'_, SharedState>,
@@ -972,6 +977,27 @@ pub async fn save_settings(
     // 悬浮球开关
     if settings.ball.enabled != state.ball_enabled.load(Ordering::Relaxed) {
         let _ = apply_ball(&app, settings.ball.enabled);
+    }
+
+    // 局域网开关改为即时生效：先停旧监听，再按新设置决定是否重启。
+    let was_enabled = state.sync_enabled.swap(settings.sync.enabled, Ordering::Relaxed);
+    let old_port = state.sync_port.swap(settings.sync.port, Ordering::Relaxed);
+    if was_enabled != settings.sync.enabled || old_port != settings.sync.port {
+        if let Ok(mut slot) = state.lan.lock() {
+            if let Some(ctx) = slot.take() {
+                ctx.stop();
+            }
+        }
+        if settings.sync.enabled {
+            match crate::lan::start(app.clone()) {
+                Ok(ctx) => {
+                    if let Ok(mut slot) = state.lan.lock() {
+                        *slot = Some(ctx);
+                    }
+                }
+                Err(e) => eprintln!("局域网服务启动失败：{e}"),
+            }
+        }
     }
 
     let (saved, local) = {

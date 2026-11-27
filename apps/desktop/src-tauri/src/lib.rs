@@ -125,6 +125,7 @@ pub fn run() {
             commands::remove_account,
             commands::set_account_enabled,
             commands::save_settings,
+            commands::default_settings,
             commands::open_data_dir,
             commands::relocate_data,
             commands::set_ball,

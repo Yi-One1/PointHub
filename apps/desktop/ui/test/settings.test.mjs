@@ -18,6 +18,12 @@ const APP = readFileSync(path.join(UI_DIR, "src", "App.tsx"), "utf8");
 const SCREEN = readFileSync(path.join(UI_DIR, "src", "SettingsScreen.tsx"), "utf8");
 const ICONS = readFileSync(path.join(UI_DIR, "src", "icons.tsx"), "utf8");
 const CSS = readFileSync(path.join(UI_DIR, "src", "styles.css"), "utf8");
+const API = readFileSync(path.join(UI_DIR, "src", "api.ts"), "utf8");
+const COMMANDS = readFileSync(
+  path.resolve(UI_DIR, "..", "src-tauri", "src", "commands.rs"),
+  "utf8",
+);
+const LAN = readFileSync(path.resolve(UI_DIR, "..", "src-tauri", "src", "lan.rs"), "utf8");
 
 function sectionIds() {
   return [...SETTINGS.matchAll(/\{ id: "([^"]+)", label: "([^"]+)"/g)].map((m) => m[1]);
@@ -128,4 +134,38 @@ test("分区标题在卡片外，主页面左下角信息已移除", () => {
   assert.doesNotMatch(APP, /className="afoot"/);
   assert.match(APP, /className="bver"/);
   assert.match(SCREEN, /数据只在本机/);
+});
+
+test("设置改动即时保存，不再需要全局保存按钮", () => {
+  assert.match(SCREEN, /const apply = async/);
+  assert.match(SCREEN, /onSave\(next, true\)/, "即时保存应静默，避免每次改动都弹通知");
+  assert.match(SCREEN, /改动立即生效/);
+});
+
+test("每个分区可恢复默认，默认值来自后端", () => {
+  assert.match(SCREEN, /恢复默认设置/);
+  assert.match(SCREEN, /SETTINGS_FIELD_SECTIONS/);
+  assert.match(API, /defaultSettings/);
+  assert.match(COMMANDS, /pub fn default_settings\(\)/);
+});
+
+test("重要设置修改前有二次确认", () => {
+  assert.match(SCREEN, /<Modal/);
+  for (const text of [
+    "关闭「最小化到托盘」",
+    "关闭定时自动签到",
+    "关闭错过补签",
+    "关闭局域网访问",
+    "关闭手机签到",
+    "更换数据目录",
+  ]) {
+    assert.match(SCREEN, new RegExp(text), `缺少「${text}」的确认文案`);
+  }
+});
+
+test("局域网开关即时生效，不再提示重启", () => {
+  assert.match(SCREEN, /开关即时生效/);
+  assert.doesNotMatch(SCREEN, /局域网访问已关闭，打开开关并重启应用后生效/);
+  assert.match(COMMANDS, /ctx\.stop\(\)/);
+  assert.match(LAN, /shutdown/);
 });

@@ -39,6 +39,8 @@ export const api = {
   setAccountEnabled: (id: string, enabled: boolean) =>
     invoke<void>("set_account_enabled", { id, enabled }),
   saveSettings: (settings: Settings) => invoke<StateView>("save_settings", { settings }),
+  /** 各分区的出厂默认值，用于「恢复默认设置」 */
+  defaultSettings: () => invoke<Settings>("default_settings"),
   setBall: (enabled: boolean) => invoke<void>("set_ball", { enabled }),
   setBallExpanded: (expanded: boolean) => invoke<void>("set_ball_expanded", { expanded }),
   setBallAccount: (accountId: string | null) =>

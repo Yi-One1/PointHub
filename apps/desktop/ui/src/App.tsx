@@ -139,12 +139,23 @@ export default function App() {
       setView(await api.bootstrap());
     });
 
-  const saveSettings = (next: Settings) =>
-    run("settings", async () => {
+  const settingsSeq = useRef(0);
+
+  const saveSettings = async (next: Settings, silent = false): Promise<boolean> => {
+    const seq = ++settingsSeq.current;
+    setBusy("settings");
+    try {
       const v = await api.saveSettings(next);
-      setView(v);
-      notify("设置已保存");
-    });
+      if (seq === settingsSeq.current) setView(v);
+      if (!silent) notify("设置已保存");
+      return true;
+    } catch (e) {
+      notify(String(e), "warn");
+      return false;
+    } finally {
+      if (seq === settingsSeq.current) setBusy(null);
+    }
+  };
 
   if (!view) {
     return (
@@ -227,7 +238,6 @@ export default function App() {
       {settingsOpen && (
         <SettingsScreen
           view={view}
-          busy={busy}
           onSave={saveSettings}
           notify={notify}
           onClose={() => setSettingsOpen(false)}

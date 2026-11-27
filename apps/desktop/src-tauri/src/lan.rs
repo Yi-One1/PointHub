@@ -45,9 +45,16 @@ pub struct LanCtx {
     app: AppHandle,
     pair: Mutex<PairCode>,
     pub port: u16,
+    /// 关闭设置里的局域网开关时，用它通知监听循环退出。
+    shutdown: tokio::sync::Notify,
 }
 
 impl LanCtx {
+    /// 通知监听循环退出；已建立的连接不受影响。
+    pub fn stop(&self) {
+        self.shutdown.notify_waiters();
+    }
+
     /// 当前有效的配对码；过期了就顺手换一个新的。
     pub fn current_code(&self) -> String {
         let mut p = self.pair.lock().expect("配对码锁");
@@ -164,6 +171,7 @@ pub fn start(app: AppHandle) -> Result<Arc<LanCtx>, String> {
             expires_at: Instant::now() + PAIR_TTL,
         }),
         port,
+        shutdown: tokio::sync::Notify::new(),
     });
 
     let ctx2 = ctx.clone();
@@ -188,9 +196,12 @@ pub fn start(app: AppHandle) -> Result<Arc<LanCtx>, String> {
         );
 
         loop {
-            let (stream, peer) = match listener.accept().await {
-                Ok(v) => v,
-                Err(_) => continue,
+            let (stream, peer) = tokio::select! {
+                _ = ctx2.shutdown.notified() => break,
+                accepted = listener.accept() => match accepted {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                },
             };
             let ctx3 = ctx2.clone();
             tokio::spawn(async move {

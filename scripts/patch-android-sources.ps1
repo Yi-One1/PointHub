@@ -83,6 +83,45 @@ if ($text -notmatch 'android\.permission\.POST_NOTIFICATIONS') {
     }
 }
 
+# --- 2b. manifest: install packages permission ------------------------------
+# Android 8+ requires this permission before the app may hand an APK to the
+# system installer. The user still has to allow "install unknown apps" once.
+$text = [System.IO.File]::ReadAllText($manifest)
+if ($text -notmatch 'android\.permission\.REQUEST_INSTALL_PACKAGES') {
+    $anchor = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
+    if ($text -notmatch [regex]::Escape($anchor)) {
+        Write-Host '  WARNING: POST_NOTIFICATIONS anchor missing, install permission skipped'
+    } else {
+        $insert = $anchor + "`n    <uses-permission android:name=`"android.permission.REQUEST_INSTALL_PACKAGES`" />"
+        $text = $text.Replace($anchor, $insert)
+        [System.IO.File]::WriteAllText($manifest, $text, $utf8)
+        Write-Host '  manifest: REQUEST_INSTALL_PACKAGES added'
+    }
+}
+
+# --- 2c. res/xml/file_paths.xml: expose files/updates to the installer ------
+# APKs live in getFilesDir()/updates; FileProvider only hands out paths that
+# are whitelisted here. The template ships the file but without this entry.
+$xmlDir = Join-Path $AppDir 'src-tauri\gen\android\app\src\main\res\xml'
+$filePaths = Join-Path $xmlDir 'file_paths.xml'
+if (-not (Test-Path $filePaths)) {
+    New-Item -ItemType Directory -Force -Path $xmlDir | Out-Null
+    $xml = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<paths>`n    <files-path name=`"updates`" path=`"updates/`" />`n</paths>`n"
+    [System.IO.File]::WriteAllText($filePaths, $xml, $utf8)
+    Write-Host '  file_paths.xml: created with files/updates'
+} else {
+    $text = [System.IO.File]::ReadAllText($filePaths)
+    if ($text -notmatch 'name="updates"') {
+        if ($text -match '</paths>') {
+            $text = $text.Replace('</paths>', "    <files-path name=`"updates`" path=`"updates/`" />`n</paths>")
+            [System.IO.File]::WriteAllText($filePaths, $text, $utf8)
+            Write-Host '  file_paths.xml: files/updates added'
+        } else {
+            Write-Host '  WARNING: file_paths.xml has no </paths>, left unchanged'
+        }
+    }
+}
+
 # --- 3. gradle: WorkManager dependency --------------------------------------
 $text = [System.IO.File]::ReadAllText($gradle)
 if ($text -notmatch 'androidx\.work:work-runtime-ktx') {
@@ -110,6 +149,7 @@ $rules = @(
     '-keep class androidx.room.** { *; }',
     '-keep class * extends androidx.work.ListenableWorker { <init>(...); }',
     '-keep class cn.pointhub.desktop.CheckinBridge { *; }',
+    '-keep class cn.pointhub.desktop.ApkInstaller { *; }',
     '-keepclasseswithmembernames class * { native <methods>; }',
     '-dontwarn androidx.work.**'
 ) -join "`n"
@@ -130,6 +170,28 @@ if ($text -notmatch 'CheckinScheduler\.ensureScheduled') {
         $text = $text.Replace($anchor, $insert)
         [System.IO.File]::WriteAllText($activity, $text, $utf8)
         Write-Host '  MainActivity: daily schedule + notification permission wired'
+    }
+}
+
+# --- 5. MainActivity: resume APK install after granting unknown sources -----
+# The user leaves the app for the system "install unknown apps" screen; on
+# return, ApkInstaller.resumePending re-opens the installer automatically.
+$text = [System.IO.File]::ReadAllText($activity)
+if ($text -notmatch 'ApkInstaller\.resumePending') {
+    $anchor = 'CheckinNotify.ensurePermission(this)'
+    if ($text -notmatch [regex]::Escape($anchor)) {
+        Write-Host '  WARNING: onCreate anchor not found, ApkInstaller resume not wired'
+    } else {
+        $pattern = '(?s)(' + [regex]::Escape($anchor) + '\s*\r?\n\s*\})'
+        $m = [regex]::Match($text, $pattern)
+        if ($m.Success) {
+            $tail = "override fun onResume() {`n    super.onResume()`n    ApkInstaller.resumePending(this)`n  }"
+            $text = $text.Replace($m.Value, $m.Value + "`n`n  " + $tail)
+            [System.IO.File]::WriteAllText($activity, $text, $utf8)
+            Write-Host '  MainActivity: ApkInstaller.resumePending wired'
+        } else {
+            Write-Host '  WARNING: onCreate closing brace not found, ApkInstaller resume not wired'
+        }
     }
 }
 

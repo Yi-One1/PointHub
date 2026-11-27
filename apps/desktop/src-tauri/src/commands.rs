@@ -1111,11 +1111,11 @@ pub struct UpdateCheckView {
 
 #[derive(Serialize)]
 pub struct UpdateApplyView {
-    /// `latest` | `installer` | `downloaded` | `browser`
+    /// `latest` | `installer` | `downloaded` | `permission`
     pub action: String,
     pub detail: String,
     pub version: String,
-    /// 安装包落盘路径；安卓走浏览器下载时为空。
+    /// 安装包落盘路径。
     pub path: Option<String>,
 }
 
@@ -1136,6 +1136,15 @@ fn update_source_str(s: ph_core::UpdateSource) -> &'static str {
     }
 }
 
+/// 安卓 APK 落盘目录。
+///
+/// `Context.getDataDir()`（引擎的数据目录）是应用数据根，FileProvider 的
+/// `<files-path>` 只能覆盖根下的 `files/`，所以 APK 必须放在 `files/updates`。
+#[cfg(any(target_os = "android", test))]
+fn android_apk_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("files").join(ph_core::files::UPDATES_DIR)
+}
+
 #[tauri::command]
 pub async fn update_check(state: State<'_, SharedState>) -> Result<UpdateCheckView, String> {
     let (u, _) = update_ctx(state.inner()).await;
@@ -1153,7 +1162,8 @@ pub async fn update_check(state: State<'_, SharedState>) -> Result<UpdateCheckVi
 /// 下载并交给系统安装。
 ///
 /// Windows：下载 NSIS 安装包并启动它（没有安装包时退回便携版，提示手动替换）。
-/// 安卓：应用内无法直接调起安装器，交给系统浏览器下载 APK，用户点开安装。
+/// 安卓：下载到应用私有目录后交给系统安装器；缺少「安装未知应用」授权时
+/// 打开系统设置页，用户回来会自动继续。
 #[tauri::command]
 pub async fn update_apply(
     app: AppHandle,
@@ -1186,16 +1196,35 @@ pub async fn update_apply(
 
     #[cfg(target_os = "android")]
     {
-        use tauri_plugin_opener::OpenerExt;
-        app.opener()
-            .open_url(asset.url.clone(), None::<&str>)
-            .map_err(|e| format!("打不开浏览器：{e}"))?;
+        let dir = android_apk_dir(&data_dir);
+        // 用户去系统设置授权后回来会再点一次；已下好就直接复用，不重复走网络。
+        let path = match ph_update::cached(&asset, &dir) {
+            Some(p) => p,
+            None => ph_update::download(&asset, &dir)
+                .await
+                .map_err(|e| e.user_message())?,
+        };
+        let outcome = crate::android_apk::install(&path)?;
+        let (action, detail) = if outcome.ok {
+            (
+                "installer",
+                "安装器已打开，按提示完成安装后重新打开应用".to_string(),
+            )
+        } else if outcome.need_permission {
+            ("permission", outcome.message)
+        } else if outcome.message.is_empty() {
+            (
+                "downloaded",
+                "无法调起安装器，可点「手动下载」到发布页自取".to_string(),
+            )
+        } else {
+            ("downloaded", outcome.message)
+        };
         return Ok(UpdateApplyView {
-            action: "browser".into(),
-            detail: "已在浏览器打开 APK 下载；下载完成后点通知栏里的安装包，按提示允许安装未知应用"
-                .into(),
+            action: action.into(),
+            detail,
             version: release.version,
-            path: None,
+            path: Some(path.display().to_string()),
         });
     }
 
@@ -1315,4 +1344,53 @@ pub fn show_main(app: AppHandle) {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[cfg(all(test, not(target_os = "android")))]
+mod android_install_tests {
+    use super::android_apk_dir;
+
+    #[test]
+    fn apk_lands_under_files_dir() {
+        // FileProvider 的 <files-path> 只映射 getFilesDir()，即数据根下的 files/。
+        let dir = android_apk_dir(std::path::Path::new("/data/user/0/cn.pointhub.desktop"));
+        assert_eq!(
+            dir,
+            std::path::Path::new("/data/user/0/cn.pointhub.desktop/files/updates")
+        );
+    }
+
+    /// Kotlin 源与构建补丁是 Android 安装链路的三个约定点，任何一处被改掉
+    /// 都只会在真机上失败（桌面编译不报错），所以在这里钉死。
+    #[test]
+    fn install_contract_is_wired() {
+        let kotlin = include_str!("../../android/src/cn/pointhub/desktop/ApkInstaller.kt");
+        assert!(kotlin.contains("@JvmStatic"), "Kotlin 安装入口必须是静态方法");
+        assert!(
+            kotlin.contains("canRequestPackageInstalls"),
+            "缺少「安装未知应用」授权检查"
+        );
+        assert!(
+            kotlin.contains(".fileprovider"),
+            "FileProvider authority 与 manifest 不一致"
+        );
+        assert!(
+            kotlin.contains("resumePending"),
+            "从系统设置返回后没有继续安装"
+        );
+
+        let patch = include_str!("../../../../scripts/patch-android-sources.ps1");
+        assert!(
+            patch.contains("REQUEST_INSTALL_PACKAGES"),
+            "构建补丁没有加安装权限"
+        );
+        assert!(
+            patch.contains("files-path name="),
+            "构建补丁没有暴露 files/updates 给 FileProvider"
+        );
+        assert!(
+            patch.contains("ApkInstaller"),
+            "构建补丁没有保留安装器类（R8 会把它剥掉）"
+        );
+    }
 }

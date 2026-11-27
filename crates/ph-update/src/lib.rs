@@ -2,8 +2,8 @@
 //!
 //! 这里只做「查 + 下」，**不做静默自替换**：
 //! - Windows 下载 NSIS 安装包后交给系统安装（安装器负责覆盖旧文件）；
-//! - 安卓把 APK 地址交给系统浏览器下载，由用户在通知栏点开安装
-//!   （应用内安装需要额外的原生 Intent 插件，见 DECISIONS D08）。
+//! - 安卓下载 APK 到应用私有目录，再交给系统安装器（FileProvider + Intent），
+//!   安装确认仍由用户在系统界面完成。
 //!
 //! 更新源可配置：默认直连 GitHub；国内慢时在设置里填镜像前缀，
 //! 前缀会拼在完整 GitHub 地址前面，查询与下载走同一条规则。
@@ -226,6 +226,23 @@ pub async fn check_for(
     })
 }
 
+/// 上一次已经下载好的安装包；大小对得上才复用。
+///
+/// 安卓去系统设置开「安装未知应用」再回来时，不必重新走一遍网络。
+pub fn cached(asset: &AssetInfo, dir: &Path) -> Option<PathBuf> {
+    let path = dir.join(safe_file_name(&asset.name));
+    let meta = std::fs::metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() == 0 {
+        return None;
+    }
+    if let Some(expect) = asset.size {
+        if expect > 0 && meta.len() != expect {
+            return None;
+        }
+    }
+    Some(path)
+}
+
 /// 下载安装包到 `dir`，返回落盘路径。大小对不上视为下载不完整。
 pub async fn download(asset: &AssetInfo, dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
@@ -374,5 +391,36 @@ mod tests {
         assert_eq!(safe_file_name("../../evil.exe"), "evil.exe");
         assert_eq!(safe_file_name(".."), "update.bin");
         assert_eq!(safe_file_name("C:\\Windows\\x.exe"), "x.exe");
+    }
+
+    #[test]
+    fn cached_only_reuses_complete_file() {
+        let dir = std::env::temp_dir().join(format!("ph-update-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("PointHub.apk");
+        std::fs::write(&path, b"abc").unwrap();
+
+        let complete = AssetInfo {
+            name: "PointHub.apk".into(),
+            url: String::new(),
+            size: Some(3),
+        };
+        assert_eq!(cached(&complete, &dir), Some(path.clone()));
+
+        // 大小对不上（下载被截断）时不能复用
+        let truncated = AssetInfo {
+            size: Some(4),
+            ..complete.clone()
+        };
+        assert_eq!(cached(&truncated, &dir), None);
+
+        let missing = AssetInfo {
+            name: "other.apk".into(),
+            url: String::new(),
+            size: None,
+        };
+        assert_eq!(cached(&missing, &dir), None);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

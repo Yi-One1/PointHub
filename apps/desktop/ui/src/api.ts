@@ -56,7 +56,7 @@ export const api = {
   clientUnpair: () => invoke<ClientStatus>("client_unpair"),
   /** 查最新版本；latest 为 null 表示已是最新 */
   updateCheck: () => invoke<UpdateCheck>("update_check"),
-  /** 下载并交给系统安装（安卓走浏览器） */
+  /** 下载并交给系统安装（安卓走应用内安装器） */
   updateApply: () => invoke<UpdateApply>("update_apply"),
   /** 手动下载兜底：打开 Releases 页面 */
   updateOpenPage: () => invoke<void>("update_open_page"),

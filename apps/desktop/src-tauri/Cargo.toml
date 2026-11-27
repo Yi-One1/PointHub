@@ -42,6 +42,8 @@ tauri-plugin-single-instance = "2"
 # 安卓 WorkManager 的后台任务通过 JNI 调进 Rust
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+# Rust 反调 Kotlin 安装器时需要 JVM 与 Context（由 tao 在启动时写入）
+ndk-context = "0.1"
 
 # 卸载清理要读/删 HKCU Run 里的自启项
 [target.'cfg(windows)'.dependencies]

@@ -1547,7 +1547,7 @@ function SettingsPage({
               <div className="row-title">下载并安装</div>
               <div className="row-desc">
                 {isPhone
-                  ? "跳到浏览器下载 APK，下载完点开按提示安装"
+                  ? "下载完成后由系统安装器确认安装"
                   : "下载完成后自动打开安装程序"}
               </div>
             </div>
@@ -1556,7 +1556,7 @@ function SettingsPage({
               onClick={applyUpdate}
               disabled={applying || !update.latest.asset}
             >
-              {applying ? "处理中…" : "下载"}
+              {applying ? "处理中…" : "下载并安装"}
             </button>
           </div>
         )}

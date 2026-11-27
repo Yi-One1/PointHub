@@ -55,7 +55,7 @@ export interface UpdateCheck {
 }
 
 export interface UpdateApply {
-  /** latest | installer | downloaded | browser */
+  /** latest | installer | downloaded | permission */
   action: string;
   detail: string;
   version: string;

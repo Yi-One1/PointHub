@@ -1,10 +1,11 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，版本 **v0.12.0**（0.13.0 开发中）。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，版本 **v0.13.0**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.11.0>（v0.12.0 正式包已构建，待发布）
+最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.11.0>
+（v0.12.0 与 v0.13.0 正式包已构建，待发布）
 （上一版：<https://github.com/Yi-One1/PointHub/releases/tag/v0.10.1>）
 
 ---
@@ -55,13 +56,13 @@
 - **安卓 Keystore 凭据托管（0.12.0）**：`vault.bin` 改由 AndroidKeyStore 保管密钥，
   Rust 经 JNI 调 Kotlin 做 AES-256-GCM；旧 AES 仓首开自动重封并删除旧密钥文件，
   用户无需重新导入；系统密钥丢失时原文件改名留档、按空仓启动（D27）。
-- **设置页改造（0.13.0 进行中）**：左栏「设置」改为左下角齿轮；独立全屏设置页，
+- **设置页改造（0.13.0）**：左栏「设置」改为左下角齿轮；独立全屏设置页，
   7 类固定分类（通用/外观与桌面/签到与通知/手机访问/更新/数据与安全/关于），
   分区标题在卡片外；主/设置菜单统一图标与悬停阴影；新增按关键词筛选分类的搜索框；
-  版本号移到品牌名右侧，「数据只在本机」移到数据与安全。第 1~3 组已验收：
+  版本号移到品牌名右侧，「数据只在本机」移到数据与安全。第 1~4 组均已验收：
   改动即改即存、分区恢复默认按差异启用、重要项二次确认、说明精简、镜像默认地址、
-  数据目录跟随程序（预览独立）且搬迁后自动清理旧目录。第 4 组在做：
-  检查到新版本时「检查」原地变「更新」，总览右侧提示可跳转设置更新分区。
+  数据目录跟随程序（预览独立）且搬迁后自动清理旧目录；检查到新版本时「检查」原地
+  变「更新」，总览右侧提示可跳转设置更新分区。
 
 ---
 
@@ -103,8 +104,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.12.0.exe`（5.3 MB）与 `_Setup.exe`（2.2 MB）；历史版本均在 `dist/` |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.12.0.apk`（8.3 MB，arm64，debug 签名） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.13.0.exe`（5.4 MB）与 `_Setup.exe`（2.2 MB）；历史版本均在 `dist/` |
+| Android 正式包 | `dist/积分枢纽PointHub_v0.13.0.apk`（8.5 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -153,6 +154,10 @@
   迁移）；密钥丢失的降级路径由单元测试覆盖，真机尚未模拟系统恢复。
 - 防火墙：安装包实测写入 `PointHub LAN`（程序级、`RemoteAddress=LocalSubnet`），
   手机访问通过；二次安装（规则已存在）不弹 UAC；提权弹窗显示应用自身。
+- 0.13.0 产物：`cargo test --workspace` 99 项、前端 46 项、`tsc + vite build` 通过；
+  Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；APK `versionName=0.13.0`、
+  `versionCode=13000`、targetSdk 36、仅 arm64-v8a、8.5 MB，`apksigner verify` 通过
+  （debug 证书）。
 - 0.12.0 产物：Windows exe FileVersion 0.12.0（5.3 MB / 安装包 2.2 MB）；
   APK `versionName=0.12.0`、`versionCode=12000`、targetSdk 36、仅 arm64-v8a、
   8.3 MB，`apksigner verify` 通过（debug 证书）。

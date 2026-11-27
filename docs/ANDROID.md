@@ -140,7 +140,11 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 
 ## 最近一次构建
 
-- 2026-11-27，`dist\积分枢纽PointHub_v0.12.0.apk`，**8.3 MB**
+- 2026-11-28，`dist\积分枢纽PointHub_v0.13.0.apk`，**8.5 MB**
+  （release / arm64-v8a / versionName 0.13.0 / versionCode 13000 /
+  targetSdk 36 / debug keystore 签名 / `apksigner verify` 通过 /
+  mipmap 160–640 五档图标齐全）。
+- 2026-11-27，`dist\积分枢纽PointHub_v0.12.0.apk`，8.3 MB
   （release / arm64-v8a / versionName 0.12.0 / versionCode 12000 /
   targetSdk 36 / debug keystore 签名 / `apksigner verify` 通过 /
   mipmap 160–640 五档图标齐全）。

@@ -4,7 +4,7 @@
 > **部分落地**（核心在，缺外壳/缺验证）、**未开始**（说清卡在哪）。
 > 不做「看起来做了」的表述。
 
-版本：v0.12.0 · 2026-11-27
+版本：v0.13.0 · 2026-11-28
 
 ---
 
@@ -18,7 +18,7 @@
 | 4 | Windows + Android 双端互通 | 已落地 | 安卓 App 双模式（连接电脑 / 本机）；持久设备配对后可远程查看、远程签到，`/api/sync/pull` 与 `/api/sync/push` 双向同步账号、快照、历史、活动；凭据不跨电脑；每账号唯一执行端（D03 / D15）。安卓端 WorkManager 每天 00:16 自动签到（第 1 条）。Windows 防火墙：安装器自动写入按程序、仅本地子网的放行规则（D25） |
 | 5 | 手动单个签到 + 一键全部签到 | 已落地 | 总览每行「签到」/ 顶部「一键全部签到」/ 悬浮球面板「一键签到」/ 托盘菜单 / `phctl checkin` |
 | 6 | 浏览器授权 + 本机导入 | 已落地 | **浏览器授权**：WorkBuddy 走官方插件授权；Trae CN 走授权页 + 本地回调 + `ExchangeToken`；Qoder CN 走设备码轮询，三平台均可用，令牌可续期（D21）。**本机导入**：WorkBuddy / Trae CN / Qoder CN 均可（只读客户端登录态，验证余额后落库，仅 Windows）；手动令牌兜底。三种方式统一按平台用户 id 去重，旧记录导入时自动合并（D19） |
-| 7 | 双端更新功能 | 已落地 | 检查/下载链路已通：启动自动查 GitHub Releases（可关）+ 设置页「检查 / 下载 / 手动下载」；Windows 下载 `_Setup.exe` 后启动安装向导（**已在旧版上实测走通**）；安卓应用内下载 APK 并调起系统安装器，首次引导「安装未知应用」、返回后自动续装（D26）；来源可切镜像前缀。**未做**：Windows 静默自替换（不接 Tauri updater，D08） |
+| 7 | 双端更新功能 | 已落地 | 检查/下载链路已通：启动自动查 GitHub Releases（可关）+ 设置页「检查」（查到新版本后原地变「更新」）+ 总览新版本提示可跳转；Windows 下载 `_Setup.exe` 后启动安装向导（**已在旧版上实测走通**）；安卓应用内下载 APK 并调起系统安装器，首次引导「安装未知应用」、返回后自动续装（D26）；来源可切镜像前缀。**未做**：Windows 静默自替换（不接 Tauri updater，D08） |
 | 8 | 卸载干净无残留 | 已落地 | 安装包 NSIS 钩子调用 `pointhub.exe --purge-data` / `--purge-app`；默认清理账号、令牌、日志、自启、快捷方式、计划任务、WebView2 缓存与 `PointHub*` 防火墙规则，勾选「保留账号数据」则只删程序痕迹；静默卸载无法提权时跳过防火墙规则并在日志留痕；判定标准见 D10 / D25 |
 | 9 | Windows 数据目录可自定义 | 已落地 | 发行版默认 `<exe 所在目录>\data`，旧数据首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub`（D20）；设置页「更换数据目录」→ 复制 + 指针文件 + 重启生效；`ph_store::locate` |
 | 10 | 开机自启动 | 已落地 | `tauri-plugin-autostart`，设置项与系统状态双向对齐 |
@@ -185,7 +185,7 @@ VendorSnapshot     一次采样
 
 ---
 
-## 六、验收状态（v0.12.0）
+## 六、验收状态（v0.13.0）
 
 - [x] `cargo test --workspace` 95 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
@@ -223,11 +223,17 @@ VendorSnapshot     一次采样
 - [x] 0.12.0 正式包：Windows exe FileVersion 0.12.0（5.3 MB / 安装包 2.2 MB）；
       APK versionName 0.12.0 / versionCode 12000 / arm64-v8a / 8.3 MB，
       `apksigner verify` 通过
+- [x] 0.13.0 设置页改造：独立分类页（7 类）、设置搜索、改动即改即存、
+      分区恢复默认按差异启用、检查更新原地变「更新」、总览新版本提示可跳转；
+      `cargo test --workspace` 99 项、前端 46 项与 `tsc + vite build` 通过
+- [x] 0.13.0 正式包：Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；
+      APK versionName 0.13.0 / versionCode 13000 / arm64-v8a / 8.5 MB，
+      `apksigner verify` 通过
 
 ---
 
 ## 七、下一步（按优先级）
 
-1. **发布 0.12.0**：升 MINOR 并重出双端包（包含防火墙自动放行与安卓应用内安装）。
+1. **发布 0.13.0**：设置页改造出双端正式包并发布 Release。
 2. Windows 静默自替换：需接 Tauri updater 签名链，暂不做（D08）。
 3. 更细的当前快照与阻塞项见 `progress.md`。

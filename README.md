@@ -259,7 +259,7 @@ phctl plan                                    # 每个账号下次执行时间
 - [x] 数据目录跟随安装目录（旧版首次启动自动迁移）
 - [x] v0.6.0（便携 exe / 安装包 / arm64 APK）、v0.9.2、v0.10.0、v0.10.1 与
       v0.11.0（便携 exe / 安装包 / arm64 APK）已发布到 GitHub Releases；
-      v0.12.0 正式包已构建（待发布）
+      v0.12.0、v0.13.0 正式包已构建（待发布）
 
 最新发布：<https://github.com/Yi-One1/PointHub/releases>
 

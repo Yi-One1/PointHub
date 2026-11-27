@@ -1,6 +1,6 @@
 [package]
 name = "pointhub"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 description = "积分枢纽 PointHub 桌面端"
 authors = ["Yi-One1"]

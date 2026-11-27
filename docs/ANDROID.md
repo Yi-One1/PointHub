@@ -139,10 +139,11 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 
 ## 最近一次构建
 
-- 2026-11-27，`dist\积分枢纽PointHub_v0.11.0.apk`，**8.3 MB**
-  （release / arm64-v8a / versionName 0.11.0 / versionCode 11000 /
+- 2026-11-27，`dist\积分枢纽PointHub_v0.12.0.apk`，**8.3 MB**
+  （release / arm64-v8a / versionName 0.12.0 / versionCode 12000 /
   targetSdk 36 / debug keystore 签名 / `apksigner verify` 通过 /
   mipmap 160–640 五档图标齐全）。
+- 2026-11-27，`dist\积分枢纽PointHub_v0.11.0.apk`，8.3 MB（同配置，历史记录）。
 - 2026-11-26，`dist\积分枢纽PointHub_v0.6.0.apk`，8.0 MB（同上配置，历史记录）。
 - 早期 debug 包（约 150–180 MB）只用于排障，不入库、不发布。
 - 验证命令（`aapt` 不认中文路径，先把 APK 复制到纯英文目录再查）：

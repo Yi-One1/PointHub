@@ -1,10 +1,10 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-27，版本 **v0.11.0**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-27，版本 **v0.12.0**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.11.0>
+最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.11.0>（v0.12.0 正式包已构建，待发布）
 （上一版：<https://github.com/Yi-One1/PointHub/releases/tag/v0.10.1>）
 
 ---
@@ -44,14 +44,15 @@
   置前已有窗口（含托盘最小化）；`scripts/test-single-instance.ps1` 可自动验证。
 - **安卓重打（0.11.0）**：APK 从 0.6.0 直接重打到 0.11.0（arm64 / 8.3 MB），
   含新图标、平台 logo、积分图标与新 UI；构建链的 Windows 兼容问题全部脚本化。
-- **防火墙自动放行（未发版）**：安装器 `POSTINSTALL` 调用
+- **防火墙自动放行（0.12.0）**：安装器 `POSTINSTALL` 调用
   `pointhub.exe --firewall-install`，按程序写入只允许**本地子网**的入站规则；
-  已放行则直接跳过（原地升级不弹 UAC）；运行期无检测、无提示、无设置项；
-  卸载时提权清除全部 `PointHub*` 规则。便携版/调试版仍由 Windows 原生弹窗处理。
-- **安卓应用内安装更新（未发版）**：设置页「下载并安装」不再跳浏览器——APK 下到
+  已放行则直接跳过（原地升级不弹 UAC）；提权时 UAC 显示应用自身（不再显示
+  Windows PowerShell）；运行期无检测、无提示、无设置项；卸载时提权清除全部
+  `PointHub*` 规则。便携版/调试版仍由 Windows 原生弹窗处理。
+- **安卓应用内安装更新（0.12.0）**：设置页「下载并安装」不再跳浏览器——APK 下到
   `files/updates`，经 FileProvider 交给系统安装器；首次未授权时跳到「安装未知应用」
   设置页，返回后 `onResume` 自动续装；已下载的包会复用（D26）。
-- **安卓 Keystore 凭据托管（未发版）**：`vault.bin` 改由 AndroidKeyStore 保管密钥，
+- **安卓 Keystore 凭据托管（0.12.0）**：`vault.bin` 改由 AndroidKeyStore 保管密钥，
   Rust 经 JNI 调 Kotlin 做 AES-256-GCM；旧 AES 仓首开自动重封并删除旧密钥文件，
   用户无需重新导入；系统密钥丢失时原文件改名留档、按空仓启动（D27）。
 
@@ -95,8 +96,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.11.0.exe` 与 `_Setup.exe`；历史版本均在 `dist/` |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.11.0.apk`（8.3 MB，arm64，debug 签名） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.12.0.exe`（5.3 MB）与 `_Setup.exe`（2.2 MB）；历史版本均在 `dist/` |
+| Android 正式包 | `dist/积分枢纽PointHub_v0.12.0.apk`（8.3 MB，arm64，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；旧版首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub` |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -143,6 +144,11 @@
   打包产物核验含 `REQUEST_INSTALL_PACKAGES`、FileProvider、`ApkInstaller` 类。
 - 安卓 Keystore：真机覆盖安装后账号**不缺凭据**、重启后仍能签到（旧 AES 仓自动
   迁移）；密钥丢失的降级路径由单元测试覆盖，真机尚未模拟系统恢复。
+- 防火墙：安装包实测写入 `PointHub LAN`（程序级、`RemoteAddress=LocalSubnet`），
+  手机访问通过；二次安装（规则已存在）不弹 UAC；提权弹窗显示应用自身。
+- 0.12.0 产物：Windows exe FileVersion 0.12.0（5.3 MB / 安装包 2.2 MB）；
+  APK `versionName=0.12.0`、`versionCode=12000`、targetSdk 36、仅 arm64-v8a、
+  8.3 MB，`apksigner verify` 通过（debug 证书）。
 - 0.11.0 APK：`aapt dump badging` 显示 versionName 0.11.0 / versionCode 11000 /
   targetSdk 36 / native-code 仅 arm64-v8a；mipmap 160–640 五档齐全；
   `apksigner verify` 通过（debug 证书）。

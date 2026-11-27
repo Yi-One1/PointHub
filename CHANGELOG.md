@@ -6,17 +6,19 @@
 > **产物不覆盖**：`dist/` 里已出的包视为交付历史，构建脚本拒绝覆盖或删除。
 > 要再出一版，先升 `Cargo.toml` 的 `[workspace.package] version`。
 
-## [未发布]
+## [0.12.0] - 2026-11-27
 
-**新增：安装时自动放行 Windows 防火墙**（新增能力，预计升 MINOR）。
+**新增：安装时自动放行 Windows 防火墙**
 
 - 安装完成时自动写入按程序放行的入站规则，只允许**本地子网**访问；
   已放行则直接跳过，原地升级不弹 UAC。
+- 提权时 UAC 显示应用自身（PointHub）的图标和名称，而不是 Windows PowerShell；
+  程序未做代码签名，发布者仍显示「未知发布者」。
 - 运行期不再检测防火墙，设置页不出现任何相关状态、提示或按钮。
 - 卸载时提权清除全部 `PointHub*` 规则；静默安装/卸载无法提权时跳过并记录日志。
 - 便携版没有安装器，继续由 Windows 首次监听时的原生弹窗处理。
 
-**新增：安卓应用内下载并调起系统安装器**（新增能力，预计升 MINOR）。
+**新增：安卓应用内下载并调起系统安装器**
 
 - 设置页「下载并安装」在安卓不再跳浏览器：APK 下到应用私有目录，经 FileProvider
   交给系统安装器；已下载的包会复用，不重复走网络。
@@ -25,7 +27,7 @@
 - 原生部分（`ApkInstaller.kt`、安装权限、FileProvider 路径、R8 keep、`onResume`
   续装）放在被跟踪的 `apps/desktop/android/` 与 `scripts/`，构建时幂等注入 `gen/`。
 
-**变更：安卓凭据仓改用 AndroidKeyStore 托管**（落地既有 D05，预计随 MINOR 发布）。
+**变更：安卓凭据仓改用 AndroidKeyStore 托管**
 
 - 安卓不再把 AES 密钥放在本地文件：密钥由 AndroidKeyStore 生成并保管，
   Rust 通过 JNI 调 Kotlin 做 AES-256-GCM 加解密，密钥不出系统密钥库。
@@ -39,8 +41,12 @@
 **测试**：workspace 95 项、桌面端 16 项、前端 25 项、`tsc --noEmit`、`vite build`
 通过；`cargo check` 无警告；`cargo check --target aarch64-linux-android` 与完整
 release APK 构建通过，产物核验含安装权限、FileProvider、安装器类与 Keystore 类；
-安卓应用内安装与旧仓自动迁移均已用验收专用包真机走通。安装器钩子的 UAC 与规则
-写入待在发布包上实测。
+安卓应用内安装与旧仓自动迁移均已用验收专用包真机走通。防火墙的规则写入、手机
+访问与「原地升级不弹 UAC」已在安装包上实测通过；UAC 显示名已改为应用自身。
+
+**产物**：Windows 便携 `积分枢纽PointHub_v0.12.0.exe`（5.3 MB）、安装包
+`..._Setup.exe`（2.2 MB）；安卓 `积分枢纽PointHub_v0.12.0.apk`（8.3 MB /
+arm64-v8a / versionCode 12000 / debug 签名）。
 
 ## [0.11.0] - 2026-11-27
 

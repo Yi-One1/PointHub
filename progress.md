@@ -1,11 +1,10 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，版本 **v0.13.0**。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，版本 **v0.13.1**。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.13.0>
-（本次 Release 涵盖 v0.12.0 与 v0.13.0 的全部变化）
+最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.13.1>
 
 ---
 
@@ -22,6 +21,9 @@
   仅 Windows，只读）、手动令牌兜底；统一按平台用户 id 去重，旧重复记录导入时自动合并（D19）。
 - **多账号与调度**：独立凭据 / 排期 / 历史；逐账号签到 + 一键全部签到；
   默认 00:10 + 确定性抖动，启动补签。
+- **签到稳定性（0.13.1）**：执行端指向「已不存在的设备」时启动自动收回本机；
+  调度器只调度本机执行账号；失败退避（普通 30 分钟 / 凭据失效到次日）；
+  失败通知按账号每天一次；总览「今日签到异常」提示条 + 立即重试。
 - **Windows 桌面端**：托盘、悬浮球、开机自启、系统通知、三态主题、单实例（0.11.0）。
 - **局域网与安卓**：PC HTTP 服务（47821）+ 6 位配对码 + 持久设备配对；
   安卓双模式（本机 / 连接电脑）；WorkManager 每天 00:16 后台签到、打开 App 补签（0.5~0.6）。
@@ -79,8 +81,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.13.0.exe`（5.4 MB）与 `_Setup.exe`（2.2 MB）；历史版本均在 `dist/` |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.13.0.apk`（8.5 MB，arm64，debug 签名） |
+| Windows 正式包 | `dist/积分枢纽PointHub_v0.13.1.exe`（5.4 MB）与 `_Setup.exe`（2.2 MB）；历史版本均在 `dist/` |
+| Android 正式包 | `dist/积分枢纽PointHub_v0.13.0.apk`（8.5 MB，arm64，debug 签名；0.13.1 未重打） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；预览 `dist\data`；旧版首次启动自动迁移（D20） |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -96,7 +98,11 @@
 
 ### 验证过的证据
 
-- `cargo test --workspace` **99 项全绿**；前端 **46/46**、`tsc --noEmit`、`vite build` 通过。
+- `cargo test --workspace` **106 项全绿**；前端 **49/49**、`tsc --noEmit`、`vite build` 通过。
+- 0.13.1 修复用真实数据副本实测：三个账号 `executor` 从幽灵 id 收回本机、
+  日志有记录、`phctl status` 恢复「已签」；预览版总览异常提示条出现并在补签后自动消失。
+- 0.13.1 产物：Windows exe FileVersion 0.13.1（5.4 MB / 安装包 2.2 MB）；
+  安卓包沿用 0.13.0（本轮未重打）。
 - 0.13.0 产物：Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；
   APK `versionName=0.13.0`、`versionCode=13000`、targetSdk 36、仅 arm64-v8a、8.5 MB，
   `apksigner verify` 通过（debug 证书）。

@@ -4,7 +4,7 @@
 > **部分落地**（核心在，缺外壳/缺验证）、**未开始**（说清卡在哪）。
 > 不做「看起来做了」的表述。
 
-版本：v0.13.0 · 2026-11-28
+版本：v0.13.1 · 2026-11-28
 
 ---
 
@@ -185,7 +185,7 @@ VendorSnapshot     一次采样
 
 ---
 
-## 六、验收状态（v0.13.0）
+## 六、验收状态（v0.13.1）
 
 - [x] `cargo test --workspace` 95 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
@@ -229,6 +229,11 @@ VendorSnapshot     一次采样
 - [x] 0.13.0 正式包：Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；
       APK versionName 0.13.0 / versionCode 13000 / arm64-v8a / 8.5 MB，
       `apksigner verify` 通过
+- [x] 0.13.1 签到修复：执行端自愈、调度只签本机账号、失败退避与通知去重、
+      总览「今日签到异常」；workspace 106 项、桌面端 16 项、前端 49 项与
+      `tsc + vite build` 通过；真实数据副本验证执行端收回本机并恢复签到
+- [x] 0.13.1 正式包：Windows exe FileVersion 0.13.1（5.4 MB / 安装包 2.2 MB）；
+      安卓包沿用 0.13.0
 
 ---
 

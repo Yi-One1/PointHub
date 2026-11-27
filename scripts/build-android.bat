@@ -20,7 +20,7 @@ setlocal enabledelayedexpansion
 if "%ANDROID_HOME%"=="" set "ANDROID_HOME=D:\APP\Android\AndroidSDK"
 if "%JAVA_HOME%"==""    set "JAVA_HOME=D:\APP\Android\Android Studio\jbr"
 if "%NDK_HOME%"==""     set "NDK_HOME=%ANDROID_HOME%\ndk\30.0.16248370"
-if "%CARGO_TARGET_DIR%"=="" set "CARGO_TARGET_DIR=D:\ph-build\target"
+if "%CARGO_TARGET_DIR%"=="" set "CARGO_TARGET_DIR=E:\Cache\Android_Build\target"
 
 set "SHIM_DIR=%~dp0shims"
 set "PATH=%SHIM_DIR%;%PATH%"

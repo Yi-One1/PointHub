@@ -98,9 +98,14 @@ test("平台图标已裁掉多余留白（四周透明边不超过 2%）", (t) =
 test("平台名称前都挂了 VendorIcon（总览/账号/导入/能力表/悬浮球）", () => {
   const app = readFileSync(path.join(UI_DIR, "src", "App.tsx"), "utf8");
   const ball = readFileSync(path.join(UI_DIR, "src", "Ball.tsx"), "utf8");
+  const settings = readFileSync(path.join(UI_DIR, "src", "SettingsScreen.tsx"), "utf8");
 
   const appCount = (app.match(/<VendorIcon\b/g) ?? []).length;
-  assert.ok(appCount >= 4, `App.tsx 中 VendorIcon 只有 ${appCount} 处，应为 4 处（总览/账号/导入/能力表）`);
+  const settingsCount = (settings.match(/<VendorIcon\b/g) ?? []).length;
+  assert.ok(
+    appCount + settingsCount >= 4,
+    `VendorIcon 只有 ${appCount + settingsCount} 处，应为 4 处（总览/账号/导入/能力表）`,
+  );
   assert.match(ball, /<VendorIcon\b/, "悬浮球的分组标题缺少平台图标");
 
   // 总览面板头与已纳管列表的 logo 要够大，16-17px 在实机里被反馈过偏小。

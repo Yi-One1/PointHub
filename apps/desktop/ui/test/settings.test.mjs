@@ -1,0 +1,73 @@
+/**
+ * 设置页：分类固定、字段归属唯一、入口在左下角齿轮。
+ *
+ * 这些是「以后新增设置项也不跑偏」的合同：新增字段时 TS 会强制补归属，
+ * 这里再验证至少 7 个分类、字段无遗漏、侧栏不再有「设置」导航项。
+ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const UI_DIR = path.resolve(HERE, "..");
+const SETTINGS = readFileSync(path.join(UI_DIR, "src", "settings.ts"), "utf8");
+const TYPES = readFileSync(path.join(UI_DIR, "src", "types.ts"), "utf8");
+const APP = readFileSync(path.join(UI_DIR, "src", "App.tsx"), "utf8");
+const SCREEN = readFileSync(path.join(UI_DIR, "src", "SettingsScreen.tsx"), "utf8");
+
+function sectionIds() {
+  return [...SETTINGS.matchAll(/\{ id: "([^"]+)", label: "([^"]+)"/g)].map((m) => m[1]);
+}
+
+test("设置分类固定为 7 类且顺序稳定", () => {
+  assert.deepEqual(sectionIds(), [
+    "general",
+    "appearance",
+    "checkin",
+    "phone",
+    "update",
+    "data",
+    "about",
+  ]);
+});
+
+test("每个可保存设置字段都有且只有一个分类归属", () => {
+  const settingsBlock = TYPES.match(/export interface Settings \{([\s\S]*?)\}/);
+  assert.ok(settingsBlock, "types.ts 里应当有 Settings 接口");
+  const fieldKeys = [...settingsBlock[1].matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]);
+  assert.ok(fieldKeys.length >= 10, "Settings 字段数量异常");
+
+  const mapBlock = SETTINGS.match(/SETTINGS_FIELD_SECTIONS[^{]*\{([\s\S]*?)\n\};/);
+  assert.ok(mapBlock, "settings.ts 里应当有字段归属表");
+  const entries = [...mapBlock[1].matchAll(/^\s{2}(\w+): "([^"]+)"/gm)];
+  const mapped = entries.map((m) => m[1]);
+
+  assert.deepEqual(
+    [...mapped].sort(),
+    [...fieldKeys].sort(),
+    "字段归属表必须与 Settings 字段一一对应，不能漏也不能多",
+  );
+  assert.equal(new Set(mapped).size, mapped.length, "同一个字段不能归属两个分类");
+
+  const ids = new Set(sectionIds());
+  for (const [, key, section] of entries) {
+    assert.ok(ids.has(section), `${key} 归属到了不存在的分类 ${section}`);
+  }
+});
+
+test("设置入口改为左下角齿轮，左侧导航不再有「设置」项", () => {
+  assert.doesNotMatch(APP, /tab === "settings"/, "不应再保留「设置」标签页");
+  assert.doesNotMatch(APP, /setTab\("settings"\)/, "不应再通过标签页切换打开设置");
+  assert.match(APP, /rail-settings/, "侧栏底部应有设置齿轮");
+  assert.match(APP, /aria-label="设置"/, "齿轮需要有可访问名称");
+  assert.match(APP, /<SettingsScreen/, "点击齿轮应打开独立设置页");
+});
+
+test("设置页是独立页面：返回应用 + 左侧分类 + 右侧内容", () => {
+  assert.match(SCREEN, /settings-screen/);
+  assert.match(SCREEN, /返回应用/);
+  assert.match(SCREEN, /settings-nav/);
+  assert.match(SCREEN, /settings-body/);
+});

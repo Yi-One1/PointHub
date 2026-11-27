@@ -8,6 +8,24 @@
 
 ---
 
+## D26 安卓更新：应用内下载 + 系统安装器，不跳浏览器
+
+**决定**：安卓更新由 Rust 把 APK 下到 `getFilesDir()/updates`，通过 FileProvider
+（`<files-path name="updates">`）交给 `Intent.ACTION_VIEW`（package-archive）。
+Android 8+ 先查 `canRequestPackageInstalls()`，未授权就打开
+`ACTION_MANAGE_UNKNOWN_APP_SOURCES`；用户开好返回时由 `MainActivity.onResume`
+自动续装。原生代码放被跟踪的 `apps/desktop/android/`，构建时由
+`patch-android-sources.ps1` 幂等注入 `gen/`。
+
+**为什么**：跳浏览器后用户要在两个应用之间来回切，还容易在通知栏里找不到安装包；
+应用内安装只差系统确认这一步，是最接近「无感」的合规做法。
+
+**代价 / 边界**：首次必须由用户打开「安装未知应用」授权，这是系统限制、无法绕过；
+安装确认界面仍由系统提供；`ApkInstaller` 只被 Rust JNI 引用，R8 默认会剥掉，
+必须保留 keep 规则；APK 必须落在 `files/` 下，FileProvider 才能映射。
+
+---
+
 ## D25 防火墙：安装时自动放行，运行期不打扰
 
 **决定**：安装器 `POSTINSTALL` 调用 `pointhub.exe --firewall-install`。如果当前
@@ -201,8 +219,8 @@ Android 用 Keystore。程序自己不保管密钥，也不设第二把锁。
 **决定**：
 
 - 程序自己查 `releases/latest`（`crates/ph-update`），比较版本号，有新版才提示；
-- Windows 下载 `_Setup.exe` 后启动安装向导；安卓把 APK 地址交给系统浏览器下载，
-  用户在通知栏点开安装；
+- Windows 下载 `_Setup.exe` 后启动安装向导；安卓下载 APK 到应用私有目录，
+  再交给系统安装器（D26）；
 - 更新源是设置项：默认 GitHub，国内可填镜像前缀（查询与下载套用同一条规则）；
 - 「手动下载」入口常驻，直接打开 Releases 页面；
 - **不接 `tauri-plugin-updater`**。
@@ -218,7 +236,7 @@ Android 用 Keystore。程序自己不保管密钥，也不设第二把锁。
 **代价与边界**：
 
 - Windows 没有后台静默升级，用户要点一次安装向导；
-- 安卓应用内不能直接调起安装器，只能跳浏览器下载；要补需写原生 Intent 插件；
+- 安卓首次更新需允许「安装未知应用」，之后才能一键走完；安装确认仍由系统弹出；
 - 版本比较只认数字段（`v` 前缀、`-beta` 后缀会被忽略），够用就好。
 
 ---

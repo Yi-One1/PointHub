@@ -18,7 +18,7 @@
 | 4 | Windows + Android 双端互通 | 已落地 | 安卓 App 双模式（连接电脑 / 本机）；持久设备配对后可远程查看、远程签到，`/api/sync/pull` 与 `/api/sync/push` 双向同步账号、快照、历史、活动；凭据不跨电脑；每账号唯一执行端（D03 / D15）。安卓端 WorkManager 每天 00:16 自动签到（第 1 条）。Windows 防火墙：安装器自动写入按程序、仅本地子网的放行规则（D25） |
 | 5 | 手动单个签到 + 一键全部签到 | 已落地 | 总览每行「签到」/ 顶部「一键全部签到」/ 悬浮球面板「一键签到」/ 托盘菜单 / `phctl checkin` |
 | 6 | 浏览器授权 + 本机导入 | 已落地 | **浏览器授权**：WorkBuddy 走官方插件授权；Trae CN 走授权页 + 本地回调 + `ExchangeToken`；Qoder CN 走设备码轮询，三平台均可用，令牌可续期（D21）。**本机导入**：WorkBuddy / Trae CN / Qoder CN 均可（只读客户端登录态，验证余额后落库，仅 Windows）；手动令牌兜底。三种方式统一按平台用户 id 去重，旧记录导入时自动合并（D19） |
-| 7 | 双端更新功能 | 部分落地 | 检查/下载链路已通：启动自动查 GitHub Releases（可关）+ 设置页「检查 / 下载 / 手动下载」；Windows 下载 `_Setup.exe` 后启动安装向导（**已在旧版上实测走通**），安卓跳浏览器下载 APK；来源可切镜像前缀。**未做**：Windows 静默自替换（未接 Tauri updater 签名链）、安卓应用内直接调起安装器（需原生 Intent 插件），见 D08 |
+| 7 | 双端更新功能 | 已落地 | 检查/下载链路已通：启动自动查 GitHub Releases（可关）+ 设置页「检查 / 下载 / 手动下载」；Windows 下载 `_Setup.exe` 后启动安装向导（**已在旧版上实测走通**）；安卓应用内下载 APK 并调起系统安装器，首次引导「安装未知应用」、返回后自动续装（D26）；来源可切镜像前缀。**未做**：Windows 静默自替换（不接 Tauri updater，D08） |
 | 8 | 卸载干净无残留 | 已落地 | 安装包 NSIS 钩子调用 `pointhub.exe --purge-data` / `--purge-app`；默认清理账号、令牌、日志、自启、快捷方式、计划任务、WebView2 缓存与 `PointHub*` 防火墙规则，勾选「保留账号数据」则只删程序痕迹；静默卸载无法提权时跳过防火墙规则并在日志留痕；判定标准见 D10 / D25 |
 | 9 | Windows 数据目录可自定义 | 已落地 | 发行版默认 `<exe 所在目录>\data`，旧数据首次启动自动迁移并清空 `%LOCALAPPDATA%\PointHub`（D20）；设置页「更换数据目录」→ 复制 + 指针文件 + 重启生效；`ph_store::locate` |
 | 10 | 开机自启动 | 已落地 | `tauri-plugin-autostart`，设置项与系统状态双向对齐 |
@@ -187,7 +187,7 @@ VendorSnapshot     一次采样
 
 ## 六、验收状态（v0.11.0）
 
-- [x] `cargo test --workspace` 90 个测试全绿；`cargo check --workspace` 零错误
+- [x] `cargo test --workspace` 91 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
 - [x] 桌面端启动、数据目录可创建、CLI 全链路闭环
 - [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
@@ -213,10 +213,13 @@ VendorSnapshot     一次采样
       `scripts/test-single-instance.ps1` 实测第二个进程 0.2 秒退出
 - [x] 安卓包重打到 0.11.0：versionName 0.11.0 / versionCode 11000 / targetSdk 36 /
       arm64-v8a / 8.3 MB，`apksigner verify` 通过
+- [x] 安卓应用内安装更新：真机走通 检查 → 下载 → 授权「安装未知应用」→ 系统安装器
+      覆盖安装 → 数据保留；release APK 含安装权限、FileProvider 与安装器类
 
 ---
 
 ## 七、下一步（按优先级）
 
-1. **安卓应用内直接调起安装器**：需原生 Intent 插件，替代跳浏览器下载 APK（D08）。
-2. 更细的当前快照与阻塞项见 `progress.md`。
+1. **发布 0.12.0**：升 MINOR 并重出双端包（包含防火墙自动放行与安卓应用内安装）。
+2. Windows 静默自替换：需接 Tauri updater 签名链，暂不做（D08）。
+3. 更细的当前快照与阻塞项见 `progress.md`。

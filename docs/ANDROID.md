@@ -101,6 +101,24 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 - 国产 ROM 需在系统设置里允许后台运行，否则可能被省电策略延后；
   打开 App 补签是兜底。
 
+## 应用内安装更新（未发版）
+
+更新时不再跳浏览器，链路如下（D26）：
+
+- Rust 把 APK 下到 `getFilesDir()/updates`。引擎数据目录是 `Context.getDataDir()`，
+  所以实际路径是 `<dataDir>/files/updates`——**必须在 `files/` 下**，
+  FileProvider 的 `<files-path>` 才能映射到。
+- `ApkInstaller.kt` 用 FileProvider（authority `<包名>.fileprovider`）把文件
+  交给 `Intent.ACTION_VIEW` + `application/vnd.android.package-archive`。
+- Android 8+ 需要 `REQUEST_INSTALL_PACKAGES` 与「安装未知应用」授权；未授权时
+  跳到 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`，`MainActivity.onResume` 回来后自动续装。
+- `ApkInstaller` 只被 Rust JNI 引用，R8 默认会剥掉，`proguard-pointhub.pro` 必须保留
+  `-keep class cn.pointhub.desktop.ApkInstaller { *; }`。
+- Rust 侧从 Application 的 `getClassLoader().loadClass(...)` 取类，不用 `FindClass`：
+  原生线程没有 Java 调用栈，`FindClass` 会走系统类加载器而找不到应用类。
+- 以上改动都由 `scripts/patch-android-sources.ps1` 幂等写入 `gen/`（Manifest 权限、
+  `res/xml/file_paths.xml`、R8 规则、`MainActivity`），换机器重 init 不会丢。
+
 ## 最近一次构建
 
 - 2026-11-27，`dist\积分枢纽PointHub_v0.11.0.apk`，**8.3 MB**

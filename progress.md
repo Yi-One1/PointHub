@@ -48,6 +48,9 @@
   `pointhub.exe --firewall-install`，按程序写入只允许**本地子网**的入站规则；
   已放行则直接跳过（原地升级不弹 UAC）；运行期无检测、无提示、无设置项；
   卸载时提权清除全部 `PointHub*` 规则。便携版/调试版仍由 Windows 原生弹窗处理。
+- **安卓应用内安装更新（未发版）**：设置页「下载并安装」不再跳浏览器——APK 下到
+  `files/updates`，经 FileProvider 交给系统安装器；首次未授权时跳到「安装未知应用」
+  设置页，返回后 `onResume` 自动续装；已下载的包会复用（D26）。
 
 ---
 
@@ -71,13 +74,13 @@
     Gradle 非 ASCII 路径、`node.bat` / `npm.bat` 垫片、`node tauri` 入口改写
     （详见 `docs/ANDROID.md` 的五个坑）；发布包优先 arm64 单架构。
 
-详见 `DECISIONS.md` D01–D25。
+详见 `DECISIONS.md` D01–D26。
 
 ---
 
 ## 未完成的待办
 
-- [ ] **安卓应用内直接调起安装器**：目前跳浏览器下载 APK（需原生 Intent 插件，见 D08）。
+- [ ] **Windows 静默自替换**：需接 Tauri updater 签名链，暂不做（D08）；目前仍由安装向导确认。
 
 ---
 
@@ -97,7 +100,7 @@
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（需先 `npm install` 于 `apps\desktop\ui`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
 | 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（25 项） |
-| 桌面端测试 | `cargo test --manifest-path apps\desktop\src-tauri\Cargo.toml`（13 项） |
+| 桌面端测试 | `cargo test --manifest-path apps\desktop\src-tauri\Cargo.toml`（15 项） |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
 | 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
@@ -127,9 +130,12 @@
 
 ### 验证过的证据
 
-- `cargo test --workspace` **90 个测试全绿**；`cargo check --workspace` 零错误。
-- 桌面端 **13/13**；前端 **25/25**、`tsc --noEmit`、`vite build` 通过；
+- `cargo test --workspace` **91 个测试全绿**；`cargo check --workspace` 零错误。
+- 桌面端 **15/15**；前端 **25/25**、`tsc --noEmit`、`vite build` 通过；
   `gen-app-icons.py --check` 通过。
+- 安卓应用内安装：验收专用包（内部版本标 0.10.0、安装包仍 0.11.0）真机走通
+  检查 → 下载 → 授权「安装未知应用」→ 系统安装器覆盖安装，账号数据保留；
+  打包产物核验含 `REQUEST_INSTALL_PACKAGES`、FileProvider、`ApkInstaller` 类。
 - 0.11.0 APK：`aapt dump badging` 显示 versionName 0.11.0 / versionCode 11000 /
   targetSdk 36 / native-code 仅 arm64-v8a；mipmap 160–640 五档齐全；
   `apksigner verify` 通过（debug 证书）。

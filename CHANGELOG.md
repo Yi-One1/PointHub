@@ -16,8 +16,19 @@
 - 卸载时提权清除全部 `PointHub*` 规则；静默安装/卸载无法提权时跳过并记录日志。
 - 便携版没有安装器，继续由 Windows 首次监听时的原生弹窗处理。
 
-**测试**：桌面端 13 项、前端 25 项、`tsc --noEmit`、`vite build` 通过；
-`cargo check` 无警告。安装器钩子的 UAC 与规则写入待在发布包上实测。
+**新增：安卓应用内下载并调起系统安装器**（新增能力，预计升 MINOR）。
+
+- 设置页「下载并安装」在安卓不再跳浏览器：APK 下到应用私有目录，经 FileProvider
+  交给系统安装器；已下载的包会复用，不重复走网络。
+- Android 8+ 首次会打开「安装未知应用」设置页；用户开好返回后自动续装，
+  不用再点一次。
+- 原生部分（`ApkInstaller.kt`、安装权限、FileProvider 路径、R8 keep、`onResume`
+  续装）放在被跟踪的 `apps/desktop/android/` 与 `scripts/`，构建时幂等注入 `gen/`。
+
+**测试**：workspace 91 项、桌面端 15 项、前端 25 项、`tsc --noEmit`、`vite build`
+通过；`cargo check` 无警告；`cargo check --target aarch64-linux-android` 与完整
+release APK 构建通过，产物核验含安装权限、FileProvider 与安装器类；安卓应用内
+安装已用验收专用包真机走通。安装器钩子的 UAC 与规则写入待在发布包上实测。
 
 ## [0.11.0] - 2026-11-27
 

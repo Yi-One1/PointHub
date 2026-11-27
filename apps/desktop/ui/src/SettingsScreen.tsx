@@ -41,8 +41,8 @@ const SECTION_ICONS: Record<SettingsSectionId, () => ReactElement> = {
 /**
  * 独立设置页：左侧分类、右侧分区卡片（参考 Trae / QQ 电脑端）。
  *
- * 第 1 阶段只做入口与布局迁移，保存方式仍是底部的「还原 / 保存」；
- * 即时生效、分区恢复默认和二次确认在第 2 阶段处理。
+ * 改动即改即存；关闭定时签到、补签、托盘、局域网、手机签到和搬迁数据目录
+ * 这类有副作用的操作会再确认一次。
  */
 export default function SettingsScreen({
   view,
@@ -78,7 +78,7 @@ export default function SettingsScreen({
   const [code, setCode] = useState("");
   const [connecting, setConnecting] = useState(false);
 
-  // 更新：检查结果与下载状态。来源改了要先保存，命令读的是已落盘的设置。
+  // 更新：检查结果与下载状态。来源改动会即时落盘，点击检查前先确保已保存。
   const [update, setUpdate] = useState<UpdateCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -759,7 +759,7 @@ export default function SettingsScreen({
               <div className="row">
                 <div>
                   <div className="row-title">更新来源</div>
-                  <div className="row-desc">直连 GitHub 慢时可换镜像；改完先保存，再点检查</div>
+                  <div className="row-desc">直连 GitHub 慢时可换镜像</div>
                 </div>
                 <div className="seg">
                   <button

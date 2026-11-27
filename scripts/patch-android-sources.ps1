@@ -150,6 +150,10 @@ $rules = @(
     '-keep class * extends androidx.work.ListenableWorker { <init>(...); }',
     '-keep class cn.pointhub.desktop.CheckinBridge { *; }',
     '-keep class cn.pointhub.desktop.ApkInstaller { *; }',
+    # Rust calls VaultKeystore through JNI and VaultKeys owns the native init,
+    # so both class names must survive R8 obfuscation.
+    '-keep class cn.pointhub.desktop.VaultKeystore { *; }',
+    '-keep class cn.pointhub.desktop.VaultKeys { *; }',
     '-keepclasseswithmembernames class * { native <methods>; }',
     '-dontwarn androidx.work.**'
 ) -join "`n"
@@ -170,6 +174,21 @@ if ($text -notmatch 'CheckinScheduler\.ensureScheduled') {
         $text = $text.Replace($anchor, $insert)
         [System.IO.File]::WriteAllText($activity, $text, $utf8)
         Write-Host '  MainActivity: daily schedule + notification permission wired'
+    }
+}
+
+# --- 4b. MainActivity: hand the app context to Rust before the engine opens -
+# The vault uses AndroidKeyStore; the JNI bridge needs the application context
+# before Engine::open runs inside super.onCreate.
+$text = [System.IO.File]::ReadAllText($activity)
+if ($text -notmatch 'VaultKeys\.init\(this\)') {
+    $anchor = 'super.onCreate(savedInstanceState)'
+    if ($text -notmatch [regex]::Escape($anchor)) {
+        Write-Host '  WARNING: onCreate anchor not found, VaultKeys init skipped'
+    } else {
+        $text = $text.Replace($anchor, "VaultKeys.init(this)`n    " + $anchor)
+        [System.IO.File]::WriteAllText($activity, $text, $utf8)
+        Write-Host '  MainActivity: VaultKeys.init wired before engine start'
     }
 }
 

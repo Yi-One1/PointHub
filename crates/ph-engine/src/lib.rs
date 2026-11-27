@@ -82,6 +82,11 @@ impl Engine {
         let root = ph_store::locate::resolve(data_dir);
         let store = Store::open(&root)?;
         let vault = Vault::open(store.path_of(ph_core::files::VAULT))?;
+        // 系统密钥丢失时凭据仓会被按空仓打开，这里把原因落到日志里，
+        // 界面上的账号会显示「缺凭据」，用户重新导入即可。
+        if let Some(notice) = vault.notice() {
+            store.log(notice);
+        }
         let settings = store.load_settings().unwrap_or_else(|e| {
             store.log(&format!("设置读取失败，使用默认值：{e}"));
             Settings::default()

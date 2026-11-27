@@ -16,6 +16,8 @@ pub mod login;
 pub mod android_worker;
 #[cfg(target_os = "android")]
 pub mod android_apk;
+#[cfg(target_os = "android")]
+pub mod android_vault;
 #[cfg(all(desktop, windows))]
 pub mod purge;
 

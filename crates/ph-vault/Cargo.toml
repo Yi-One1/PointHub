@@ -11,3 +11,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 aes-gcm.workspace = true
 rand.workspace = true
+
+# 安卓用 AndroidKeyStore 托管密钥：加解密交给 Kotlin，Rust 只走 JNI 调用。
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

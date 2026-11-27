@@ -17,6 +17,9 @@ class CheckinWorker(context: Context, params: WorkerParameters) : Worker(context
         // （/data/user/0/<包名>），不是 filesDir。
         val dataDir = applicationContext.dataDir.absolutePath
         val json = try {
+            // 冷启动时没有 Activity，先把应用上下文交给 Rust，
+            // 否则打不开由 AndroidKeyStore 加密的凭据仓。
+            VaultKeys.init(applicationContext)
             CheckinBridge.runScheduledCheckin(dataDir)
         } catch (t: Throwable) {
             CheckinNotify.show(

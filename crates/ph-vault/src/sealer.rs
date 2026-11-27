@@ -11,6 +11,8 @@ pub enum SealerKind {
     Dpapi = 1,
     /// 本地密钥文件 + AES-256-GCM（开发 / 非 Windows 回退）。
     AesFile = 2,
+    /// 安卓 AndroidKeyStore 托管密钥（AES-256-GCM），密钥不出系统密钥库。
+    Keystore = 3,
 }
 
 impl SealerKind {
@@ -18,10 +20,20 @@ impl SealerKind {
         self as u8
     }
 
+    pub fn from_id(id: u8) -> Option<Self> {
+        match id {
+            1 => Some(SealerKind::Dpapi),
+            2 => Some(SealerKind::AesFile),
+            3 => Some(SealerKind::Keystore),
+            _ => None,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             SealerKind::Dpapi => "Windows DPAPI",
             SealerKind::AesFile => "本地密钥文件(AES-256-GCM)",
+            SealerKind::Keystore => "安卓 Keystore(AES-256-GCM)",
         }
     }
 
@@ -29,8 +41,15 @@ impl SealerKind {
         match id {
             1 => "Windows DPAPI",
             2 => "本地密钥文件(AES-256-GCM)",
+            3 => "安卓 Keystore(AES-256-GCM)",
             _ => "未知后端",
         }
+    }
+
+    /// 旧版安卓把密钥放在本地文件里；升级后先用旧后端解开，
+    /// 再换成 Keystore 重新封，用户不需要重新导入账号。
+    pub fn migrates_from(self, stored: Self) -> bool {
+        self == SealerKind::Keystore && stored == SealerKind::AesFile
     }
 
     pub fn for_current_platform() -> Self {
@@ -38,7 +57,11 @@ impl SealerKind {
         {
             SealerKind::Dpapi
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "android")]
+        {
+            SealerKind::Keystore
+        }
+        #[cfg(not(any(windows, target_os = "android")))]
         {
             SealerKind::AesFile
         }
@@ -49,6 +72,7 @@ pub fn seal(kind: SealerKind, key_path: &Path, plain: &[u8]) -> Result<Vec<u8>> 
     match kind {
         SealerKind::Dpapi => dpapi_protect(plain),
         SealerKind::AesFile => aes_seal(key_path, plain),
+        SealerKind::Keystore => keystore_seal(plain),
     }
 }
 
@@ -56,7 +80,30 @@ pub fn open(kind: SealerKind, key_path: &Path, sealed: &[u8]) -> Result<Vec<u8>>
     match kind {
         SealerKind::Dpapi => dpapi_unprotect(sealed),
         SealerKind::AesFile => aes_open(key_path, sealed),
+        SealerKind::Keystore => keystore_open(sealed),
     }
+}
+
+// ---------------------------------------------------------------- 安卓 Keystore
+
+#[cfg(target_os = "android")]
+fn keystore_seal(plain: &[u8]) -> Result<Vec<u8>> {
+    crate::keystore::seal(plain)
+}
+
+#[cfg(target_os = "android")]
+fn keystore_open(sealed: &[u8]) -> Result<Vec<u8>> {
+    crate::keystore::open(sealed)
+}
+
+#[cfg(not(target_os = "android"))]
+fn keystore_seal(_plain: &[u8]) -> Result<Vec<u8>> {
+    Err(Error::Unsupported("当前平台没有安卓 Keystore".into()))
+}
+
+#[cfg(not(target_os = "android"))]
+fn keystore_open(_sealed: &[u8]) -> Result<Vec<u8>> {
+    Err(Error::Unsupported("当前平台没有安卓 Keystore".into()))
 }
 
 // ---------------------------------------------------------------- AES 回退
@@ -252,6 +299,27 @@ fn dpapi_unprotect(_data: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 文件头里的后端 id 一旦变了，旧仓就会被误判成「别的平台」，所以钉死。
+    #[test]
+    fn backend_ids_and_migration_are_stable() {
+        assert_eq!(SealerKind::Dpapi.id(), 1);
+        assert_eq!(SealerKind::AesFile.id(), 2);
+        assert_eq!(SealerKind::Keystore.id(), 3);
+        assert_eq!(SealerKind::from_id(3), Some(SealerKind::Keystore));
+        assert_eq!(SealerKind::from_id(9), None);
+
+        assert!(SealerKind::Keystore.migrates_from(SealerKind::AesFile));
+        assert!(!SealerKind::Keystore.migrates_from(SealerKind::Dpapi));
+        assert!(!SealerKind::Dpapi.migrates_from(SealerKind::AesFile));
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn keystore_is_unavailable_off_android() {
+        assert!(seal(SealerKind::Keystore, Path::new("unused"), b"x").is_err());
+        assert!(open(SealerKind::Keystore, Path::new("unused"), b"x").is_err());
+    }
 
     #[test]
     fn aes_roundtrip_and_tamper_detection() {

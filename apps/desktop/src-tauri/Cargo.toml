@@ -22,6 +22,7 @@ tauri-plugin-opener = "2"
 ph-core = { path = "../../../crates/ph-core" }
 ph-engine = { path = "../../../crates/ph-engine" }
 ph-store = { path = "../../../crates/ph-store" }
+ph-vault = { path = "../../../crates/ph-vault" }
 ph-providers = { path = "../../../crates/ph-providers" }
 ph-client = { path = "../../../crates/ph-client" }
 ph-update = { path = "../../../crates/ph-update" }

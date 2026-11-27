@@ -3086,6 +3086,7 @@ name = "ph-vault"
 version = "0.11.0"
 dependencies = [
  "aes-gcm",
+ "jni",
  "ph-core",
  "rand 0.8.8",
  "serde",
@@ -3272,6 +3273,7 @@ dependencies = [
  "ph-providers",
  "ph-store",
  "ph-update",
+ "ph-vault",
  "rand 0.8.8",
  "serde",
  "serde_json",

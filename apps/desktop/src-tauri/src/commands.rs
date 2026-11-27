@@ -1394,3 +1394,44 @@ mod android_install_tests {
         );
     }
 }
+
+#[cfg(all(test, not(target_os = "android")))]
+mod android_vault_tests {
+    /// 安卓凭据仓改用 AndroidKeyStore 后，Kotlin、构建补丁、后台任务三处
+    /// 必须同时成立；桌面编译看不出来，只能在真机上踩，所以这里钉死。
+    #[test]
+    fn keystore_contract_is_wired() {
+        let keystore = include_str!("../../android/src/cn/pointhub/desktop/VaultKeystore.kt");
+        assert!(keystore.contains("@JvmStatic"), "加解密入口必须是静态方法");
+        assert!(
+            keystore.contains("AndroidKeyStore"),
+            "密钥没有托管到系统密钥库"
+        );
+        assert!(
+            keystore.contains("AES/GCM/NoPadding"),
+            "加解密算法必须与 Rust 侧的密文格式一致"
+        );
+
+        let keys = include_str!("../../android/src/cn/pointhub/desktop/VaultKeys.kt");
+        assert!(
+            keys.contains("loadLibrary"),
+            "上下文桥必须先加载原生库"
+        );
+
+        let worker = include_str!("../../android/src/cn/pointhub/desktop/CheckinWorker.kt");
+        assert!(
+            worker.contains("VaultKeys.init"),
+            "后台任务冷启动时没有初始化密钥服务"
+        );
+
+        let patch = include_str!("../../../../scripts/patch-android-sources.ps1");
+        assert!(
+            patch.contains("VaultKeystore"),
+            "构建补丁没有保留密钥类（R8 会把它剥掉）"
+        );
+        assert!(
+            patch.contains("VaultKeys.init(this)"),
+            "Activity 启动前没有把上下文交给 Rust"
+        );
+    }
+}

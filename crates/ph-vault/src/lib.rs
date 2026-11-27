@@ -7,7 +7,7 @@
 //! 4. 任何错误信息里都不得出现明文令牌。
 //!
 //! Windows 用 DPAPI（CryptProtectData，绑定当前用户），
-//! Android 目标用 Keystore（通过 JNI 桥接，待安卓阶段接入），
+//! 安卓用 Keystore（JNI 调 Kotlin，密钥不出系统密钥库），
 //! 其它平台退回「本地密钥文件 + AES-256-GCM」，仅用于开发与自测。
 
 use ph_core::{Credential, Error, Result};
@@ -16,6 +16,9 @@ use std::path::{Path, PathBuf};
 
 mod sealer;
 pub use sealer::SealerKind;
+
+#[cfg(target_os = "android")]
+pub mod keystore;
 
 const MAGIC: &[u8; 4] = b"PHV1";
 
@@ -27,6 +30,8 @@ pub struct Vault {
     kind: SealerKind,
     cache: BTreeMap<String, Credential>,
     dirty: bool,
+    /// 打开时密文解不开（系统密钥丢失）留下的说明，供上层写日志。
+    notice: Option<String>,
 }
 
 impl Vault {
@@ -41,8 +46,14 @@ impl Vault {
             kind,
             cache: BTreeMap::new(),
             dirty: false,
+            notice: None,
         };
         vault.reload()?;
+        // 旧版安卓的 AES 仓刚解开：立刻换成 Keystore 重封，并删掉旧的密钥文件。
+        // 迁移失败不阻断启动——原文件仍可读，下次启动会再试一次。
+        if vault.dirty && vault.flush().is_ok() && vault.kind == SealerKind::Keystore {
+            let _ = std::fs::remove_file(&vault.key_path);
+        }
         Ok(vault)
     }
 
@@ -52,6 +63,11 @@ impl Vault {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// 本机密钥丢失导致旧密文解不开时，给上层写日志的一句话。
+    pub fn notice(&self) -> Option<&str> {
+        self.notice.as_deref()
     }
 
     pub fn reload(&mut self) -> Result<()> {
@@ -64,20 +80,69 @@ impl Vault {
             return Err(Error::Format("凭据仓文件头损坏".into()));
         }
         // 第 5 字节是后端 id：若与当前平台不符，说明仓是从别的平台拷过来的。
-        let stored_kind = raw[4];
-        if stored_kind != self.kind.id() {
+        let stored = SealerKind::from_id(raw[4])
+            .ok_or_else(|| Error::Format(format!("凭据仓使用了未知的加密后端（id={}）", raw[4])))?;
+        let sealed = &raw[5..];
+        let mut migrated = false;
+        let plain = if stored == self.kind {
+            match sealer::open(stored, &self.key_path, sealed) {
+                Ok(p) => p,
+                Err(e) => return self.handle_unreadable(e),
+            }
+        } else if self.kind.migrates_from(stored) {
+            match sealer::open(stored, &self.key_path, sealed) {
+                Ok(p) => {
+                    migrated = true;
+                    p
+                }
+                Err(e) => return self.handle_unreadable(e),
+            }
+        } else {
             return Err(Error::Invalid(format!(
                 "凭据仓由 {} 加密，当前环境是 {}，无法解开。请在本机重新导入账号。",
-                SealerKind::name_of(stored_kind),
+                SealerKind::name_of(stored.id()),
                 self.kind.name()
             )));
-        }
-        let plain = sealer::open(self.kind, &self.key_path, &raw[5..])?;
+        };
         let map: BTreeMap<String, Credential> = serde_json::from_slice(&plain)
             .map_err(|e| Error::Format(format!("凭据仓内容无法解析：{e}")))?;
         self.cache = map;
-        self.dirty = false;
+        // 迁移时置脏，交给 open() 立即用新后端重封；平时读完就是干净的。
+        self.dirty = migrated;
         Ok(())
+    }
+
+    /// 密文解不开时的处理。
+    ///
+    /// 安卓上系统密钥会随「卸载重装 / 清除数据 / 系统恢复」一起消失，
+    /// 这时密文永远解不开。若直接报错，应用会卡在启动阶段打不开；
+    /// 这里把原文件改名留档，按空仓继续——界面上账号会显示「缺凭据」，
+    /// 用户重新导入即可。其它平台保持原有行为（报错）。
+    #[cfg(target_os = "android")]
+    fn handle_unreadable(&mut self, err: Error) -> Result<()> {
+        match err {
+            Error::Auth(_) => {
+                let kept = self.path.with_extension("unreadable");
+                let moved = std::fs::rename(&self.path, &kept);
+                self.cache.clear();
+                self.dirty = false;
+                self.notice = Some(match moved {
+                    Ok(()) => format!(
+                        "凭据仓无法解密（{}），原文件已另存为 {}，请重新导入账号。",
+                        err,
+                        kept.display()
+                    ),
+                    Err(e) => format!("凭据仓无法解密（{err}），且原文件改名失败：{e}"),
+                });
+                Ok(())
+            }
+            other => Err(other),
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn handle_unreadable(&mut self, err: Error) -> Result<()> {
+        Err(err)
     }
 
     pub fn get(&self, account_id: &str) -> Option<&Credential> {
@@ -201,6 +266,40 @@ mod tests {
         let path = dir.join("vault.bin");
         std::fs::write(&path, b"XXXXbroken").unwrap();
         assert!(Vault::open(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unknown_backend_id_is_rejected() {
+        let dir = tmpdir("unknown-kind");
+        let path = dir.join("vault.bin");
+        let mut raw = MAGIC.to_vec();
+        raw.push(9);
+        raw.extend_from_slice(b"payload");
+        std::fs::write(&path, raw).unwrap();
+        let err = match Vault::open(&path) {
+            Ok(_) => panic!("未知后端应当被拒绝"),
+            Err(e) => e.to_string(),
+        };
+        assert!(err.contains("未知的加密后端"), "错误信息应说明后端未知：{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 桌面端打开安卓仓时必须明确告知「哪个后端、当前是什么」，而不是解密失败。
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn android_vault_is_named_in_mismatch_error() {
+        let dir = tmpdir("android-kind");
+        let path = dir.join("vault.bin");
+        let mut raw = MAGIC.to_vec();
+        raw.push(SealerKind::Keystore.id());
+        raw.extend_from_slice(b"payload");
+        std::fs::write(&path, raw).unwrap();
+        let err = match Vault::open(&path) {
+            Ok(_) => panic!("安卓仓在桌面端应当被拒绝"),
+            Err(e) => e.to_string(),
+        };
+        assert!(err.contains("安卓 Keystore"), "错误信息应点名安卓 Keystore：{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

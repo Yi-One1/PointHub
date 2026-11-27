@@ -185,6 +185,20 @@ test("镜像有默认地址", () => {
   assert.match(SCREEN, /https:\/\/ghfast\.top\//);
 });
 
+test("检查到新版本时原地变「更新」，总览提示可跳转", () => {
+  // 设置页：查到新版本后同一个按钮变成「更新」，不再单开一行「下载并安装」。
+  assert.match(SCREEN, /update\?\.latest \? \(/);
+  assert.match(SCREEN, /applying \? "更新中…" : "更新"/);
+  assert.doesNotMatch(SCREEN, /下载并安装/);
+  // 检查结果提升到 App 层，总览与设置共用。
+  assert.match(APP, /updateVersion/);
+  assert.match(APP, /有新版本 v\{updateVersion\} 可更新/);
+  assert.match(APP, /setSettingsSection\("update"\)/);
+  assert.match(APP, /initialSection/);
+  assert.match(APP, /api\.updateCheck\(\)/);
+  assert.match(APP, /settings\.update\.enabled/);
+});
+
 test("设置页去掉重复解释，只保留必要状态", () => {
   for (const text of [
     "写入当前用户启动项",

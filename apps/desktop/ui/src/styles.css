@@ -288,6 +288,12 @@ h1 {
   color: #fff;
 }
 
+/* 总览右侧的新版本提示：可点击，跳转到设置 → 更新 */
+.btn.update-hint {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 html[data-theme="dark"] .btn.primary {
   color: #062b1e;
 }

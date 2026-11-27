@@ -7,6 +7,7 @@ import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
 import { IconAccounts, IconGear, IconOverview } from "./icons";
 import SettingsScreen from "./SettingsScreen";
+import type { SettingsSectionId } from "./settings";
 import { Modal } from "./ui";
 import type {
   AccountView,
@@ -14,6 +15,7 @@ import type {
   LocalImportStatus,
   Settings,
   StateView,
+  UpdateCheck,
 } from "./types";
 
 type Tab = "overview" | "accounts";
@@ -22,7 +24,12 @@ export default function App() {
   const [view, setView] = useState<StateView | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // 更新检查结果放在 App 层：总览右侧的「有新版本」提示和设置页共用同一份。
+  const [update, setUpdate] = useState<UpdateCheck | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const updateChecked = useRef(false);
   const [toasts, setToasts] = useState<{ id: number; text: string; kind: "ok" | "warn" }[]>([]);
   const toastSeq = useRef(0);
 
@@ -39,6 +46,36 @@ export default function App() {
       .then(setView)
       .catch((e) => notify(`初始化失败：${e}`, "warn"));
   }, [notify]);
+
+  /** 检查更新；silent=true 时失败不打扰（启动自动检查用）。 */
+  const checkUpdate = useCallback(
+    async (silent = false) => {
+      setUpdateChecking(true);
+      try {
+        setUpdate(await api.updateCheck());
+      } catch (e) {
+        if (!silent) notify(`检查更新失败：${e}`, "warn");
+      } finally {
+        setUpdateChecking(false);
+      }
+    },
+    [notify],
+  );
+
+  const updateEnabled = view?.settings.update.enabled ?? false;
+
+  // 启动时按设置自动检查一次：只提示，不自动安装；保存其他设置不会重复请求。
+  useEffect(() => {
+    if (!view) return;
+    if (!updateEnabled) {
+      updateChecked.current = false;
+      setUpdate(null);
+      return;
+    }
+    if (updateChecked.current) return;
+    updateChecked.current = true;
+    void checkUpdate(true);
+  }, [view?.version, updateEnabled, checkUpdate]);
 
   // 后台调度或悬浮球改了东西时，后端会推一条事件；收到就重拉，不做轮询。
   useEffect(() => {
@@ -198,7 +235,10 @@ export default function App() {
           />
           <button
             className="nav rail-settings"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => {
+              setSettingsSection(null);
+              setSettingsOpen(true);
+            }}
             aria-label="设置"
             title="设置"
           >
@@ -221,6 +261,11 @@ export default function App() {
             onTravel={travel}
             onToggle={toggle}
             onAdd={() => setTab("accounts")}
+            updateVersion={update?.latest?.version ?? null}
+            onOpenUpdate={() => {
+              setSettingsSection("update");
+              setSettingsOpen(true);
+            }}
           />
         )}
 
@@ -230,7 +275,10 @@ export default function App() {
             busy={busy}
             onChanged={setView}
             notify={notify}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => {
+              setSettingsSection(null);
+              setSettingsOpen(true);
+            }}
           />
         )}
       </main>
@@ -241,6 +289,11 @@ export default function App() {
           onSave={saveSettings}
           notify={notify}
           onClose={() => setSettingsOpen(false)}
+          initialSection={settingsSection ?? undefined}
+          update={update}
+          checkingUpdate={updateChecking}
+          onCheckUpdate={() => void checkUpdate()}
+          onUpdateApplied={() => setUpdate(null)}
         />
       )}
 
@@ -266,6 +319,8 @@ function Overview({
   onTravel,
   onToggle,
   onAdd,
+  updateVersion,
+  onOpenUpdate,
 }: {
   view: StateView;
   busy: string | null;
@@ -275,6 +330,9 @@ function Overview({
   onTravel: (a: AccountView) => void;
   onToggle: (a: AccountView, enabled: boolean) => void;
   onAdd: () => void;
+  /** 发现的新版本号；null 表示没有可更新的版本 */
+  updateVersion: string | null;
+  onOpenUpdate: () => void;
 }) {
   const enabled = view.accounts.filter((a) => a.enabled);
   const done = enabled.filter((a) => a.checked_in_today === true).length;
@@ -327,6 +385,15 @@ function Overview({
           </p>
         </div>
         <div className="acts">
+          {updateVersion && (
+            <button
+              className="btn update-hint"
+              onClick={onOpenUpdate}
+              title="前往设置 → 更新"
+            >
+              有新版本 v{updateVersion} 可更新
+            </button>
+          )}
           <button className="btn" onClick={onRefresh} disabled={busy !== null}>
             {busy === "refresh" ? "刷新中…" : "刷新积分"}
           </button>

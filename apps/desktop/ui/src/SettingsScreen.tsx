@@ -78,13 +78,27 @@ export default function SettingsScreen({
   onSave,
   notify,
   onClose,
+  initialSection,
+  update,
+  checkingUpdate,
+  onCheckUpdate,
+  onUpdateApplied,
 }: {
   view: StateView;
   onSave: (s: Settings, silent?: boolean) => Promise<boolean>;
   notify: (t: string, k?: "ok" | "warn") => void;
   onClose: () => void;
+  /** 从总览「有新版本」进来时直接落在更新分区 */
+  initialSection?: SettingsSectionId;
+  /** 检查结果由 App 层持有，总览和设置页共用 */
+  update: UpdateCheck | null;
+  checkingUpdate: boolean;
+  onCheckUpdate: () => void;
+  onUpdateApplied: () => void;
 }) {
-  const [active, setActive] = useState(SETTINGS_SECTIONS[0].id);
+  const [active, setActive] = useState<SettingsSectionId>(
+    initialSection ?? SETTINGS_SECTIONS[0].id,
+  );
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Settings>(view.settings);
   const [defaults, setDefaults] = useState<Settings | null>(null);
@@ -108,23 +122,9 @@ export default function SettingsScreen({
   const [code, setCode] = useState("");
   const [connecting, setConnecting] = useState(false);
 
-  // 更新：检查结果与下载状态。来源改动会即时落盘，点击检查前先确保已保存。
-  const [update, setUpdate] = useState<UpdateCheck | null>(null);
-  const [checking, setChecking] = useState(false);
+  // 下载/安装状态；检查结果本身在 App 层。
   const [applying, setApplying] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
-
-  const checkUpdate = async () => {
-    setChecking(true);
-    setUpdateMsg(null);
-    try {
-      setUpdate(await api.updateCheck());
-    } catch (e) {
-      setUpdateMsg(String(e));
-    } finally {
-      setChecking(false);
-    }
-  };
 
   const applyUpdate = async () => {
     setApplying(true);
@@ -132,7 +132,7 @@ export default function SettingsScreen({
     try {
       const r = await api.updateApply();
       setUpdateMsg(r.detail);
-      if (r.action === "latest") setUpdate((u) => (u ? { ...u, latest: null } : u));
+      if (r.action === "latest") onUpdateApplied();
     } catch (e) {
       setUpdateMsg(String(e));
     } finally {
@@ -858,7 +858,7 @@ export default function SettingsScreen({
                 <div>
                   <div className="row-title">检查最新版本</div>
                   <div className="row-desc">
-                    {checking
+                    {checkingUpdate
                       ? "正在查询…"
                       : update === null
                         ? "点右侧按钮查询发布记录"
@@ -884,31 +884,26 @@ export default function SettingsScreen({
                   >
                     手动下载
                   </button>
-                  <button className="btn primary" onClick={checkUpdate} disabled={checking}>
-                    {checking ? "查询中…" : "检查"}
-                  </button>
+                  {update?.latest ? (
+                    <button
+                      className="btn primary"
+                      onClick={applyUpdate}
+                      disabled={applying || !update.latest.asset}
+                      title={update.latest.asset ? undefined : "这个版本没有本平台的安装包"}
+                    >
+                      {applying ? "更新中…" : "更新"}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn primary"
+                      onClick={onCheckUpdate}
+                      disabled={checkingUpdate}
+                    >
+                      {checkingUpdate ? "查询中…" : "检查"}
+                    </button>
+                  )}
                 </div>
               </div>
-
-              {update?.latest && (
-                <div className="row">
-                  <div>
-                    <div className="row-title">下载并安装</div>
-                    <div className="row-desc">
-                      {isPhone
-                        ? "下载完成后由系统安装器确认安装"
-                        : "下载完成后自动打开安装程序"}
-                    </div>
-                  </div>
-                  <button
-                    className="btn primary"
-                    onClick={applyUpdate}
-                    disabled={applying || !update.latest.asset}
-                  >
-                    {applying ? "处理中…" : "下载并安装"}
-                  </button>
-                </div>
-              )}
               </section>
             </>
           )}

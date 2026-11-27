@@ -120,6 +120,11 @@ test("设置页顶部有搜索框，且按关键词筛选分类", () => {
 test("分区标题在卡片外，主页面左下角信息已移除", () => {
   assert.match(SCREEN, /className="settings-group"/);
   assert.doesNotMatch(SCREEN, /className="phead"/);
+  assert.match(
+    CSS,
+    /\.settings-group\s*\{[\s\S]*?padding:\s*0 17px;[\s\S]*?color:\s*var\(--text\)/,
+    "分区标题应与卡片内文字左对齐，并使用正文黑色",
+  );
   assert.doesNotMatch(APP, /className="afoot"/);
   assert.match(APP, /className="bver"/);
   assert.match(SCREEN, /数据只在本机/);

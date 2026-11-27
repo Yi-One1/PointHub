@@ -45,6 +45,9 @@ pub struct AccountView {
     pub travel_state: Option<String>,
     pub travel_location: Option<String>,
     pub captured_at: Option<i64>,
+    pub last_checkin_at: Option<i64>,
+    /// 失败后的自动重试最早时间（epoch 秒）；给界面展示「稍后重试」用。
+    pub retry_after: Option<i64>,
     pub last_error: Option<String>,
     pub has_credential: bool,
     pub can_checkin: bool,
@@ -75,6 +78,8 @@ pub struct StateView {
     pub events: Vec<EventView>,
     /// 下一次自动签到的时刻（epoch 秒）；没有启用账号时为 None。
     pub next_run_at: Option<i64>,
+    /// 今天到点但仍未签成功、且有错误信息的账号（总览页提示用）。
+    pub checkin_alerts: Vec<ph_engine::CheckinAlert>,
     pub settings: Settings,
     pub platforms: Vec<PlatformCapView>,
     /// `local` | `remote`。
@@ -141,6 +146,8 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
                     .map(|t| t.state.label().to_string()),
                 travel_location: snap.and_then(|s| s.travel.as_ref()).and_then(|t| t.location.clone()),
                 captured_at: snap.map(|s| s.captured_at),
+                last_checkin_at: a.last_checkin_at,
+                retry_after: a.retry_after,
                 last_error: a.last_error.clone(),
                 has_credential: engine.has_credential(&a.id),
                 can_checkin: cap.checkin,
@@ -185,6 +192,7 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
             })
             .collect(),
         next_run_at: engine.next_run_at(),
+        checkin_alerts: engine.checkin_alerts(chrono::Local::now().naive_local()),
         settings: engine.settings().clone(),
         platforms,
         mode: "local".into(),
@@ -235,6 +243,8 @@ fn build_remote_state(
                 travel_state: a.travel_state,
                 travel_location: a.travel_location,
                 captured_at: a.captured_at,
+                last_checkin_at: None,
+                retry_after: None,
                 last_error: a.last_error,
                 has_credential: a.has_credential,
                 can_checkin: a.can_checkin,
@@ -292,6 +302,8 @@ fn build_remote_state(
             })
             .collect(),
         next_run_at,
+        // 远程模式只展示电脑的数据，异常提示由电脑端负责，避免两端重复提示。
+        checkin_alerts: Vec::new(),
         settings,
         platforms,
         mode: "remote".into(),
@@ -456,6 +468,9 @@ pub async fn run_checkin_inner(
     let mut claimed = 0;
     let mut already = 0;
     let mut failed = 0;
+    // 失败通知按「账号 + 自然日」去重：当天第一次失败才弹系统通知，
+    // 后续失败只在总览页的「今日签到异常」里提示，避免每分钟刷屏。
+    let mut notify_failure = false;
     for r in raw {
         match r {
             Ok(o) => {
@@ -467,7 +482,12 @@ pub async fn run_checkin_inner(
                     ph_core::CheckinStatus::Claimed => claimed += 1,
                     ph_core::CheckinStatus::AlreadyDone => already += 1,
                     ph_core::CheckinStatus::NotEligible => {}
-                    _ => failed += 1,
+                    _ => {
+                        failed += 1;
+                        if engine.mark_failure_notice(&o.account_id) {
+                            notify_failure = true;
+                        }
+                    }
                 }
                 views.push(OutcomeView {
                     account_id: o.account_id,
@@ -480,6 +500,8 @@ pub async fn run_checkin_inner(
             }
             Err(msg) => {
                 failed += 1;
+                // 没有账号 id 的程序性错误无法按账号去重，直接提示一次。
+                notify_failure = true;
                 views.push(OutcomeView {
                     account_id: String::new(),
                     label: "未知账号".into(),
@@ -495,7 +517,7 @@ pub async fn run_checkin_inner(
 
     // 系统通知：签到是后台行为，不给反馈用户会以为没跑。
     let should_notify = if failed > 0 {
-        settings.notify_on_failure
+        settings.notify_on_failure && notify_failure
     } else {
         settings.notify_on_checkin
     };

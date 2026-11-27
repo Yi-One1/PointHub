@@ -104,6 +104,17 @@ pub struct Account {
     /// 首次导入该账号的设备 id，仅用于展示来源。
     #[serde(default)]
     pub origin_device: Option<String>,
+    /// 失败后允许自动重试的最早时间（epoch 秒）。None 表示不限制。
+    ///
+    /// 签到失败时写入（普通失败 30 分钟、凭据失效到次日 0 点），成功或
+    /// 明确「无资格」时清除。手动签到不读这个字段。
+    #[serde(default)]
+    pub retry_after: Option<i64>,
+    /// 最近一次失败通知所属的本地日期（当天 0 点的 epoch 秒）。
+    ///
+    /// 同一账号同一天只发一条失败系统通知，避免持续失败把通知栏刷屏。
+    #[serde(default)]
+    pub last_failure_notice_at: Option<i64>,
 }
 
 impl Account {
@@ -126,6 +137,8 @@ impl Account {
             platform_uid: None,
             executor: None,
             origin_device: None,
+            retry_after: None,
+            last_failure_notice_at: None,
         }
     }
 }

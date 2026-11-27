@@ -447,6 +447,22 @@ function Overview({
         </div>
       </div>
 
+      {(view.checkin_alerts?.length ?? 0) > 0 && (
+        <div className="alert-bar" role="alert">
+          <div className="alert-main">
+            <b>今日签到异常（{view.checkin_alerts.length}）</b>
+            <span className="alert-text">
+              {view.checkin_alerts
+                .map((a) => `${a.label}：${a.message}`)
+                .join("；")}
+            </span>
+          </div>
+          <button className="btn" onClick={onCheckinAll} disabled={busy !== null}>
+            立即重试
+          </button>
+        </div>
+      )}
+
       {view.accounts.length === 0 ? (
         <div className="empty">
           <div className="empty-title">还没有纳管任何账号</div>

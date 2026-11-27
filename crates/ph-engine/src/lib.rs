@@ -32,6 +32,14 @@ pub struct Aggregate {
     pub last_sampled_at: Option<i64>,
 }
 
+/// 今日签到异常，供总览页提示「还有账号没签成功」。
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct CheckinAlert {
+    pub account_id: String,
+    pub label: String,
+    pub message: String,
+}
+
 /// 近 N 天里某一天的余额合计。
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct DayPoint {
@@ -60,6 +68,48 @@ fn device_kind() -> &'static str {
         "android"
     } else {
         "pc"
+    }
+}
+
+/// 本地时间转 epoch 秒；时区解析失败时退回当前时间。
+fn local_epoch(now: chrono::NaiveDateTime) -> i64 {
+    use chrono::TimeZone;
+    chrono::Local
+        .from_local_datetime(&now)
+        .single()
+        .map(|d| d.timestamp())
+        .unwrap_or_else(|| chrono::Local::now().timestamp())
+}
+
+/// 今天 0 点的 epoch 秒（用于「每天只通知一次失败」的标记）。
+fn today_start_epoch() -> Option<i64> {
+    use chrono::TimeZone;
+    let today = chrono::Local::now().date_naive();
+    let start = today.and_hms_opt(0, 0, 0)?;
+    chrono::Local
+        .from_local_datetime(&start)
+        .single()
+        .map(|d| d.timestamp())
+}
+
+/// 失败后的自动重试间隔。
+///
+/// 凭据失效重试也没用，直接等到次日 0 点；普通失败 30 分钟后再试。
+/// 手动签到不读这个间隔，用户点按钮就会立刻执行。
+fn retry_delay_secs(status: CheckinStatus, at: i64) -> i64 {
+    match status {
+        CheckinStatus::AuthFailed => {
+            use chrono::TimeZone;
+            let next_day = chrono::Local
+                .timestamp_opt(at, 0)
+                .single()
+                .map(|n| n.date_naive() + chrono::Duration::days(1))
+                .and_then(|d| d.and_hms_opt(0, 0, 0))
+                .and_then(|t| chrono::Local.from_local_datetime(&t).single())
+                .map(|d| d.timestamp());
+            next_day.map(|t| (t - at).max(60)).unwrap_or(24 * 3600)
+        }
+        _ => 30 * 60,
     }
 }
 
@@ -104,7 +154,17 @@ impl Engine {
             }
         };
         // 老数据没有 executor / origin_device：补成本机，避免同步时被当成「无主账号」。
+        //
+        // 另外把「执行端指向一台已经不存在的设备」的账号收回本机：本机换过
+        // device.json（例如数据目录搬迁后重新生成）时，账号仍记着旧设备 id，
+        // 结果是任何设备都无法执行——调度器每 45 秒失败一次并弹通知。
+        // 配对清单读取失败时不做这个判断，避免把所有手机账号误收回。
+        let paired_ids: Option<Vec<String>> = store
+            .load_devices()
+            .ok()
+            .map(|v| v.into_iter().map(|d| d.id).collect());
         let mut dirty = false;
+        let mut reclaimed = Vec::new();
         for a in &mut accounts {
             if a.executor.is_none() {
                 a.executor = Some(device.id.clone());
@@ -114,9 +174,21 @@ impl Engine {
                 a.origin_device = Some(device.id.clone());
                 dirty = true;
             }
+            let orphan = match (a.executor.as_deref(), &paired_ids) {
+                (Some(ex), Some(ids)) => ex != device.id && !ids.iter().any(|id| id == ex),
+                _ => false,
+            };
+            if orphan {
+                a.executor = Some(device.id.clone());
+                reclaimed.push(a.label.clone());
+                dirty = true;
+            }
         }
         if dirty {
             store.save_accounts(&accounts)?;
+        }
+        for label in reclaimed {
+            store.log(&format!("账号「{label}」的执行端设备已不存在，已收回本机"));
         }
         Ok(Self {
             store,
@@ -718,6 +790,7 @@ impl Engine {
                         at: chrono::Local::now().timestamp(),
                     };
                     self.note_error(account_id, &outcome.message);
+                    self.set_retry_after(account_id, outcome.status, outcome.at);
                     return Ok(outcome);
                 }
             }
@@ -766,8 +839,11 @@ impl Engine {
             if outcome.status.is_ok() {
                 acc.last_checkin_at = Some(outcome.at);
                 acc.last_error = None;
+                acc.retry_after = None;
+                acc.last_failure_notice_at = None;
             } else {
                 acc.last_error = Some(outcome.message.clone());
+                acc.retry_after = Some(outcome.at + retry_delay_secs(outcome.status, outcome.at));
             }
             acc.updated_at = chrono::Local::now().timestamp();
         }
@@ -983,9 +1059,11 @@ impl Engine {
     /// 今天还没执行、且已过执行时间点的账号（用于「启动补签」）。
     pub fn due_accounts(&self, now: chrono::NaiveDateTime) -> Vec<Account> {
         let today = now.date();
+        let now_ts = local_epoch(now);
         self.accounts
             .iter()
-            .filter(|a| a.enabled && a.checkin_enabled)
+            // 不是本机执行的账号签不了，选中只会制造「失败」与通知噪音。
+            .filter(|a| a.enabled && a.checkin_enabled && self.is_local_executor(a))
             .filter(|a| a.schedule.due_today(now, &a.id))
             .filter(|a| {
                 // 今天已经签过的就不再补
@@ -994,8 +1072,55 @@ impl Engine {
                     .map(|d| d.date() < today)
                     .unwrap_or(true)
             })
+            // 失败后的退避窗口内不自动重试；手动签到不走这里。
+            .filter(|a| a.retry_after.map(|t| t <= now_ts).unwrap_or(true))
             .cloned()
             .collect()
+    }
+
+    /// 今天到点、仍未签成功、且最近一次有错误信息的账号。
+    ///
+    /// 给总览页做「今日签到异常」提示用：失败被退避后不会一直弹通知，
+    /// 但用户仍需要在界面上看到「今天还有账号没签成功」。
+    pub fn checkin_alerts(&self, now: chrono::NaiveDateTime) -> Vec<CheckinAlert> {
+        let today = now.date();
+        self.accounts
+            .iter()
+            .filter(|a| a.enabled && a.checkin_enabled && self.is_local_executor(a))
+            .filter(|a| a.schedule.due_today(now, &a.id))
+            .filter(|a| a.last_error.is_some())
+            .filter(|a| {
+                !a.last_checkin_at
+                    .and_then(ph_core::schedule::local_from_epoch)
+                    .map(|d| d.date() == today)
+                    .unwrap_or(false)
+            })
+            .map(|a| CheckinAlert {
+                account_id: a.id.clone(),
+                label: a.label.clone(),
+                message: a.last_error.clone().unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    /// 标记「这个账号今天的失败通知已经发过」。
+    ///
+    /// 返回 `true` 表示本次是今天第一次失败，调用方应当发系统通知；
+    /// 同一天后续失败返回 `false`，只在总览页提示，不重复弹窗。
+    pub fn mark_failure_notice(&mut self, account_id: &str) -> bool {
+        let Some(today) = today_start_epoch() else {
+            return false;
+        };
+        let Some(acc) = self.accounts.iter_mut().find(|a| a.id == account_id) else {
+            return false;
+        };
+        if acc.last_failure_notice_at == Some(today) {
+            return false;
+        }
+        acc.last_failure_notice_at = Some(today);
+        acc.updated_at = chrono::Local::now().timestamp();
+        let _ = self.store.save_accounts(&self.accounts);
+        true
     }
 
     /// 下一次需要醒来的时间点（None 表示没有启用任何账号）。
@@ -1241,6 +1366,14 @@ impl Engine {
     fn note_error(&mut self, account_id: &str, msg: &str) {
         if let Some(acc) = self.accounts.iter_mut().find(|a| a.id == account_id) {
             acc.last_error = Some(msg.to_string());
+        }
+        let _ = self.store.save_accounts(&self.accounts);
+    }
+
+    /// 记录失败后的退避截止时间，避免调度器每 45 秒重试同一件事。
+    fn set_retry_after(&mut self, account_id: &str, status: CheckinStatus, at: i64) {
+        if let Some(acc) = self.accounts.iter_mut().find(|a| a.id == account_id) {
+            acc.retry_after = Some(at + retry_delay_secs(status, at));
         }
         let _ = self.store.save_accounts(&self.accounts);
     }
@@ -1699,6 +1832,190 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)));
         assert_eq!(e.accounts().len(), 1, "不能给远端执行的账号在本机再存一份凭据");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 直接改写落盘的 accounts.json，模拟「设备 id 变过」的历史数据。
+    fn rewrite_accounts(dir: &Path, f: impl Fn(&mut Vec<Account>)) {
+        let path = dir.join("accounts.json");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let mut accounts: Vec<Account> = serde_json::from_str(&raw).unwrap();
+        f(&mut accounts);
+        std::fs::write(&path, serde_json::to_string_pretty(&accounts).unwrap()).unwrap();
+    }
+
+    /// 今天 23:59，保证所有默认排期都已到点。
+    fn late_today() -> chrono::NaiveDateTime {
+        chrono::Local::now()
+            .date_naive()
+            .and_hms_opt(23, 59, 0)
+            .unwrap()
+    }
+
+    #[test]
+    fn orphan_executor_is_reclaimed_on_open() {
+        let dir = tmpdir("exec-reclaim");
+        {
+            let mut e = Engine::open(Some(dir.clone())).unwrap();
+            e.add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-reclaim-123456"),
+            )
+            .unwrap();
+        }
+        // device.json 重新生成后，账号仍记着旧设备 id。
+        rewrite_accounts(&dir, |list| {
+            list[0].executor = Some("ghost-device-id".into());
+        });
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        assert_eq!(
+            e.accounts()[0].executor.as_deref(),
+            Some(e.local_device_id()),
+            "执行端设备不存在时应收回本机，否则永远签不了到"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn paired_device_executor_is_kept() {
+        let dir = tmpdir("exec-paired");
+        let phone_id = {
+            let mut e = Engine::open(Some(dir.clone())).unwrap();
+            e.add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-paired-123456"),
+            )
+            .unwrap();
+            e.pair_device("Pixel", "android", "hash-1".into())
+                .unwrap()
+                .id
+        };
+        rewrite_accounts(&dir, |list| {
+            list[0].executor = Some(phone_id.clone());
+        });
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        assert_eq!(
+            e.accounts()[0].executor.as_deref(),
+            Some(phone_id.as_str()),
+            "已配对设备的执行端不能被误收回"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn due_accounts_skip_remote_executor() {
+        let dir = tmpdir("due-remote");
+        let phone_id = {
+            let mut e = Engine::open(Some(dir.clone())).unwrap();
+            e.add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-due-remote-1234"),
+            )
+            .unwrap();
+            e.pair_device("Pixel", "android", "h".into()).unwrap().id
+        };
+        rewrite_accounts(&dir, |list| {
+            list[0].executor = Some(phone_id.clone());
+        });
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        assert!(
+            e.due_accounts(late_today()).is_empty(),
+            "非本机执行的账号不该被调度，否则每轮都失败"
+        );
+        assert!(e.checkin_alerts(late_today()).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_after_blocks_auto_retry_until_due() {
+        let dir = tmpdir("retry-window");
+        {
+            let mut e = Engine::open(Some(dir.clone())).unwrap();
+            e.add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-retry-123456"),
+            )
+            .unwrap();
+        }
+        let now = late_today();
+        let now_ts = local_epoch(now);
+        rewrite_accounts(&dir, |list| {
+            list[0].last_checkin_at = Some(now_ts - 86_400);
+            list[0].retry_after = Some(now_ts + 600);
+        });
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        assert!(e.due_accounts(now).is_empty(), "退避窗口内不该自动重试");
+
+        rewrite_accounts(&dir, |list| list[0].retry_after = Some(now_ts - 1));
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        assert_eq!(e.due_accounts(now).len(), 1, "退避到期后应恢复调度");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_delay_is_shorter_for_plain_failures() {
+        let at = 1_795_759_157;
+        assert_eq!(retry_delay_secs(CheckinStatus::Failed, at), 30 * 60);
+        let auth = retry_delay_secs(CheckinStatus::AuthFailed, at);
+        assert!(
+            (60..=24 * 3600).contains(&auth),
+            "凭据失效应至少等到次日，实际 {auth}"
+        );
+        assert!(auth > 30 * 60);
+    }
+
+    #[test]
+    fn failure_notice_is_daily_throttled() {
+        let dir = tmpdir("notice-throttle");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let acc = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-notice-123456"),
+            )
+            .unwrap();
+        assert!(e.mark_failure_notice(&acc.id), "当天第一次失败应发通知");
+        assert!(!e.mark_failure_notice(&acc.id), "同一天第二次不再发");
+        // 模拟成昨天的标记：跨天后允许再次通知。
+        rewrite_accounts(&dir, |list| list[0].last_failure_notice_at = Some(0));
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        assert!(e.mark_failure_notice(&acc.id), "跨天后可以再次通知");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn checkin_alerts_lists_today_unfinished_failures() {
+        let dir = tmpdir("alerts");
+        {
+            let mut e = Engine::open(Some(dir.clone())).unwrap();
+            e.add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-alert-123456"),
+            )
+            .unwrap();
+        }
+        let now = late_today();
+        let now_ts = local_epoch(now);
+        rewrite_accounts(&dir, |list| {
+            list[0].last_checkin_at = Some(now_ts - 86_400);
+            list[0].last_error = Some("网络不通".into());
+        });
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        let alerts = e.checkin_alerts(now);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].label, "主号");
+        assert!(alerts[0].message.contains("网络不通"));
+
+        // 今天签成功后不再提示。
+        rewrite_accounts(&dir, |list| list[0].last_checkin_at = Some(now_ts));
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        assert!(e.checkin_alerts(now).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

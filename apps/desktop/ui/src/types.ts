@@ -112,6 +112,9 @@ export interface AccountView {
   travel_state: string | null;
   travel_location: string | null;
   captured_at: number | null;
+  last_checkin_at: number | null;
+  /** 失败后的自动重试最早时间（epoch 秒）；用于展示「稍后自动重试」。 */
+  retry_after: number | null;
   last_error: string | null;
   has_credential: boolean;
   can_checkin: boolean;
@@ -159,10 +162,19 @@ export interface StateView {
   trend: DayPoint[];
   events: ActivityEvent[];
   next_run_at: number | null;
+  /** 今天到点但仍未签成功、且有错误信息的账号。 */
+  checkin_alerts: CheckinAlert[];
   settings: Settings;
   platforms: PlatformCap[];
   mode: AppMode;
   remote: RemoteLink | null;
+}
+
+/** 今日签到异常（总览页提示用）。 */
+export interface CheckinAlert {
+  account_id: string;
+  label: string;
+  message: string;
 }
 
 /** 本机导入：某平台在当前电脑上的可用性 */

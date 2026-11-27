@@ -98,6 +98,7 @@ Write-Host "Starting PointHub (close this window to quit)..." -ForegroundColor G
 # %LOCALAPPDATA%), so the data directory shown in Settings matches a real
 # installed copy. The app prefers a pointer file, so "change data directory"
 # still works after a restart. Callers can still override with --data-dir.
+# Do not create the folder here: after the user moves the data directory away,
+# recreating it would make the old location look like it was not cleaned up.
 $env:POINTHUB_DEFAULT_DATA_DIR = Join-Path $root "dist\data"
-New-Item -ItemType Directory -Force -Path $env:POINTHUB_DEFAULT_DATA_DIR | Out-Null
 & $exe @AppArgs

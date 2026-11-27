@@ -52,12 +52,12 @@ scripts\build-android.bat release --target aarch64
 
 ## 产物与体积
 
-- 正式包：release + `aarch64` 单架构，**实测 8.3 MB**（`Cargo.toml` 已开
+- 正式包：release + `aarch64` 单架构，**实测 8.5 MB**（`Cargo.toml` 已开
   `strip = true` + `lto = true`，AGP 默认剥离 native 符号）。不带 `--target` 时
   会出 universal（4 个 ABI，约 27 MB）；复制脚本优先取 arm64 产物。
 - 调试包：默认 universal（4 个 ABI）并保留调试符号，约 150–180 MB，仅排障用。
 
-## 界面适配（v0.4.0）
+## 界面适配
 
 移动端布局已适配，页面本身不用另做一套：
 

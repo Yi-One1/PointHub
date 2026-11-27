@@ -28,7 +28,7 @@
 | 14 | 安卓正常 / 深色 + 跟随系统 | 已落地 | 主题跟随系统；≤760px 走移动端布局：侧栏收成底部标签栏、单列、触控区 ≥40px、`safe-area` 留白。已在 390×844 / 360×640 / 844×390 三档实测无横向溢出 |
 | 15 | 签到后系统弹窗提示 | 已落地 | Windows 接 `tauri-plugin-notification`；安卓新增「签到结果」通知渠道，首次进入前台申请 Android 13+ 通知权限，后台任务直接发系统通知 |
 | 16 | 包名 `中文名英文名_v版本` + 语义化版本 | 已落地 | `积分枢纽PointHub_v<版本>.exe/.apk`；版本号单点来自 `Cargo.toml` 的 `workspace.package.version` |
-| 17 | 体积小、占用少 | 已落地 | 便携 exe **5.3 MB**、安卓 release APK **8.3 MB**；`opt-level=z` + LTO + strip 已启用 |
+| 17 | 体积小、占用少 | 已落地 | 便携 exe **5.4 MB**、安卓 release APK **8.5 MB**；`opt-level=z` + LTO + strip 已启用 |
 | 18 | 语言选型（Rust 可行性） | 已落地 | 结论与取舍见 `DECISIONS.md` D02 |
 | 19 | 中文名「积分枢纽」/ 英文名 PointHub | 已落地 | 产品名、窗口标题、安装包名、托盘提示均已统一 |
 | 20 | WorkBuddy 增加「派猫猫旅行」 | 已落地 | 与签到同模块（非独立分支），按状态机自动「先领后派」 |
@@ -194,7 +194,7 @@ VendorSnapshot     一次采样
 - [x] Trae CN 真实账号端到端：状态 / 领取 / 余额均跑通（领取前预检，避免重复「成功」）
 - [x] Qoder CN 真实账号端到端：活动查询 / 领取 / 余额均跑通（免费号实测可领）
 - [x] 本机导入：WorkBuddy / Trae CN / Qoder CN 三平台登录态解密与验证导入
-- [x] 发布版体积实测：exe 5.3 MB / APK 8.3 MB
+- [x] 发布版体积实测：exe 5.4 MB / APK 8.5 MB
 - [x] 安卓出包，并在模拟器上验证安装与启动
 - [x] Redmi K80 Pro / Android 17 真机验证（targetSdk 36 后可连局域网）
 - [x] 安卓 App 配对电脑、远程查看与远程签到真机跑通

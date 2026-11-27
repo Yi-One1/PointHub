@@ -22,8 +22,8 @@ Flutter（一套 UI 但体积中等）、Tauri（体积最小但安卓生态较�
 
 ## 理由
 
-- 「体积尽量小」是硬要求：Tauri 复用系统 WebView2，安装包可做到 8–15MB，
-  Electron 与 PyInstaller 是它的 5–20 倍。
+- 「体积尽量小」是硬要求：Tauri 复用系统 WebView2，实际产物为便携 exe 约 5 MB、
+  安装包约 2 MB；Electron 与 PyInstaller 是它的数倍到数十倍。
 - 「会多次修改」意味着界面改动频率高于平台能力改动频率：一套 UI 改一次生效两端，
   比两套 UI 每次改两遍划算得多。
 - 悬浮球需要透明 + 置顶 + 无边框窗口，这是 Tauri 的原生能力；

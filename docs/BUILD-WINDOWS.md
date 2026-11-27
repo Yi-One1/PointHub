@@ -71,8 +71,9 @@ rm -rf apps/desktop/src-tauri/target/debug/incremental
 | 新增功能、新增命令、新增平台 | MINOR | 0.2.1 → 0.3.0 |
 | 破坏兼容（数据格式、接口、配置项不兼容） | 0.x 阶段用 MINOR；1.0.0 起用 MAJOR | 0.3.0 → 0.4.0 |
 
-版本号在四处出现，脚本以 `Cargo.toml` 为准自动同步 `tauri.conf.json` 与
-`ui/package.json`；程序内显示的版本取自 `CARGO_PKG_VERSION`，不会各说各话。
+版本号在四处出现（workspace `Cargo.toml`、桌面端 `Cargo.toml`、`tauri.conf.json`、
+`ui/package.json`），脚本以 workspace `Cargo.toml` 为准自动同步其余三处；
+程序内显示的版本取自 `CARGO_PKG_VERSION`，不会各说各话。
 
 ## 不打包也能验收：`1. 一键启动预览.bat`
 
@@ -89,7 +90,7 @@ rm -rf apps/desktop/src-tauri/target/debug/incremental
 为什么改界面也要重编 Rust：Tauri 在前端产物在**编译期嵌入可执行文件**，
 不是运行时读目录。
 
-- **不产出、也不改动 `dist/`**，看的是当前源码
+- **不产出发布包**，看的是当前源码；预览数据写在 `dist\data`，与正式版隔离
 - 那个黑窗口是日志窗口，**关掉窗口 = 退出程序**
 
 ## 脚本文件必须是纯 ASCII（或带 BOM）

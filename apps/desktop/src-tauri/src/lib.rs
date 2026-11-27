@@ -128,6 +128,7 @@ pub fn run() {
             commands::default_settings,
             commands::open_data_dir,
             commands::relocate_data,
+            commands::pick_data_dir,
             commands::set_ball,
             commands::set_ball_expanded,
             commands::set_ball_account,

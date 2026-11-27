@@ -39,6 +39,8 @@ rand = "0.8"
 tauri-plugin-autostart = "2"
 # 单实例只在桌面端有意义：安卓本来就是单 Activity。
 tauri-plugin-single-instance = "2"
+# 原生「选择文件夹」对话框（更换数据目录）
+rfd = "0.15"
 
 # 安卓 WorkManager 的后台任务通过 JNI 调进 Rust
 [target.'cfg(target_os = "android")'.dependencies]

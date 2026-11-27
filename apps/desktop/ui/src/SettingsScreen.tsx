@@ -66,7 +66,7 @@ export default function SettingsScreen({
     run: () => void;
   } | null>(null);
   const mirrorTimer = useRef<number | undefined>(undefined);
-  const [newDir, setNewDir] = useState("");
+  const [editingMirror, setEditingMirror] = useState(false);
   // 配对码会过期，隔一会儿拉一次；界面停留时保持最新
   const [lan, setLan] = useState<LanInfo | null>(null);
   // 安卓端自己就是手机，再显示「手机访问」没有意义
@@ -210,7 +210,7 @@ export default function SettingsScreen({
     }
   };
 
-  // 镜像前缀是输入框：先更新界面，停顿 500ms 再落盘，避免每敲一个字都保存。
+  // 镜像地址是输入框：先更新界面，停顿 500ms 再落盘，避免每敲一个字都保存。
   const patchMirror = (mirror: string) => {
     const next = { ...draft, update: { ...draft.update, mirror } };
     setDraft(next);
@@ -240,6 +240,29 @@ export default function SettingsScreen({
         void apply(next);
       },
     });
+  };
+
+  const pickDataDir = async () => {
+    try {
+      const dir = await api.pickDataDir();
+      if (!dir || dir === view.data_dir) return;
+      setPending({
+        title: "更换数据目录？",
+        message: `会把现有数据复制到 ${dir}，重启应用后生效。`,
+        confirmText: "开始搬迁",
+        run: () => {
+          void (async () => {
+            try {
+              notify(await api.relocateData(dir));
+            } catch (e) {
+              notify(String(e), "warn");
+            }
+          })();
+        },
+      });
+    } catch (e) {
+      notify(String(e), "warn");
+    }
   };
 
   const q = query.trim().toLowerCase();
@@ -325,7 +348,6 @@ export default function SettingsScreen({
                   <div className="row">
                     <div>
                       <div className="row-title">开机自启动</div>
-                      <div className="row-desc">写入当前用户启动项，不需要管理员权限</div>
                     </div>
                     <Switch
                       checked={draft.autostart}
@@ -337,7 +359,6 @@ export default function SettingsScreen({
                   <div className="row">
                     <div>
                       <div className="row-title">关闭窗口时最小化到托盘</div>
-                      <div className="row-desc">关掉后点 × 会直接退出程序，自动签到也会停止</div>
                     </div>
                     <Switch
                       checked={draft.minimize_to_tray}
@@ -370,11 +391,6 @@ export default function SettingsScreen({
               <div className="row">
                 <div>
                   <div className="row-title">主题</div>
-                  <div className="row-desc">
-                    {isPhone
-                      ? "「跟随系统」会随手机的深色模式切换"
-                      : "「跟随系统」会随 Windows 的浅色/深色切换"}
-                  </div>
                 </div>
                 <div className="seg">
                   {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
@@ -394,7 +410,6 @@ export default function SettingsScreen({
                   <div className="row">
                     <div>
                       <div className="row-title">桌面悬浮球</div>
-                      <div className="row-desc">常驻桌面；单击展开全部账号，双击打开主窗口</div>
                     </div>
                     <Switch
                       checked={draft.ball.enabled}
@@ -406,7 +421,6 @@ export default function SettingsScreen({
                   <div className="row">
                     <div>
                       <div className="row-title">球面显示账号</div>
-                      <div className="row-desc">默认全部合计；也可只盯某个号。悬浮球上也能改</div>
                     </div>
                     <select
                       className="select"
@@ -428,7 +442,6 @@ export default function SettingsScreen({
                   <div className="row">
                     <div>
                       <div className="row-title">球面显示内容</div>
-                      <div className="row-desc">选「待签数」时忽略上面的账号选择</div>
                     </div>
                     <div className="seg">
                       <button
@@ -459,7 +472,6 @@ export default function SettingsScreen({
               <div className="row">
                 <div>
                   <div className="row-title">定时自动签到</div>
-                  <div className="row-desc">按每个账号的平台刷新时间执行，每 45 秒核对一次</div>
                 </div>
                 <Switch
                   checked={draft.scheduler_enabled}
@@ -481,7 +493,6 @@ export default function SettingsScreen({
               <div className="row">
                 <div>
                   <div className="row-title">错过当天补签</div>
-                  <div className="row-desc">关闭后只认「到点后 30 分钟内」，过时不再补</div>
                 </div>
                 <Switch
                   checked={draft.catch_up_missed}
@@ -504,7 +515,6 @@ export default function SettingsScreen({
                 <div className="row">
                   <div>
                     <div className="row-title">积分自动刷新</div>
-                    <div className="row-desc">主窗口可见时按间隔重新采样；最小化后暂停</div>
                   </div>
                   <div className="seg">
                     {[
@@ -526,28 +536,14 @@ export default function SettingsScreen({
               )}
 
               <div className="row">
-                <div>
-                  <div className="row-title">系统通知</div>
-                  <div className="row-desc">签到结束弹一条；失败也弹</div>
-                </div>
-                <div className="seg">
-                  <button
-                    className={`seg-item ${draft.notify_on_checkin ? "active" : ""}`}
-                    onClick={() =>
-                      change({ ...draft, notify_on_checkin: !draft.notify_on_checkin })
-                    }
-                  >
-                    成功 {draft.notify_on_checkin ? "开" : "关"}
-                  </button>
-                  <button
-                    className={`seg-item ${draft.notify_on_failure ? "active" : ""}`}
-                    onClick={() =>
-                      change({ ...draft, notify_on_failure: !draft.notify_on_failure })
-                    }
-                  >
-                    失败 {draft.notify_on_failure ? "开" : "关"}
-                  </button>
-                </div>
+                <div className="row-title">系统通知</div>
+                <Switch
+                  checked={draft.notify_on_checkin || draft.notify_on_failure}
+                  onChange={(v) =>
+                    change({ ...draft, notify_on_checkin: v, notify_on_failure: v })
+                  }
+                  label="系统通知"
+                />
               </div>
             </section>
             </>
@@ -562,9 +558,6 @@ export default function SettingsScreen({
                 <div className="row">
                   <div>
                     <div className="row-title">运行模式</div>
-                    <div className="row-desc">
-                      本机模式：账号和签到都在手机上；连接电脑：手机只做遥控器，凭据留在电脑
-                    </div>
                   </div>
                   <div className="seg">
                     <button
@@ -596,11 +589,6 @@ export default function SettingsScreen({
                           {connecting ? "处理中…" : "断开"}
                         </button>
                       </div>
-                      <div className="row">
-                        <div className="row-desc">
-                          断开连接会同时回到本机模式；账号仍留在电脑上。
-                        </div>
-                      </div>
                     </>
                   ) : (
                     <>
@@ -612,7 +600,6 @@ export default function SettingsScreen({
                           placeholder="192.168.1.5:47821"
                           spellCheck={false}
                         />
-                        <p className="hint">在电脑端「设置 → 手机访问」里能看到地址。</p>
                       </div>
 
                       <div className="field">
@@ -646,9 +633,6 @@ export default function SettingsScreen({
                 <div className="row">
                   <div>
                     <div className="row-title">局域网访问</div>
-                    <div className="row-desc">
-                      手机和电脑连同一个 Wi-Fi，用手机浏览器打开地址即可；开关即时生效
-                    </div>
                   </div>
                   <Switch
                     checked={draft.sync.enabled}
@@ -717,7 +701,6 @@ export default function SettingsScreen({
                 <div className="row">
                   <div>
                     <div className="row-title">允许手机签到</div>
-                    <div className="row-desc">关掉后手机只能看账本，不能替你点签到</div>
                   </div>
                   <Switch
                     checked={draft.sync.allow_remote_checkin}
@@ -747,7 +730,6 @@ export default function SettingsScreen({
               <div className="row">
                 <div>
                   <div className="row-title">启动时检查更新</div>
-                  <div className="row-desc">发现新版本只弹通知，不会自动安装</div>
                 </div>
                 <Switch
                   checked={draft.update.enabled}
@@ -759,7 +741,34 @@ export default function SettingsScreen({
               <div className="row">
                 <div>
                   <div className="row-title">更新来源</div>
-                  <div className="row-desc">直连 GitHub 慢时可换镜像</div>
+                  <div className="row-desc">
+                    {draft.update.source === "github" ? (
+                      <span className="addr-text">
+                        https://github.com/Yi-One1/PointHub/releases/latest
+                      </span>
+                    ) : editingMirror ? (
+                      <input
+                        className="addr-input"
+                        autoFocus
+                        value={draft.update.mirror}
+                        onChange={(e) => patchMirror(e.target.value)}
+                        onBlur={() => setEditingMirror(false)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") setEditingMirror(false);
+                        }}
+                        placeholder="https://ghfast.top/"
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <button
+                        className="addr-link"
+                        onClick={() => setEditingMirror(true)}
+                        title="点击修改镜像地址"
+                      >
+                        {draft.update.mirror || "点此填写镜像地址"}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="seg">
                   <button
@@ -776,21 +785,6 @@ export default function SettingsScreen({
                   </button>
                 </div>
               </div>
-
-              {draft.update.source === "mirror" && (
-                <div className="field">
-                  <label>镜像前缀</label>
-                  <input
-                    value={draft.update.mirror}
-                    onChange={(e) => patchMirror(e.target.value)}
-                    placeholder="https://ghfast.top/"
-                    spellCheck={false}
-                  />
-                  <p className="hint">
-                    会拼在完整 GitHub 地址前面；查询版本和下载安装包走同一条规则
-                  </p>
-                </div>
-              )}
 
               <div className="row">
                 <div>
@@ -856,53 +850,19 @@ export default function SettingsScreen({
               <h2 className="settings-group">数据位置</h2>
               <section className="panel">
                 <div className="row">
-                <div>
-                  <div className="row-title">数据目录</div>
-                  <div className="row-desc mono">{view.data_dir}</div>
+                  <div>
+                    <div className="row-title">数据目录</div>
+                    <div className="row-desc">更换后会复制现有数据，重启后生效</div>
+                  </div>
+                  <div className="dir-picker">
+                    <span className="dir-path" title={view.data_dir}>
+                      {view.data_dir}
+                    </span>
+                    <button className="btn" onClick={pickDataDir}>
+                      更改
+                    </button>
+                  </div>
                 </div>
-                <button
-                  className="btn"
-                  onClick={() => api.openDataDir().catch((e) => notify(String(e), "warn"))}
-                >
-                  打开
-                </button>
-              </div>
-
-              <div className="row">
-                <div>
-                  <div className="row-title">更换数据目录</div>
-                  <div className="row-desc">会复制现有数据到新位置，重启后生效</div>
-                </div>
-                <div className="inline-form">
-                  <input
-                    value={newDir}
-                    onChange={(e) => setNewDir(e.target.value)}
-                    placeholder="D:\PointHub"
-                  />
-                  <button
-                    className="btn"
-                    disabled={!newDir.trim()}
-                    onClick={() =>
-                      setPending({
-                        title: "更换数据目录？",
-                        message: `会把现有数据复制到 ${newDir.trim()}，重启应用后生效。`,
-                        confirmText: "开始搬迁",
-                        run: () => {
-                          void (async () => {
-                            try {
-                              notify(await api.relocateData(newDir.trim()));
-                            } catch (e) {
-                              notify(String(e), "warn");
-                            }
-                          })();
-                        },
-                      })
-                    }
-                  >
-                    搬迁
-                  </button>
-                </div>
-              </div>
               </section>
 
               <h2 className="settings-group">安全</h2>

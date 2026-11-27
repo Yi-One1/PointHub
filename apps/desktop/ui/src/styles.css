@@ -932,14 +932,60 @@ textarea {
   color: var(--warn);
 }
 
-.inline-form {
+.dir-picker {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  max-width: 62%;
 }
 
-.inline-form input {
-  width: 200px;
+.dir-path {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addr-text {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  word-break: break-all;
+}
+
+.addr-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-decoration: underline dotted;
+}
+
+.addr-link:hover {
+  color: var(--text);
+}
+
+.addr-input {
+  width: 100%;
+  max-width: 360px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11.5px;
 }
 
 /* 三步说明：用序号块而不是符号列表，扫一眼就知道要点几次 */
@@ -1752,7 +1798,7 @@ html[data-window="ball"] body {
   margin-top: 14px;
 }
 
-/* 卡片里的输入型设置（如镜像前缀）沿用行的内边距，避免贴边。 */
+/* 卡片里的输入型设置沿用行的内边距，避免贴边。 */
 .settings-body .panel > .field {
   margin: 0;
   padding: 12px 16px 14px;
@@ -1775,6 +1821,10 @@ html[data-window="ball"] body {
   .settings-main {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .dir-picker {
+    max-width: 100%;
   }
 
   .settings-nav {

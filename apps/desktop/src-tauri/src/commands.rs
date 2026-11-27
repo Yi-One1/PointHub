@@ -1317,6 +1317,26 @@ pub async fn open_data_dir(state: State<'_, SharedState>) -> Result<(), String> 
 
 /// 搬迁数据目录：复制现有文件到新位置，写指针，重启后生效。
 #[tauri::command]
+pub async fn pick_data_dir() -> Option<String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            rfd::FileDialog::new()
+                .set_title("选择数据目录")
+                .pick_folder()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        None
+    }
+}
+
+#[tauri::command]
 pub async fn relocate_data(
     state: State<'_, SharedState>,
     path: String,

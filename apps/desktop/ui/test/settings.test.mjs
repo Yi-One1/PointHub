@@ -143,13 +143,39 @@ test("设置改动即时保存，不再有全局保存按钮或状态文字", ()
   assert.doesNotMatch(SCREEN, /先保存|再点检查|保存后/);
 });
 
-test("镜像前缀输入行沿用卡片内边距", () => {
-  assert.match(SCREEN, /镜像前缀/);
-  assert.match(
-    CSS,
-    /\.settings-body \.panel > \.field\s*\{[\s\S]*?padding:\s*12px 16px 14px/,
-    "输入型设置不能贴着卡片边缘",
-  );
+test("镜像地址并入来源小字，不新增行", () => {
+  assert.doesNotMatch(SCREEN, /镜像前缀/);
+  assert.match(SCREEN, /addr-link/);
+  assert.match(SCREEN, /https:\/\/github\.com\/Yi-One1\/PointHub\/releases\/latest/);
+  assert.match(SCREEN, /patchMirror/);
+});
+
+test("系统通知合并为一个开关", () => {
+  assert.match(SCREEN, /notify_on_checkin: v, notify_on_failure: v/);
+  assert.doesNotMatch(SCREEN, /成功 \{draft\.notify_on_checkin/);
+  assert.doesNotMatch(SCREEN, /失败 \{draft\.notify_on_failure/);
+});
+
+test("数据目录合并为一行，用系统选择文件夹", () => {
+  assert.doesNotMatch(SCREEN, /row-title">更换数据目录</);
+  assert.match(SCREEN, /pickDataDir/);
+  assert.match(SCREEN, /dir-picker/);
+  assert.match(API, /pickDataDir/);
+  assert.match(COMMANDS, /pub async fn pick_data_dir/);
+});
+
+test("设置页去掉重复解释，只保留必要状态", () => {
+  for (const text of [
+    "写入当前用户启动项",
+    "常驻桌面；单击",
+    "按每个账号的平台刷新时间",
+    "签到结束弹一条",
+    "关掉后手机只能看账本",
+    "发现新版本只弹通知",
+    "在电脑端「设置 → 手机访问」里能看到地址",
+  ]) {
+    assert.doesNotMatch(SCREEN, new RegExp(text), `过期说明仍在：${text}`);
+  }
 });
 
 test("每个分区可恢复默认，默认值来自后端", () => {
@@ -174,7 +200,7 @@ test("重要设置修改前有二次确认", () => {
 });
 
 test("局域网开关即时生效，不再提示重启", () => {
-  assert.match(SCREEN, /开关即时生效/);
+  assert.match(SCREEN, /打开开关后立即生效/);
   assert.doesNotMatch(SCREEN, /局域网访问已关闭，打开开关并重启应用后生效/);
   assert.match(COMMANDS, /ctx\.stop\(\)/);
   assert.match(LAN, /shutdown/);

@@ -47,6 +47,8 @@ export const api = {
     invoke<void>("set_ball_account", { accountId }),
   openDataDir: () => invoke<void>("open_data_dir"),
   relocateData: (path: string) => invoke<string>("relocate_data", { path }),
+  /** 打开系统「选择文件夹」对话框；取消返回 null */
+  pickDataDir: () => invoke<string | null>("pick_data_dir"),
   showMain: () => invoke<void>("show_main"),
   quit: () => invoke<void>("quit_app"),
   /** 远程模式：当前连接状态 */

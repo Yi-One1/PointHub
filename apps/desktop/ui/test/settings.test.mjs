@@ -24,6 +24,10 @@ const COMMANDS = readFileSync(
   "utf8",
 );
 const LAN = readFileSync(path.resolve(UI_DIR, "..", "src-tauri", "src", "lan.rs"), "utf8");
+const PREVIEW = readFileSync(
+  path.resolve(UI_DIR, "..", "..", "..", "scripts", "preview.ps1"),
+  "utf8",
+);
 
 function sectionIds() {
   return [...SETTINGS.matchAll(/\{ id: "([^"]+)", label: "([^"]+)"/g)].map((m) => m[1]);
@@ -160,8 +164,19 @@ test("数据目录合并为一行，用系统选择文件夹", () => {
   assert.doesNotMatch(SCREEN, /row-title">更换数据目录</);
   assert.match(SCREEN, /pickDataDir/);
   assert.match(SCREEN, /dir-picker/);
+  assert.match(SCREEN, /清理旧目录/);
   assert.match(API, /pickDataDir/);
   assert.match(COMMANDS, /pub async fn pick_data_dir/);
+  assert.match(COMMANDS, /write_cleanup_marker/);
+});
+
+test("预览版数据目录在软件路径而非 C 盘", () => {
+  assert.match(PREVIEW, /POINTHUB_DEFAULT_DATA_DIR/);
+  assert.match(PREVIEW, /dist\\data/);
+});
+
+test("镜像有默认地址", () => {
+  assert.match(SCREEN, /https:\/\/ghfast\.top\//);
 });
 
 test("设置页去掉重复解释，只保留必要状态", () => {

@@ -23,6 +23,8 @@ pub mod locate {
     use std::path::PathBuf;
 
     pub(crate) const POINTER: &str = "location.json";
+    /// 搬迁后留在新目录里的待清理标记，下次启动时删旧目录。
+    pub(crate) const CLEANUP: &str = "relocate-cleanup.json";
 
     /// 旧版固定数据目录，也是指针文件永远所在的位置。
     pub fn legacy_dir() -> PathBuf {
@@ -59,6 +61,14 @@ pub mod locate {
     ///
     /// 发行版跟着 exe 走；调试版保持旧位置，否则一键预览会把真实账号搬到构建目录。
     pub fn default_dir() -> PathBuf {
+        // 一键预览通过环境变量把默认目录指到项目的 dist\data，避免显示成 C 盘；
+        // 指针文件优先级更高，所以搬迁后仍然跟指针走。
+        if let Some(p) = std::env::var_os("POINTHUB_DEFAULT_DATA_DIR") {
+            let p = PathBuf::from(p);
+            if !p.as_os_str().is_empty() {
+                return p;
+            }
+        }
         #[cfg(all(not(debug_assertions), not(target_os = "android")))]
         {
             if let Ok(exe) = std::env::current_exe() {
@@ -110,6 +120,44 @@ pub mod locate {
         Ok(())
     }
 
+    /// 记录「搬到新目录后，旧目录待清理」。
+    pub fn write_cleanup_marker(dir: &Path, old: &Path) -> Result<()> {
+        let body = serde_json::json!({ "old": old.to_string_lossy() });
+        write_atomic(
+            &dir.join(CLEANUP),
+            &serde_json::to_vec(&body).map_err(|e| Error::Format(e.to_string()))?,
+        )
+    }
+
+    /// 启动时执行待清理任务。`None` 表示没有待办。
+    pub fn run_pending_cleanup(dir: &Path) -> Option<super::purge::Report> {
+        run_pending_cleanup_at(&legacy_dir(), dir)
+    }
+
+    pub(crate) fn run_pending_cleanup_at(pointer_dir: &Path, dir: &Path) -> Option<super::purge::Report> {
+        let marker = dir.join(CLEANUP);
+        let raw = std::fs::read_to_string(&marker).ok()?;
+        let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        let old = PathBuf::from(v.get("old")?.as_str()?);
+        if old == dir || old.parent().is_none() {
+            let _ = std::fs::remove_file(&marker);
+            return None;
+        }
+        // 指针已经指回旧目录（用户又搬回去了）时不能删。
+        if read_pointer_in(pointer_dir).as_deref() != Some(dir) {
+            return None;
+        }
+        let report = super::purge::purge_data_dirs(&[old.clone()]);
+        // 旧目录正好是固定目录时，里面还放着指向新目录的指针，清理后补回去。
+        if old == pointer_dir && read_pointer_in(pointer_dir).is_none() {
+            let _ = write_pointer(Some(dir));
+        }
+        if report.failed.is_empty() {
+            let _ = std::fs::remove_file(&marker);
+        }
+        Some(report)
+    }
+
     /// 解析最终使用的数据目录（不创建）。
     pub fn resolve(explicit: Option<PathBuf>) -> PathBuf {
         if let Some(d) = explicit {
@@ -121,6 +169,10 @@ pub mod locate {
         let target = default_dir();
         let legacy = legacy_dir();
         if target == legacy {
+            return target;
+        }
+        // 预览的默认目录是显式指定的，不要把用户真实的旧目录搬进构建目录。
+        if std::env::var_os("POINTHUB_DEFAULT_DATA_DIR").is_some() {
             return target;
         }
         match migrate_legacy(&legacy, &target) {
@@ -383,10 +435,13 @@ pub mod purge {
         files::TOMBSTONES,
         files::CLIENT,
         locate::POINTER,
+        locate::CLEANUP,
         // 设置损坏时另存的文件，以及原子写的中间文件。
         "settings.broken.json",
         "settings.tmp",
         "location.tmp",
+        // 图标缓存版本标记，删了下次启动会重新生成。
+        ".icons-version",
     ];
 
     /// 账号数据的子目录。
@@ -436,7 +491,13 @@ impl Store {
         }
         // 设置文件损坏不应让整个程序打不开：退回默认并保留现场。
         match serde_json::from_str::<Settings>(&raw) {
-            Ok(s) => Ok(s),
+            Ok(mut s) => {
+                // 老版本的 settings.json 里镜像前缀是空串，补成默认地址。
+                if s.update.mirror.trim().is_empty() {
+                    s.update.mirror = ph_core::settings::default_mirror();
+                }
+                Ok(s)
+            }
             Err(e) => {
                 let _ = std::fs::rename(&p, p.with_extension("broken.json"));
                 Err(Error::Format(format!(
@@ -917,6 +978,44 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&default);
         let _ = std::fs::remove_dir_all(&custom);
+    }
+
+    #[test]
+    fn pending_cleanup_removes_old_dir_after_relocation() {
+        let base = tmpdir("relocate-cleanup");
+        let old = base.join("old");
+        let target = base.join("target");
+        let pointer = base.join("pointer");
+        std::fs::create_dir_all(old.join("logs")).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::create_dir_all(&pointer).unwrap();
+        std::fs::write(old.join(files::ACCOUNTS), "{}").unwrap();
+        std::fs::write(old.join("logs").join("a.log"), "x").unwrap();
+
+        let ptr = serde_json::json!({ "data_dir": target.to_string_lossy() }).to_string();
+        std::fs::write(pointer.join(locate::POINTER), ptr).unwrap();
+        locate::write_cleanup_marker(&target, &old).unwrap();
+
+        let report = locate::run_pending_cleanup_at(&pointer, &target).expect("应有待清理任务");
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert!(!old.join(files::ACCOUNTS).exists());
+        assert!(!old.exists(), "旧目录应被删除");
+        assert!(
+            !target.join(locate::CLEANUP).exists(),
+            "清理完成后标记应移除"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn old_empty_mirror_gets_default() {
+        let dir = tmpdir("mirror-default");
+        let store = Store::open(&dir).unwrap();
+        std::fs::write(dir.join(files::SETTINGS), r#"{"update":{"mirror":""}}"#).unwrap();
+        let s = store.load_settings().unwrap();
+        assert_eq!(s.update.mirror, "https://ghfast.top/");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

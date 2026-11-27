@@ -1355,13 +1355,19 @@ pub async fn relocate_data(
     if target.starts_with(&from) {
         return Err("目标目录不能在当前数据目录内部".into());
     }
+    if from.starts_with(&target) {
+        return Err("目标目录不能包含当前数据目录".into());
+    }
 
     std::fs::create_dir_all(&target).map_err(|e| format!("无法创建目标目录：{e}"))?;
     let mut copied = 0usize;
     copy_dir(&from, &target, &mut copied).map_err(|e| format!("复制失败：{e}"))?;
+    // 先在新目录记下旧路径，再切指针；下次启动时按标记清理旧目录。
+    ph_store::locate::write_cleanup_marker(&target, &from)
+        .map_err(|e| e.user_message())?;
     ph_store::locate::write_pointer(Some(&target)).map_err(|e| e.user_message())?;
     Ok(format!(
-        "已复制 {copied} 个文件到 {}，重启程序后生效。",
+        "已复制 {copied} 个文件到 {}；重启程序后生效，启动时会自动清理旧目录。",
         target.display()
     ))
 }

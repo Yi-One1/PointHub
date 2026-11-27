@@ -151,8 +151,13 @@ pub struct UpdateSettings {
     #[serde(default)]
     pub source: UpdateSource,
     /// 镜像前缀，例如 `https://ghfast.top/`；会拼在完整 GitHub 地址前面。
-    #[serde(default)]
+    #[serde(default = "default_mirror")]
     pub mirror: String,
+}
+
+/// 默认镜像前缀。用户切到「镜像」时直接可用，不必先填地址。
+pub fn default_mirror() -> String {
+    "https://ghfast.top/".to_string()
 }
 
 impl Default for UpdateSettings {
@@ -160,7 +165,7 @@ impl Default for UpdateSettings {
         Self {
             enabled: true,
             source: UpdateSource::Github,
-            mirror: String::new(),
+            mirror: default_mirror(),
         }
     }
 }
@@ -239,6 +244,12 @@ mod tests {
         // 老设置里没有 update 段，也要能补出默认值
         assert!(s.update.enabled);
         assert_eq!(s.update.source, UpdateSource::Github);
-        assert!(s.update.mirror.is_empty());
+        assert_eq!(s.update.mirror, "https://ghfast.top/");
+    }
+
+    #[test]
+    fn default_update_mirror_is_ready_to_use() {
+        assert_eq!(UpdateSettings::default().mirror, "https://ghfast.top/");
+        assert_eq!(Settings::default().update.mirror, "https://ghfast.top/");
     }
 }

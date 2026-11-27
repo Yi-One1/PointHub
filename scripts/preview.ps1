@@ -93,4 +93,11 @@ if ($needRs) {
 
 Write-Host ""
 Write-Host "Starting PointHub (close this window to quit)..." -ForegroundColor Green
+
+# Preview keeps its data next to the build output (a software path, not
+# %LOCALAPPDATA%), so the data directory shown in Settings matches a real
+# installed copy. The app prefers a pointer file, so "change data directory"
+# still works after a restart. Callers can still override with --data-dir.
+$env:POINTHUB_DEFAULT_DATA_DIR = Join-Path $root "dist\data"
+New-Item -ItemType Directory -Force -Path $env:POINTHUB_DEFAULT_DATA_DIR | Out-Null
 & $exe @AppArgs

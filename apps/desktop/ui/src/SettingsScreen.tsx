@@ -248,7 +248,7 @@ export default function SettingsScreen({
       if (!dir || dir === view.data_dir) return;
       setPending({
         title: "更换数据目录？",
-        message: `会把现有数据复制到 ${dir}，重启应用后生效。`,
+        message: `会把现有数据复制到 ${dir}，重启应用后生效并清理旧目录。`,
         confirmText: "开始搬迁",
         run: () => {
           void (async () => {
@@ -852,7 +852,7 @@ export default function SettingsScreen({
                 <div className="row">
                   <div>
                     <div className="row-title">数据目录</div>
-                    <div className="row-desc">更换后会复制现有数据，重启后生效</div>
+                    <div className="row-desc">重启后生效，并自动清理旧目录</div>
                   </div>
                   <div className="dir-picker">
                     <span className="dir-path" title={view.data_dir}>

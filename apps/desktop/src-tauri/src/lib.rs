@@ -153,6 +153,15 @@ pub fn run() {
                     return Err(msg.into());
                 }
             };
+            // 上次换过数据目录的话，现在引擎已经在新目录上，可以安全清理旧目录了。
+            if let Some(report) = ph_store::locate::run_pending_cleanup(engine.data_dir()) {
+                if !report.failed.is_empty() {
+                    eprintln!(
+                        "旧数据目录有 {} 项未能删除，将在下次启动时重试",
+                        report.failed.len()
+                    );
+                }
+            }
             let state: SharedState = Arc::new(AppState {
                 data_dir: engine.data_dir().to_path_buf(),
                 minimize_to_tray: AtomicBool::new(engine.settings().minimize_to_tray),

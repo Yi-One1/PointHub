@@ -113,7 +113,7 @@
 
 ### 安卓构建的五个坑（细节见 `docs/ANDROID.md`）
 
-1. NDK 不认中文路径 → `CARGO_TARGET_DIR=D:\ph-build\target`；
+1. NDK 不认中文路径 → `CARGO_TARGET_DIR=E:\Cache\Android_Build\target`；
 2. Gradle 拒绝非 ASCII 路径 → `android.overridePathCheck=true`（脚本幂等写入）；
 3. 插件硬调 `npm.bat` / `node.bat` → `scripts/shims/` 垫片放进 PATH 最前；
 4. 插件回查 CLI 配置 → `src-tauri/package.json` 提供同名空脚本；

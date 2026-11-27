@@ -32,9 +32,10 @@ scripts\build-android.bat release --target aarch64
 | `ANDROID_HOME` | `D:\APP\Android\AndroidSDK` |
 | `JAVA_HOME` | `D:\APP\Android\Android Studio\jbr` |
 | `NDK_HOME` | `%ANDROID_HOME%\ndk\30.0.16248370` |
-| `CARGO_TARGET_DIR` | `D:\ph-build\target` |
+| `CARGO_TARGET_DIR` | `E:\Cache\Android_Build\target` |
 
-`CARGO_TARGET_DIR` 必须是**纯英文**路径，这是坑 1 的绕法，不是可选项。
+`CARGO_TARGET_DIR` 必须是**纯英文、无空格**路径（当前默认
+`E:\Cache\Android_Build\target`），这是坑 1 的绕法，不是可选项。
 
 ## 关于 `src-tauri/package.json`
 

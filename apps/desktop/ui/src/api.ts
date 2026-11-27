@@ -46,7 +46,11 @@ export const api = {
   setBallAccount: (accountId: string | null) =>
     invoke<void>("set_ball_account", { accountId }),
   openDataDir: () => invoke<void>("open_data_dir"),
+  /** 默认数据目录：发行版为程序目录下的 data，预览为项目里的 dist\data */
+  defaultDataDir: () => invoke<string>("default_data_dir"),
   relocateData: (path: string) => invoke<string>("relocate_data", { path }),
+  /** 把数据搬回默认目录，重启后生效并清理旧目录 */
+  resetDataDir: () => invoke<string>("reset_data_dir"),
   /** 打开系统「选择文件夹」对话框；取消返回 null */
   pickDataDir: () => invoke<string | null>("pick_data_dir"),
   showMain: () => invoke<void>("show_main"),

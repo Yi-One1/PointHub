@@ -38,6 +38,35 @@ const SECTION_ICONS: Record<SettingsSectionId, () => ReactElement> = {
   about: IconAbout,
 };
 
+/** 深比较：判断当前分区是否已经和默认值一致。 */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => deepEqual(v, b[i]))
+    );
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left);
+    return (
+      keys.length === Object.keys(right).length &&
+      keys.every((k) => deepEqual(left[k], right[k]))
+    );
+  }
+  return false;
+}
+
+/** 路径比较：忽略末尾分隔符与大小写（Windows 盘符/目录名不区分大小写）。 */
+function samePath(a: string, b: string): boolean {
+  const norm = (s: string) => s.trim().replace(/[\\/]+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 /**
  * 独立设置页：左侧分类、右侧分区卡片（参考 Trae / QQ 电脑端）。
  *
@@ -59,6 +88,7 @@ export default function SettingsScreen({
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Settings>(view.settings);
   const [defaults, setDefaults] = useState<Settings | null>(null);
+  const [defaultDir, setDefaultDir] = useState<string | null>(null);
   const [pending, setPending] = useState<{
     title: string;
     message: string;
@@ -182,6 +212,10 @@ export default function SettingsScreen({
       .defaultSettings()
       .then(setDefaults)
       .catch(() => undefined);
+    api
+      .defaultDataDir()
+      .then(setDefaultDir)
+      .catch(() => undefined);
   }, []);
 
   useEffect(
@@ -224,10 +258,44 @@ export default function SettingsScreen({
   const sectionKeys = (Object.keys(SETTINGS_FIELD_SECTIONS) as (keyof Settings)[]).filter(
     (key) => SETTINGS_FIELD_SECTIONS[key] === active,
   );
-  const canReset = sectionKeys.length > 0 && defaults !== null;
+  // 数据目录不是 Settings 字段：它与默认位置不同时才算「有改动」。
+  const dirDiffers = defaultDir !== null && !samePath(view.data_dir, defaultDir);
+  const sectionDiffers =
+    defaults !== null && sectionKeys.some((key) => !deepEqual(draft[key], defaults[key]));
+  const canReset = active === "data" ? dirDiffers : sectionDiffers;
+  const resetHint =
+    active === "data"
+      ? defaultDir === null
+        ? "默认位置读取中"
+        : dirDiffers
+          ? "把数据搬回程序默认位置"
+          : "数据目录已经是默认位置"
+      : sectionKeys.length === 0
+        ? "本分区没有可恢复的设置"
+        : canReset
+          ? "恢复到出厂默认值"
+          : "当前已是默认设置";
 
   const resetSection = () => {
-    if (!defaults) return;
+    if (active === "data") {
+      if (!defaultDir || !dirDiffers) return;
+      setPending({
+        title: "恢复默认数据目录？",
+        message: `数据会复制回 ${defaultDir}，重启应用后生效并清理旧目录。`,
+        confirmText: "恢复默认",
+        run: () => {
+          void (async () => {
+            try {
+              notify(await api.resetDataDir());
+            } catch (e) {
+              notify(String(e), "warn");
+            }
+          })();
+        },
+      });
+      return;
+    }
+    if (!defaults || !canReset) return;
     setPending({
       title: `恢复「${current.label}」默认设置？`,
       message: "只重置本分区的设置，其他分区不受影响；恢复后立即生效。",
@@ -326,7 +394,7 @@ export default function SettingsScreen({
                 className="btn"
                 onClick={resetSection}
                 disabled={!canReset}
-                title={canReset ? undefined : "本分区没有可恢复的设置"}
+                title={resetHint}
               >
                 恢复默认设置
               </button>

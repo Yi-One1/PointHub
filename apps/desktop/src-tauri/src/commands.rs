@@ -1315,7 +1315,7 @@ pub async fn open_data_dir(state: State<'_, SharedState>) -> Result<(), String> 
     Ok(())
 }
 
-/// 搬迁数据目录：复制现有文件到新位置，写指针，重启后生效。
+/// 打开系统「选择文件夹」对话框；取消返回 None。
 #[tauri::command]
 pub async fn pick_data_dir() -> Option<String> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1336,6 +1336,7 @@ pub async fn pick_data_dir() -> Option<String> {
     }
 }
 
+/// 搬迁数据目录：复制现有文件到新位置，写指针，重启后生效。
 #[tauri::command]
 pub async fn relocate_data(
     state: State<'_, SharedState>,
@@ -1345,31 +1346,71 @@ pub async fn relocate_data(
     if target.as_os_str().is_empty() {
         return Err("路径不能为空".into());
     }
-    let engine = state.engine.lock().await;
-    let from = engine.data_dir().to_path_buf();
-    drop(engine);
+    let from = current_data_dir(&state).await;
+    move_data_dir(&from, &target, true)
+}
 
+/// 恢复默认数据目录：复制回程序所在目录，并清掉指针（继续跟随程序）。
+#[tauri::command]
+pub async fn reset_data_dir(state: State<'_, SharedState>) -> Result<String, String> {
+    let from = current_data_dir(&state).await;
+    move_data_dir(&from, &ph_store::locate::default_dir(), false)
+}
+
+/// 默认数据目录：发行版是程序所在目录下的 `data`，预览是项目里的 `dist\data`。
+#[tauri::command]
+pub fn default_data_dir() -> String {
+    ph_store::locate::default_dir().to_string_lossy().to_string()
+}
+
+async fn current_data_dir(state: &State<'_, SharedState>) -> std::path::PathBuf {
+    let engine = state.engine.lock().await;
+    let dir = engine.data_dir().to_path_buf();
+    drop(engine);
+    dir
+}
+
+/// `pin` 为 true 时写指针记住用户选的位置；恢复默认则清指针，让目录继续跟着程序走。
+fn move_data_dir(
+    from: &std::path::Path,
+    target: &std::path::Path,
+    pin: bool,
+) -> Result<String, String> {
     if from == target {
-        return Ok("目标与当前目录相同，无需搬迁。".into());
+        return Ok(if pin {
+            "目标与当前目录相同，无需搬迁。".into()
+        } else {
+            "数据目录已经是默认位置。".into()
+        });
     }
-    if target.starts_with(&from) {
+    if target.starts_with(from) {
         return Err("目标目录不能在当前数据目录内部".into());
     }
-    if from.starts_with(&target) {
+    if from.starts_with(target) {
         return Err("目标目录不能包含当前数据目录".into());
     }
 
-    std::fs::create_dir_all(&target).map_err(|e| format!("无法创建目标目录：{e}"))?;
+    std::fs::create_dir_all(target).map_err(|e| format!("无法创建目标目录：{e}"))?;
     let mut copied = 0usize;
-    copy_dir(&from, &target, &mut copied).map_err(|e| format!("复制失败：{e}"))?;
+    copy_dir(from, target, &mut copied).map_err(|e| format!("复制失败：{e}"))?;
     // 先在新目录记下旧路径，再切指针；下次启动时按标记清理旧目录。
-    ph_store::locate::write_cleanup_marker(&target, &from)
-        .map_err(|e| e.user_message())?;
-    ph_store::locate::write_pointer(Some(&target)).map_err(|e| e.user_message())?;
-    Ok(format!(
-        "已复制 {copied} 个文件到 {}；重启程序后生效，启动时会自动清理旧目录。",
-        target.display()
-    ))
+    ph_store::locate::write_cleanup_marker(target, from).map_err(|e| e.user_message())?;
+    if pin {
+        ph_store::locate::write_pointer(Some(target)).map_err(|e| e.user_message())?;
+    } else {
+        ph_store::locate::write_pointer(None).map_err(|e| e.user_message())?;
+    }
+    Ok(if pin {
+        format!(
+            "已复制 {copied} 个文件到 {}；重启程序后生效，启动时会自动清理旧目录。",
+            target.display()
+        )
+    } else {
+        format!(
+            "已复制 {copied} 个文件回默认目录 {}；重启程序后生效，启动时会自动清理旧目录。",
+            target.display()
+        )
+    })
 }
 
 fn copy_dir(from: &std::path::Path, to: &std::path::Path, count: &mut usize) -> std::io::Result<()> {

@@ -28,6 +28,10 @@ const PREVIEW = readFileSync(
   path.resolve(UI_DIR, "..", "..", "..", "scripts", "preview.ps1"),
   "utf8",
 );
+const STORE = readFileSync(
+  path.resolve(UI_DIR, "..", "..", "..", "crates", "ph-store", "src", "lib.rs"),
+  "utf8",
+);
 
 function sectionIds() {
   return [...SETTINGS.matchAll(/\{ id: "([^"]+)", label: "([^"]+)"/g)].map((m) => m[1]);
@@ -170,9 +174,11 @@ test("数据目录合并为一行，用系统选择文件夹", () => {
   assert.match(COMMANDS, /write_cleanup_marker/);
 });
 
-test("预览版数据目录在软件路径而非 C 盘", () => {
+test("预览版数据目录在软件路径而非 C 盘，且与正式版位置记录隔离", () => {
   assert.match(PREVIEW, /POINTHUB_DEFAULT_DATA_DIR/);
   assert.match(PREVIEW, /dist\\data/);
+  assert.match(PREVIEW, /POINTHUB_POINTER_DIR/);
+  assert.match(STORE, /POINTHUB_POINTER_DIR/);
 });
 
 test("镜像有默认地址", () => {
@@ -198,6 +204,21 @@ test("每个分区可恢复默认，默认值来自后端", () => {
   assert.match(SCREEN, /SETTINGS_FIELD_SECTIONS/);
   assert.match(API, /defaultSettings/);
   assert.match(COMMANDS, /pub fn default_settings\(\)/);
+});
+
+test("恢复默认只在当前分区与默认值不同时可用", () => {
+  // 与默认值一致时按钮灰色不可点，有改动才可用。
+  assert.match(SCREEN, /deepEqual/);
+  assert.match(SCREEN, /sectionDiffers/);
+  assert.match(SCREEN, /disabled=\{!canReset\}/);
+  assert.match(SCREEN, /当前已是默认设置/);
+  // 数据与安全页把数据目录也纳入「恢复默认」。
+  assert.match(SCREEN, /dirDiffers/);
+  assert.match(SCREEN, /恢复默认数据目录/);
+  assert.match(API, /defaultDataDir/);
+  assert.match(API, /resetDataDir/);
+  assert.match(COMMANDS, /pub async fn reset_data_dir/);
+  assert.match(COMMANDS, /pub fn default_data_dir/);
 });
 
 test("重要设置修改前有二次确认", () => {

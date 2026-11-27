@@ -78,13 +78,27 @@ pub mod locate {
         legacy_dir()
     }
 
+    /// 指针文件所在目录。
+    ///
+    /// 一键预览用 `POINTHUB_POINTER_DIR` 把它指到构建目录：预览里「更换数据目录」
+    /// 只写预览自己的记录，不会覆盖正式版保存的位置；正式版也不会被预览影响。
+    fn pointer_dir() -> PathBuf {
+        if let Some(p) = std::env::var_os("POINTHUB_POINTER_DIR") {
+            let p = PathBuf::from(p);
+            if !p.as_os_str().is_empty() {
+                return p;
+            }
+        }
+        legacy_dir()
+    }
+
     fn pointer_path() -> PathBuf {
-        legacy_dir().join(POINTER)
+        pointer_dir().join(POINTER)
     }
 
     /// 读取指针文件里记录的自定义目录。
     pub fn read_pointer() -> Option<PathBuf> {
-        read_pointer_in(&legacy_dir())
+        read_pointer_in(&pointer_dir())
     }
 
     /// 从指定目录读取指针文件。
@@ -131,10 +145,20 @@ pub mod locate {
 
     /// 启动时执行待清理任务。`None` 表示没有待办。
     pub fn run_pending_cleanup(dir: &Path) -> Option<super::purge::Report> {
-        run_pending_cleanup_at(&legacy_dir(), dir)
+        run_pending_cleanup_at(&pointer_dir(), dir)
     }
 
     pub(crate) fn run_pending_cleanup_at(pointer_dir: &Path, dir: &Path) -> Option<super::purge::Report> {
+        run_pending_cleanup_with(pointer_dir, dir, &default_dir())
+    }
+
+    /// `default` 用于识别「恢复默认目录」：此时指针已清空，但当前目录就是默认目录，
+    /// 清理旧目录仍然安全。
+    pub(crate) fn run_pending_cleanup_with(
+        pointer_dir: &Path,
+        dir: &Path,
+        default: &Path,
+    ) -> Option<super::purge::Report> {
         let marker = dir.join(CLEANUP);
         let raw = std::fs::read_to_string(&marker).ok()?;
         let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -143,8 +167,10 @@ pub mod locate {
             let _ = std::fs::remove_file(&marker);
             return None;
         }
-        // 指针已经指回旧目录（用户又搬回去了）时不能删。
-        if read_pointer_in(pointer_dir).as_deref() != Some(dir) {
+        // 指针已经指回旧目录（用户又搬回去了）时不能删；没有指针时只有当前
+        // 目录就是默认目录才说明是「恢复默认」，否则不能碰。
+        let pinned = read_pointer_in(pointer_dir);
+        if pinned.as_deref() != Some(dir) && !(pinned.is_none() && dir == default) {
             return None;
         }
         let report = super::purge::purge_data_dirs(&[old.clone()]);
@@ -1004,6 +1030,35 @@ mod tests {
             !target.join(locate::CLEANUP).exists(),
             "清理完成后标记应移除"
         );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn cleanup_after_reset_to_default_needs_no_pointer() {
+        let base = tmpdir("reset-cleanup");
+        let old = base.join("custom");
+        let default = base.join("default");
+        let pointer = base.join("pointer");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&default).unwrap();
+        std::fs::create_dir_all(&pointer).unwrap();
+        std::fs::write(old.join(files::ACCOUNTS), "{}").unwrap();
+        locate::write_cleanup_marker(&default, &old).unwrap();
+
+        // 指针已清空且当前就是默认目录：这是「恢复默认目录」，可以清理旧目录。
+        let report = locate::run_pending_cleanup_with(&pointer, &default, &default)
+            .expect("恢复默认后应执行清理");
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert!(!old.exists(), "旧目录应被删除");
+
+        // 没有指针、当前也不是默认目录时不能动：可能只是指针丢了。
+        let other = base.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join(files::ACCOUNTS), "{}").unwrap();
+        locate::write_cleanup_marker(&other, &old).unwrap();
+        assert!(locate::run_pending_cleanup_with(&pointer, &other, &default).is_none());
+        assert!(other.join(files::ACCOUNTS).exists(), "数据不能被误删");
 
         let _ = std::fs::remove_dir_all(&base);
     }

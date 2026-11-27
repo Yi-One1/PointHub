@@ -51,6 +51,9 @@
 - **安卓应用内安装更新（未发版）**：设置页「下载并安装」不再跳浏览器——APK 下到
   `files/updates`，经 FileProvider 交给系统安装器；首次未授权时跳到「安装未知应用」
   设置页，返回后 `onResume` 自动续装；已下载的包会复用（D26）。
+- **安卓 Keystore 凭据托管（未发版）**：`vault.bin` 改由 AndroidKeyStore 保管密钥，
+  Rust 经 JNI 调 Kotlin 做 AES-256-GCM；旧 AES 仓首开自动重封并删除旧密钥文件，
+  用户无需重新导入；系统密钥丢失时原文件改名留档、按空仓启动（D27）。
 
 ---
 
@@ -74,13 +77,15 @@
     Gradle 非 ASCII 路径、`node.bat` / `npm.bat` 垫片、`node tauri` 入口改写
     （详见 `docs/ANDROID.md` 的五个坑）；发布包优先 arm64 单架构。
 
-详见 `DECISIONS.md` D01–D26。
+详见 `DECISIONS.md` D01–D27。
 
 ---
 
 ## 未完成的待办
 
 - [ ] **Windows 静默自替换**：需接 Tauri updater 签名链，暂不做（D08）；目前仍由安装向导确认。
+- [ ] **自定义签到时间**：界面目前只有平台默认时刻 + 确定性抖动（D06），用户不能
+  手动调整；后续增加每账号自定义时间（也能让后台签到验收不再受固定时刻限制）。
 
 ---
 
@@ -100,7 +105,7 @@
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（需先 `npm install` 于 `apps\desktop\ui`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
 | 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（25 项） |
-| 桌面端测试 | `cargo test --manifest-path apps\desktop\src-tauri\Cargo.toml`（15 项） |
+| 桌面端测试 | `cargo test --manifest-path apps\desktop\src-tauri\Cargo.toml`（16 项） |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
 | 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
@@ -130,12 +135,14 @@
 
 ### 验证过的证据
 
-- `cargo test --workspace` **91 个测试全绿**；`cargo check --workspace` 零错误。
-- 桌面端 **15/15**；前端 **25/25**、`tsc --noEmit`、`vite build` 通过；
+- `cargo test --workspace` **95 个测试全绿**；`cargo check --workspace` 零错误。
+- 桌面端 **16/16**；前端 **25/25**、`tsc --noEmit`、`vite build` 通过；
   `gen-app-icons.py --check` 通过。
 - 安卓应用内安装：验收专用包（内部版本标 0.10.0、安装包仍 0.11.0）真机走通
   检查 → 下载 → 授权「安装未知应用」→ 系统安装器覆盖安装，账号数据保留；
   打包产物核验含 `REQUEST_INSTALL_PACKAGES`、FileProvider、`ApkInstaller` 类。
+- 安卓 Keystore：真机覆盖安装后账号**不缺凭据**、重启后仍能签到（旧 AES 仓自动
+  迁移）；密钥丢失的降级路径由单元测试覆盖，真机尚未模拟系统恢复。
 - 0.11.0 APK：`aapt dump badging` 显示 versionName 0.11.0 / versionCode 11000 /
   targetSdk 36 / native-code 仅 arm64-v8a；mipmap 160–640 五档齐全；
   `apksigner verify` 通过（debug 证书）。

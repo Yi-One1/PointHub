@@ -107,7 +107,7 @@ Qoder 每日 100 Credits 走「活动」模型：每天 10:00 刷新，领取窗
 PointHub/
 ├── crates/                  Rust 共享核心（Windows 与 Android 共用）
 │   ├── ph-core/             领域模型：平台、账号、凭据、快照、调度
-│   ├── ph-vault/            凭据加密仓（Windows DPAPI / AES 回退）
+│   ├── ph-vault/            凭据加密仓（Windows DPAPI / 安卓 Keystore）
 │   ├── ph-store/            数据仓：账号、设置、历史（原子写入）
 │   ├── ph-providers/        平台适配：workbuddy / trae / qoder
 │   ├── ph-engine/           编排：取凭据→刷新→签到→回写→记账
@@ -223,7 +223,7 @@ phctl plan                                    # 每个账号下次执行时间
 | 项目 | 位置 / 做法 |
 |---|---|
 | 数据目录 | 发行版默认 `<程序所在目录>\data`（安装版即 `安装目录\data`）；旧版首次启动会把 `%LOCALAPPDATA%\PointHub` 的数据搬过来并清空原位置（D20）。可在设置里改（搬迁会复制现有数据） |
-| 令牌 | 只存在 `vault.bin`；Windows 用 DPAPI 加密，安卓用 AES 回退后端；换机后需重新导入 |
+| 令牌 | 只存在 `vault.bin`；Windows 用 DPAPI 加密，安卓用 AndroidKeyStore 托管密钥；换机或清数据后需重新导入 |
 | 账号元数据 | `accounts.json`（**不含令牌**） |
 | 积分历史 | `history.jsonl`（追加写，一行一条快照） |
 | 日志 | `logs/YYYY-MM-DD.log`（不含令牌明文） |

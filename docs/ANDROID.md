@@ -119,6 +119,24 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 - 以上改动都由 `scripts/patch-android-sources.ps1` 幂等写入 `gen/`（Manifest 权限、
   `res/xml/file_paths.xml`、R8 规则、`MainActivity`），换机器重 init 不会丢。
 
+## 凭据存储与旧仓迁移（未发版）
+
+- 安卓凭据仓（`vault.bin`）改用 AndroidKeyStore 托管密钥（D05 / D27）：
+  `VaultKeystore.kt` 用 `AES/GCM/NoPadding` 加解密，密钥只在系统密钥库里生成，
+  应用拿不到明文；密文格式是「12 字节 IV + 密文 + 16 字节 tag」。
+- Rust 通过 JNI 反调，类加载方式与应用内安装一致（Application 的 ClassLoader）。
+  JVM 与应用 Context 由 `VaultKeys.init(context)` 写入，必须早于 `Engine::open`；
+  构建补丁会把 `VaultKeys.init(this)` 插到 `MainActivity.onCreate` 的
+  `super.onCreate` 之前，`CheckinWorker` 冷启动时也会先调一次。
+- 旧仓（文件头 id=2，本地 AES 密钥文件）首次打开会自动解密并重封为 id=3，
+  成功后再删除旧密钥文件；用户不需要重新导入。
+- 系统密钥丢失（卸载重装 / 清除数据 / 系统恢复）时，原 `vault.bin` 改名为
+  `vault.unreadable` 留档，应用按空仓启动，账号显示「缺凭据」，重新导入即可。
+- R8 必须保留 `VaultKeystore` 与 `VaultKeys`：前者只被 Rust JNI 引用，后者拥有
+  native 初始化方法；规则由 `patch-android-sources.ps1` 写入。
+- release 包不可调试，无法用 `run-as` 查看 `vault.bin`；验收以「升级后账号不缺
+  凭据 + 重启后仍能签到」为准。
+
 ## 最近一次构建
 
 - 2026-11-27，`dist\积分枢纽PointHub_v0.11.0.apk`，**8.3 MB**

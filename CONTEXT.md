@@ -26,7 +26,7 @@
 ## 凭据仓（Vault）
 
 存放全部凭据的加密文件。用一个账号 id 到凭据的映射组织，整体加密。
-Windows 用 DPAPI（绑定当前用户），安卓目前走 AES 回退后端；Keystore 桥接尚未接入，程序自己不保管密钥。
+Windows 用 DPAPI（绑定当前用户），安卓用 AndroidKeyStore 托管密钥（密钥不出系统密钥库）；程序自己不保管密钥。
 
 ## 凭据失效（AuthFailed）
 

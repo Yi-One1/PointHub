@@ -25,10 +25,22 @@
 - 原生部分（`ApkInstaller.kt`、安装权限、FileProvider 路径、R8 keep、`onResume`
   续装）放在被跟踪的 `apps/desktop/android/` 与 `scripts/`，构建时幂等注入 `gen/`。
 
-**测试**：workspace 91 项、桌面端 15 项、前端 25 项、`tsc --noEmit`、`vite build`
+**变更：安卓凭据仓改用 AndroidKeyStore 托管**（落地既有 D05，预计随 MINOR 发布）。
+
+- 安卓不再把 AES 密钥放在本地文件：密钥由 AndroidKeyStore 生成并保管，
+  Rust 通过 JNI 调 Kotlin 做 AES-256-GCM 加解密，密钥不出系统密钥库。
+- 旧版安卓的 AES 仓首次打开时自动解密并重封为 Keystore，随后删除旧密钥文件，
+  用户无需重新导入账号；覆盖安装真机验收通过，重启后仍可签到。
+- 系统密钥随卸载 / 清除数据 / 系统恢复丢失时不再卡住启动：原文件改名留档，
+  按空仓继续，账号显示「缺凭据」，重新导入即可。
+- 后台签到可能由 WorkManager 冷启动进程（没有 Activity），由 `VaultKeys.init`
+  在 Activity 与 Worker 启动时各注入一次应用上下文（D27）。
+
+**测试**：workspace 95 项、桌面端 16 项、前端 25 项、`tsc --noEmit`、`vite build`
 通过；`cargo check` 无警告；`cargo check --target aarch64-linux-android` 与完整
-release APK 构建通过，产物核验含安装权限、FileProvider 与安装器类；安卓应用内
-安装已用验收专用包真机走通。安装器钩子的 UAC 与规则写入待在发布包上实测。
+release APK 构建通过，产物核验含安装权限、FileProvider、安装器类与 Keystore 类；
+安卓应用内安装与旧仓自动迁移均已用验收专用包真机走通。安装器钩子的 UAC 与规则
+写入待在发布包上实测。
 
 ## [0.11.0] - 2026-11-27
 

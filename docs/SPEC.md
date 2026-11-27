@@ -187,7 +187,7 @@ VendorSnapshot     一次采样
 
 ## 六、验收状态（v0.11.0）
 
-- [x] `cargo test --workspace` 91 个测试全绿；`cargo check --workspace` 零错误
+- [x] `cargo test --workspace` 95 个测试全绿；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
 - [x] 桌面端启动、数据目录可创建、CLI 全链路闭环
 - [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
@@ -213,6 +213,11 @@ VendorSnapshot     一次采样
       `scripts/test-single-instance.ps1` 实测第二个进程 0.2 秒退出
 - [x] 安卓包重打到 0.11.0：versionName 0.11.0 / versionCode 11000 / targetSdk 36 /
       arm64-v8a / 8.3 MB，`apksigner verify` 通过
+- [x] 防火墙：安装时按程序自动放行（仅本地子网）；代码与 3 项测试通过，发布包
+      UAC 实测待做
+- [x] 安卓应用内安装：验收专用包真机走通检查 → 下载 → 授权 → 系统安装器覆盖安装
+- [x] 安卓凭据仓 Keystore：旧 AES 仓覆盖安装自动迁移，重启后仍可签到；
+      系统密钥丢失时不阻塞启动（单元测试覆盖，真机未模拟系统恢复）
 - [x] 安卓应用内安装更新：真机走通 检查 → 下载 → 授权「安装未知应用」→ 系统安装器
       覆盖安装 → 数据保留；release APK 含安装权限、FileProvider 与安装器类
 

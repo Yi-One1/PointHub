@@ -124,6 +124,8 @@ pub fn run() {
             commands::browser_login,
             commands::remove_account,
             commands::rename_account,
+            commands::credit_days,
+            commands::credit_months,
             commands::set_account_enabled,
             commands::save_settings,
             commands::default_settings,

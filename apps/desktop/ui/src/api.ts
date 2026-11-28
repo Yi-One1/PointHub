@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ClientStatus,
+  DayPoint,
   LanInfo,
   LocalImportStatus,
+  MonthPoint,
   OutcomeView,
   Settings,
   StateView,
@@ -30,6 +32,12 @@ export const api = {
     cookie?: string;
   }) => invoke<string>("add_account", { payload }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+  /** 指定平台（null 为全部）与区间的每日积分序列；月度下钻传该月 1 号与天数 */
+  creditDays: (vendor: string | null, from: string, days: number) =>
+    invoke<DayPoint[]>("credit_days", { vendor, from, days }),
+  /** 近 N 个月的三项汇总 */
+  creditMonths: (vendor: string | null, months: number) =>
+    invoke<MonthPoint[]>("credit_months", { vendor, months }),
   /** 改账号名；改过之后重复导入不再用平台昵称覆盖 */
   renameAccount: (id: string, label: string) =>
     invoke<string>("rename_account", { id, label }),

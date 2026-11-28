@@ -7,6 +7,9 @@ import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
 import { IconAccounts, IconGear, IconOverview } from "./icons";
 import SettingsScreen from "./SettingsScreen";
+import { TrendModal } from "./TrendModal";
+import { TrendChart, TrendLegend, useTrendVisible, type TrendPoint } from "./TrendChart";
+import { credits } from "./format";
 import type { SettingsSectionId } from "./settings";
 import { Modal } from "./ui";
 import type {
@@ -345,7 +348,7 @@ function Overview({
   const enabled = view.accounts.filter((a) => a.enabled);
   const done = enabled.filter((a) => a.checked_in_today === true).length;
   const pending = Math.max(enabled.length - done, 0);
-  // 「今日新增 / 今日消耗」与趋势图同源：都是余额差，避免数字互相打脸。
+  // 「今日新增 / 今日消耗」直接取趋势最后一天，两处口径天然一致。
   const todayPoint = view.trend.length > 0 ? view.trend[view.trend.length - 1] : null;
   const todayUp = todayPoint?.up ?? null;
   const todayDown = todayPoint?.down ?? null;
@@ -378,6 +381,8 @@ function Overview({
   }, [view.accounts, view.platforms]);
 
   const lastSample = view.aggregate.last_sampled_at ? clock(view.aggregate.last_sampled_at) : null;
+  // null 表示没开弹窗；vendor 为 null 时看全部平台。
+  const [trendScope, setTrendScope] = useState<{ vendor: string | null; display: string } | null>(null);
 
   return (
     <>
@@ -524,6 +529,15 @@ function Overview({
                   <PointsIcon tone="ink" size={8} />
                   {g.unknown > 0 ? ` · ${g.unknown} 个未知` : ""}
                 </span>
+                {view.mode !== "remote" && (
+                  <button
+                    className="phead-btn"
+                    onClick={() => setTrendScope({ vendor: g.vendor, display: g.display })}
+                    title={`查看 ${g.display} 的近 7 日与各月积分变化`}
+                  >
+                    趋势
+                  </button>
+                )}
               </div>
 
               {g.accounts.map((a) => {
@@ -599,65 +613,56 @@ function Overview({
       )}
 
       <div className="bottom">
-        <TrendCard trend={view.trend} />
+        <TrendCard
+          trend={view.trend}
+          onOpenMonths={
+            view.mode === "remote"
+              ? undefined
+              : () => setTrendScope({ vendor: null, display: "全部平台" })
+          }
+        />
         <ActivityCard events={view.events} />
       </div>
+
+      {trendScope && (
+        <TrendModal
+          vendor={trendScope.vendor}
+          display={trendScope.display}
+          onClose={() => setTrendScope(null)}
+        />
+      )}
     </>
   );
 }
 
-function TrendCard({ trend }: { trend: DayPoint[] }) {
-  // 用「每日新增」而不是「余额合计」：余额曲线七天内几乎是条直线，
-  // 画出来像装饰；新增才看得出哪天真的领到了。
-  const gains = trend.map((t) => t.gain);
-  const max = Math.max(...gains.map((g) => Math.abs(g ?? 0)), 1);
-  const hasAny = gains.some((g) => g !== null && g !== 0);
-  const [hover, setHover] = useState<number | null>(null);
-  const cur = hover !== null ? trend[hover] : null;
+function TrendCard({ trend, onOpenMonths }: { trend: DayPoint[]; onOpenMonths?: () => void }) {
+  const [visible, toggle] = useTrendVisible();
+  // 总额、新增、消耗都画成折线；当天没有采样就断线，不补 0。
+  const points: TrendPoint[] = trend.map((d) => ({
+    label: d.date,
+    total: d.known > 0 ? d.total : null,
+    up: d.up,
+    down: d.down,
+  }));
+  const hasAny = trend.some((d) => d.known > 0);
 
   return (
     <div className="bcard">
       <div className="btitle">
-        <span>近 7 日每日新增</span>
-        {cur && (
-          <span className="btip">
-            {cur.date}
-            {cur.gain === null ? (
-              " · 无对比"
-            ) : (
-              <>
-                {" · 新增 "}
-                {cur.gain >= 0 ? "+" : ""}
-                {credits(cur.gain)}
-                <PointsIcon tone="jade" size={8} />
-              </>
-            )}
-            {" · 合计 "}
-            {credits(cur.total)}
-            <PointsIcon tone="ink" size={8} />
-          </span>
+        <span>近 7 日积分变化</span>
+        {onOpenMonths && (
+          <button className="btitle-btn" onClick={onOpenMonths} title="查看最近 12 个月与每月每日">
+            月度 ›
+          </button>
         )}
       </div>
       {!hasAny ? (
-        <div className="ev-empty">还不到两天数据，攒够两天才有对比</div>
+        <div className="ev-empty">还没有采样数据，点右上「刷新积分」跑一次就有</div>
       ) : (
-        <div className="bars">
-          {trend.map((t, i) => {
-            const g = t.gain;
-            const h = g === null || g === 0 ? 3 : Math.max(6, Math.round((Math.abs(g) / max) * 56));
-            return (
-              <div
-                key={t.date}
-                title={`${t.date} · ${g === null ? "无对比" : `${g >= 0 ? "+" : ""}${g}`} · 合计 ${t.total}`}
-                onMouseEnter={() => setHover(i)}
-                onMouseLeave={() => setHover(null)}
-              >
-                <i style={{ height: `${h}px` }} data-empty={g === null || g === 0 ? "1" : "0"} />
-                <span>{i === trend.length - 1 ? "今日" : t.date}</span>
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <TrendLegend visible={visible} onToggle={toggle} />
+          <TrendChart points={points} visible={visible} height={140} />
+        </>
       )}
     </div>
   );
@@ -1252,11 +1257,6 @@ function IconTrash() {
   );
 }
 
-/// 积分展示：最多两位小数，整数不带小数点（`204.62` / `3,600`）。
-/// 上游会给出 `204.62000029` 这种字符串小数，直接显示会带一串噪声。
-function credits(n: number): string {
-  return n.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
-}
 
 function clock(ts: number): string {
   const d = new Date(ts * 1000);

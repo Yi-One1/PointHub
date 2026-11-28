@@ -140,6 +140,20 @@ export interface PlatformCap {
   verified: boolean;
 }
 
+/** 月度汇总（月度下钻的第一级） */
+export interface MonthPoint {
+  /** 形如 `2026-11` */
+  month: string;
+  /** 该月最后一个有数据日的余额合计 */
+  total: number;
+  /** 该月有余额数据的天数 */
+  days: number;
+  /** 该月签到领取之和 */
+  up: number;
+  /** 该月消耗之和（正数） */
+  down: number;
+}
+
 /** 近 7 日里的一天 */
 export interface DayPoint {
   date: string;

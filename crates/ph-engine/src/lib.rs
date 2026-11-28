@@ -68,6 +68,23 @@ pub struct DayPoint {
     pub down: Option<f64>,
 }
 
+/// 某个月的积分汇总（月度下钻的第一级）。
+///
+/// 月度里的 `up`/`down` 是当月逐日之和：日口径改了，月口径跟着改，不用另写一套。
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct MonthPoint {
+    /// 形如 `2026-11`。
+    pub month: String,
+    /// 该月最后一个有数据日的余额合计。
+    pub total: f64,
+    /// 该月有余额数据的天数（0 表示整月没采样，这种月不会出现在结果里）。
+    pub days: usize,
+    /// 该月签到领取之和。
+    pub up: f64,
+    /// 该月消耗之和（正数）。
+    pub down: f64,
+}
+
 pub struct Engine {
     store: Store,
     vault: Vault,
@@ -1125,21 +1142,61 @@ impl Engine {
     /// 规则：取每天最后一次采样；只统计**当前仍纳管**的账号——
     /// 删掉的账号不该继续占着历史合计，否则曲线会莫名掉一截。
     pub fn daily_series(&self, days: i64) -> Vec<DayPoint> {
+        let today = chrono::Local::now().date_naive();
+        let from = today - chrono::Duration::days(days.max(1) - 1);
+        self.series(None, from, today)
+    }
+
+    /// 指定平台（`None` 为全部）与日期区间的每日序列。
+    ///
+    /// 会多读一天作为首日基线：没有前一天的总额就算不出「新增 / 消耗」，
+    /// 那样月度视图的第一天就会凭空缺一格。
+    pub fn series(
+        &self,
+        vendor: Option<Vendor>,
+        from: chrono::NaiveDate,
+        to: chrono::NaiveDate,
+    ) -> Vec<DayPoint> {
+        self.series_dated(vendor, from, to)
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect()
+    }
+
+    /// 每日序列的带日期版本（月度汇总要按真实年月分组，`MM-DD` 跨年会有歧义）。
+    fn series_dated(
+        &self,
+        vendor: Option<Vendor>,
+        from: chrono::NaiveDate,
+        to: chrono::NaiveDate,
+    ) -> Vec<(chrono::NaiveDate, DayPoint)> {
         use chrono::Datelike;
         use std::collections::BTreeMap;
 
-        let today = chrono::Local::now().date_naive();
-        let from = today - chrono::Duration::days(days.max(1) - 1);
+        if to < from {
+            return Vec::new();
+        }
+        let scan_from = from - chrono::Duration::days(1);
+        // 只看这个平台（或全部）现存账号，与合计口径保持一致。
+        let ids: Vec<&str> = self
+            .accounts
+            .iter()
+            .filter(|a| vendor.is_none_or(|v| a.vendor == v))
+            .map(|a| a.id.as_str())
+            .collect();
+
         // date -> account_id -> 当天最后余额
         let mut per_day: BTreeMap<chrono::NaiveDate, BTreeMap<String, f64>> = BTreeMap::new();
-
         if let Ok(snaps) = self.store.load_snapshots(20000) {
             for s in snaps {
+                if !ids.iter().any(|id| *id == s.account_id) {
+                    continue;
+                }
                 let Some(dt) = ph_core::schedule::local_from_epoch(s.captured_at) else {
                     continue;
                 };
                 let d = dt.date();
-                if d < from || d > today {
+                if d < scan_from || d > to {
                     continue;
                 }
                 if let Some(b) = s.balance {
@@ -1156,6 +1213,9 @@ impl Engine {
                 if e.kind != "checkin" {
                     continue;
                 }
+                if vendor.is_some_and(|v| e.vendor != v) {
+                    continue;
+                }
                 let Some(delta) = e.delta.filter(|d| *d > 0) else {
                     continue;
                 };
@@ -1163,23 +1223,28 @@ impl Engine {
                     continue;
                 };
                 let d = dt.date();
-                if d < from || d > today {
+                if d < from || d > to {
                     continue;
                 }
                 *claimed.entry(d).or_default() += delta as f64;
             }
         }
 
-        let mut out = Vec::with_capacity(days.max(1) as usize);
-        // 上一个有数据的天：总额与覆盖账号数（判断能不能算净值）。
-        let mut prev: Option<(f64, usize)> = None;
-        for i in (0..days.max(1)).rev() {
-            let d = today - chrono::Duration::days(i);
+        // 首日基线：区间前一天的合计。
+        let mut prev: Option<f64> = per_day.get(&scan_from).map(|m| {
+            ids.iter()
+                .filter_map(|id| m.get(*id))
+                .fold(0f64, |acc, b| acc + *b)
+        });
+
+        let mut out = Vec::new();
+        let mut d = from;
+        while d <= to {
             let mut total = 0f64;
             let mut known = 0usize;
             if let Some(m) = per_day.get(&d) {
-                for a in &self.accounts {
-                    if let Some(b) = m.get(&a.id) {
+                for id in &ids {
+                    if let Some(b) = m.get(*id) {
                         total += *b;
                         known += 1;
                     }
@@ -1189,23 +1254,70 @@ impl Engine {
             let claimed_today = claimed.get(&d).copied().unwrap_or(0.0);
             // 「消耗」用 昨日余额 + 今日领取 − 今日余额 反推；没有前一天数据就算不出来。
             let (gain, down) = match prev {
-                Some((pt, pk)) if known > 0 && pk > 0 => {
+                Some(pt) if known > 0 => {
                     let net = total - pt;
                     (Some(net), Some((claimed_today - net).max(0.0)))
                 }
                 _ => (None, None),
             };
             if known > 0 {
-                prev = Some((total, known));
+                prev = Some(total);
             }
-            out.push(DayPoint {
-                date: format!("{:02}-{:02}", d.month(), d.day()),
-                total,
-                known,
-                gain,
-                up: Some(claimed_today),
-                down,
-            });
+            out.push((
+                d,
+                DayPoint {
+                    date: format!("{:02}-{:02}", d.month(), d.day()),
+                    total,
+                    known,
+                    gain,
+                    up: Some(claimed_today),
+                    down,
+                },
+            ));
+            d += chrono::Duration::days(1);
+        }
+        out
+    }
+
+    /// 近 `months` 个月的三项汇总（含本月，按时间升序）。
+    ///
+    /// 没有采样的月份直接跳过：补一个 0 会让总额曲线凭空掉到底。
+    pub fn monthly_series(&self, vendor: Option<Vendor>, months: i64) -> Vec<MonthPoint> {
+        use chrono::Datelike;
+
+        let today = chrono::Local::now().date_naive();
+        let months = months.clamp(1, 60) as i32;
+        let mut year = today.year();
+        let mut month = today.month() as i32 - (months - 1);
+        while month <= 0 {
+            month += 12;
+            year -= 1;
+        }
+        let Some(start) = chrono::NaiveDate::from_ymd_opt(year, month as u32, 1) else {
+            return Vec::new();
+        };
+
+        let mut out: Vec<MonthPoint> = Vec::new();
+        for (d, p) in self.series_dated(vendor, start, today) {
+            // 整天没有采样的月不建条目：补 0 会让总额曲线凭空掉到底。
+            if p.known == 0 {
+                continue;
+            }
+            let key = format!("{:04}-{:02}", d.year(), d.month());
+            let slot = match out.last_mut() {
+                Some(last) if last.month == key => last,
+                _ => {
+                    out.push(MonthPoint {
+                        month: key,
+                        ..Default::default()
+                    });
+                    out.last_mut().expect("刚 push 过")
+                }
+            };
+            slot.total = p.total;
+            slot.days += 1;
+            slot.up += p.up.unwrap_or(0.0);
+            slot.down += p.down.unwrap_or(0.0);
         }
         out
     }
@@ -1707,6 +1819,128 @@ mod tests {
         assert_eq!(last.up, Some(300.0), "新增只看签到领取流水");
         assert_eq!(last.down, Some(350.0), "消耗 = 昨日余额 + 今日领取 − 今日余额");
         assert_eq!(last.gain, Some(-50.0), "净值仍是余额差");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn series_filters_by_vendor_and_monthly_groups_by_calendar_month() {
+        let dir = tmpdir("trend-vendor-month");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let wb = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "WB",
+                Credential::from_refresh_token("tok-wb-123456"),
+            )
+            .unwrap();
+        let trae = e
+            .add_account(
+                Vendor::TraeCn,
+                "Trae",
+                Credential::from_refresh_token("tok-trae-123456"),
+            )
+            .unwrap();
+
+        let today = chrono::Local::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+        let at = |d: chrono::NaiveDate, h: u32| local_epoch(d.and_hms_opt(h, 0, 0).unwrap());
+
+        // 昨天：WB 100、Trae 500
+        for (acc, bal) in [(&wb, 100.0), (&trae, 500.0)] {
+            let mut snap = ph_core::VendorSnapshot::empty(acc, at(yesterday, 10));
+            snap.balance = Some(bal);
+            e.store.append_snapshot(&snap).unwrap();
+        }
+        // 今天：WB 领 100 后 200；Trae 不动
+        for (acc, bal) in [(&wb, 200.0), (&trae, 500.0)] {
+            let mut snap = ph_core::VendorSnapshot::empty(acc, at(today, 10));
+            snap.balance = Some(bal);
+            e.store.append_snapshot(&snap).unwrap();
+        }
+        e.store
+            .append_event(&ph_core::ActivityEvent::checkin(
+                &wb,
+                at(today, 9),
+                "已领取",
+                Some(100),
+            ))
+            .unwrap();
+
+        // 全平台：总额 700，新增 100
+        let all = e.daily_series(2);
+        let last = all.last().unwrap();
+        assert_eq!(last.total, 700.0);
+        assert_eq!(last.up, Some(100.0));
+
+        // 只算 WorkBuddy：总额 200，Trae 的 500 不该出现
+        let only = e.series(Some(Vendor::WorkBuddy), yesterday, today);
+        assert_eq!(only.last().unwrap().total, 200.0);
+        assert_eq!(only.last().unwrap().up, Some(100.0));
+
+        // 只算 Trae：没有领取流水，新增为 0
+        let trae_only = e.series(Some(Vendor::TraeCn), yesterday, today);
+        assert_eq!(trae_only.last().unwrap().total, 500.0);
+        assert_eq!(trae_only.last().unwrap().up, Some(0.0));
+
+        // 月度：只应出现今天所在的一个月，总额取该月最后一天
+        let months = e.monthly_series(None, 3);
+        assert_eq!(months.len(), 1, "跨月没有数据时不该补空月");
+        let m = &months[0];
+        assert_eq!(m.days, 2, "昨天与今天都在本月，两天都有余额数据");
+        assert_eq!(m.total, 700.0);
+        assert_eq!(m.up, 100.0);
+        match m.down {
+            // 昨天 600 → 今天 700，领了 100：没有消耗
+            d => assert!(d.abs() < 1e-9, "消耗应为 0，实际 {d}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn monthly_series_spans_month_boundary() {
+        use chrono::Datelike;
+
+        let dir = tmpdir("trend-across-months");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let acc = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "WB",
+                Credential::from_refresh_token("tok-across-123456"),
+            )
+            .unwrap();
+
+        let today = chrono::Local::now().date_naive();
+        // 上个月的最后一天：跨月分组最容易被 MM-DD 标签搞混的位置
+        let last_month = today.with_day(1).unwrap() - chrono::Duration::days(1);
+        let at = |d: chrono::NaiveDate, h: u32| local_epoch(d.and_hms_opt(h, 0, 0).unwrap());
+
+        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(last_month, 10));
+        snap.balance = Some(500.0);
+        e.store.append_snapshot(&snap).unwrap();
+
+        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(today, 10));
+        snap.balance = Some(600.0);
+        e.store.append_snapshot(&snap).unwrap();
+        e.store
+            .append_event(&ph_core::ActivityEvent::checkin(
+                &acc,
+                at(today, 9),
+                "已领取",
+                Some(100),
+            ))
+            .unwrap();
+
+        let months = e.monthly_series(None, 3);
+        assert_eq!(months.len(), 2, "只有两个月有数据，不该补空月");
+        let prev = format!("{:04}-{:02}", last_month.year(), last_month.month());
+        let cur = format!("{:04}-{:02}", today.year(), today.month());
+        assert_eq!(months[0].month, prev, "按时间升序");
+        assert_eq!(months[0].total, 500.0);
+        assert_eq!(months[0].up, 0.0, "上月没有领取流水");
+        assert_eq!(months[1].month, cur);
+        assert_eq!(months[1].total, 600.0, "月度总额取该月最后一天");
+        assert_eq!(months[1].up, 100.0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

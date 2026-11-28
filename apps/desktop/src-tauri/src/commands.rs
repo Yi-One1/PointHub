@@ -422,6 +422,54 @@ pub async fn run_refresh_inner(state: &SharedState) -> Result<StateView, String>
     Ok(build_state(&engine))
 }
 
+// ------------------------------------------------------------------ 趋势
+
+/// 把前端传来的平台串解析成枚举；空串与 None 都表示「全部平台」。
+fn parse_vendor_filter(vendor: Option<String>) -> Result<Option<Vendor>, String> {
+    match vendor.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(id) => Vendor::parse(id)
+            .map(Some)
+            .ok_or_else(|| format!("不认识的平台：{id}")),
+    }
+}
+
+/// 指定平台（`None` 为全部）与日期区间的每日积分序列。
+///
+/// 端点、按月下钻都走这一个命令：`from` 给该月 1 号、`days` 给该月天数即可。
+#[tauri::command]
+pub async fn credit_days(
+    state: State<'_, SharedState>,
+    vendor: Option<String>,
+    from: String,
+    days: i64,
+) -> Result<Vec<ph_engine::DayPoint>, String> {
+    remote_guard(state.inner()).await?;
+    let vendor = parse_vendor_filter(vendor)?;
+    let start = chrono::NaiveDate::parse_from_str(&from, "%Y-%m-%d")
+        .map_err(|_| format!("日期格式应为 YYYY-MM-DD：{from}"))?;
+    let span = days.clamp(1, 400);
+    let engine = state.engine.lock().await;
+    Ok(engine.series(
+        vendor,
+        start,
+        start + chrono::Duration::days(span - 1),
+    ))
+}
+
+/// 近 `months` 个月的三项汇总（两端一致的口径，见 `Engine::monthly_series`）。
+#[tauri::command]
+pub async fn credit_months(
+    state: State<'_, SharedState>,
+    vendor: Option<String>,
+    months: i64,
+) -> Result<Vec<ph_engine::MonthPoint>, String> {
+    remote_guard(state.inner()).await?;
+    let vendor = parse_vendor_filter(vendor)?;
+    let engine = state.engine.lock().await;
+    Ok(engine.monthly_series(vendor, months))
+}
+
 // ------------------------------------------------------------------ 签到
 
 #[tauri::command]

@@ -23,6 +23,8 @@
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 4px 12px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
   --rail-w: 212px;
+  /* 趋势图「积分总额」曲线：与涨绿跌红区分开，避免三条线抢同一个色系 */
+  --chart-total: #4f46e5;
 }
 
 html[data-theme="dark"] {
@@ -38,6 +40,7 @@ html[data-theme="dark"] {
   --warn: #fbbf24;
   --warn-w: #2a2010;
   --danger: #f87171;
+  --chart-total: #a5b4fc;
   --btn-line: #2c3a50;
   --shadow: none;
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.45);
@@ -671,6 +674,34 @@ html[data-theme="dark"] .go.solid {
   margin-bottom: 10px;
 }
 
+/* 卡片标题右侧的小按钮（月度等） */
+.btitle-btn,
+.phead-btn {
+  padding: 2px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.btitle-btn {
+  margin-left: auto;
+}
+
+/* 面板头里 .psub 已经用 auto 把自己推到右边，按钮紧跟其后即可 */
+.phead-btn {
+  margin-left: 8px;
+  flex: none;
+}
+
+.btitle-btn:hover,
+.phead-btn:hover {
+  border-color: var(--btn-line);
+  color: var(--text);
+}
+
 .btip {
   margin-left: auto;
   color: var(--text);
@@ -678,43 +709,99 @@ html[data-theme="dark"] .go.solid {
   white-space: nowrap;
 }
 
-.bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  height: 74px;
-}
-
-.bars > div {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-  height: 100%;
-}
-
-.bars i {
-  display: block;
+/* 趋势图：三条折线 + 左侧总额轴 + 右侧增减轴 */
+.tchart {
+  position: relative;
   width: 100%;
-  max-width: 34px;
-  border-radius: 3px 3px 0 0;
-  background: var(--accent);
-  opacity: 0.85;
+  min-width: 0;
 }
 
-.bars i[data-empty="1"] {
-  background: var(--line);
-  opacity: 1;
+.tchart svg {
+  display: block;
 }
 
-.bars span {
-  font-size: 10px;
-  color: var(--faint);
+.taxis {
+  font-size: 9.5px;
+  fill: var(--faint);
   font-variant-numeric: tabular-nums;
+}
+
+.taxis-right {
+  fill: var(--muted);
+}
+
+.tlegend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 6px;
+  flex-wrap: wrap;
+}
+
+/* 图例即开关：点一下隐藏/显示对应曲线 */
+.tlegend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: none;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.tlegend-item:hover {
+  border-color: var(--line);
+}
+
+.tlegend-item.off {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.tlegend-item i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ttip {
+  position: absolute;
+  z-index: 2;
+  min-width: 118px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-hover);
+  font-size: 11px;
+  color: var(--text);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.ttip b {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.ttip span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   white-space: nowrap;
+}
+
+.ttip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
 }
 
 .ev {
@@ -1326,6 +1413,114 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 趋势弹窗：比确认框宽，内容长时只滚内部，不把标题顶出去 */
+.trend-modal {
+  width: min(620px, 100%);
+  max-height: min(760px, 88vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.trend-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tsec + .tsec {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.tsec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.tsec-head h4 {
+  margin: 0 auto 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tsec-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.link-back {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.link-back:hover {
+  color: var(--text);
+}
+
+/* 月度列表：一行一个月，点进去看该月每日 */
+.mlist {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.mlist li + li {
+  border-top: 1px solid var(--line-soft);
+}
+
+.mlist button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.mlist button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.mlist .mname {
+  min-width: 62px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlist .mnum {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mlist .mnum.up {
+  color: var(--accent);
+}
+
+.mlist .mnum.down {
+  color: var(--danger);
+}
+
+.mlist .mgo {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11px;
 }
 
 .toast-stack {

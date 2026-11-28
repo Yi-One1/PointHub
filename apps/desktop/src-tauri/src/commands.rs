@@ -38,6 +38,9 @@ pub struct AccountView {
     pub checkin_enabled: bool,
     pub travel_enabled: bool,
     pub schedule_text: String,
+    /// 该账号**今天**实际执行的时刻（`HH:MM`），给设置页「各平台签到时间」的预览用。
+    /// 不是平台基准：每个账号在平台窗口里各占一段，段内每天还会浮动。
+    pub schedule_hhmm: String,
     pub balance: Option<f64>,
     pub checked_in_today: Option<bool>,
     pub streak_days: Option<i64>,
@@ -143,6 +146,11 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
                 checkin_enabled: a.checkin_enabled,
                 travel_enabled: a.travel_enabled,
                 schedule_text: a.schedule.describe(),
+                schedule_hhmm: a
+                    .schedule
+                    .slot_on(chrono::Local::now().date_naive(), &a.id)
+                    .format("%H:%M")
+                    .to_string(),
                 balance: snap.and_then(|s| s.balance),
                 checked_in_today: snap.and_then(|s| s.checked_in_today),
                 streak_days: snap.and_then(|s| s.streak_days),
@@ -209,6 +217,26 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
     }
 }
 
+/// 从「每天 00:10 + 0~5 分钟随机」这类描述里取出 `HH:MM`。
+///
+/// 远程端（手机协议）只传一句描述文本，本轮不新增协议字段，
+/// 所以界面要的时刻直接从文本里挑：找到第一段「两位数字:两位数字」即可。
+/// 找不到就返回空串，界面自己降级成不显示时刻。
+fn hhmm_from_text(text: &str) -> String {
+    text.split(|c: char| !(c.is_ascii_digit() || c == ':'))
+        .find(|seg| {
+            let b = seg.as_bytes();
+            b.len() == 5
+                && b[0].is_ascii_digit()
+                && b[1].is_ascii_digit()
+                && b[2] == b':'
+                && b[3].is_ascii_digit()
+                && b[4].is_ascii_digit()
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
 /// 把远程载荷算出的视图拼成与本地一致的 `StateView`。
 fn build_remote_state(
     view: ph_client::RemoteView,
@@ -236,6 +264,8 @@ fn build_remote_state(
             let verified = Vendor::parse(&a.vendor)
                 .map(|v| ph_client::capabilities(v).verified)
                 .unwrap_or(false);
+            // 先取出来再 move 字段：`schedule_text` 随后会被移进 AccountView。
+            let schedule_hhmm = hhmm_from_text(&a.schedule_text);
             AccountView {
                 id: a.id,
                 vendor: a.vendor,
@@ -246,6 +276,8 @@ fn build_remote_state(
                 checkin_enabled: a.checkin_enabled,
                 travel_enabled: a.travel_enabled,
                 schedule_text: a.schedule_text,
+                // 远程端的载荷只带描述文本（本轮不改手机协议），这里从文本里取时刻。
+                schedule_hhmm,
                 balance: a.balance,
                 checked_in_today: a.checked_in_today,
                 streak_days: a.streak_days,
@@ -1698,5 +1730,39 @@ mod android_vault_tests {
             patch.contains("VaultKeys.init(this)"),
             "Activity 启动前没有把上下文交给 Rust"
         );
+    }
+}
+
+#[cfg(test)]
+mod schedule_text_tests {
+    use super::hhmm_from_text;
+
+    #[test]
+    fn reads_the_new_one_line_description() {
+        // 去掉按日抖动后，`AccountSchedule::describe()` 就是「每天 HH:MM」。
+        assert_eq!(hhmm_from_text("每天 00:10"), "00:10");
+        assert_eq!(hhmm_from_text("每天 10:05"), "10:05");
+    }
+
+    #[test]
+    fn reads_the_old_description_with_jitter() {
+        // 老版本账号的描述带「+ 0~5 分钟随机」：取前面那段时刻，
+        // 不能把后面的「0」「5」当成时刻。
+        assert_eq!(hhmm_from_text("每天 00:10 + 0~5 分钟随机"), "00:10");
+        assert_eq!(hhmm_from_text("每天 09:58 + 0~12 分钟随机"), "09:58");
+    }
+
+    #[test]
+    fn returns_empty_when_there_is_no_time() {
+        // 远程端描述变了也不能崩：界面自己降级成不显示时刻。
+        assert_eq!(hhmm_from_text(""), "");
+        assert_eq!(hhmm_from_text("没有时刻"), "");
+        assert_eq!(hhmm_from_text("每天 00:1"), "");
+    }
+
+    #[test]
+    fn ignores_leading_numbers() {
+        // 「0~5 分钟」里的数字比时刻更早出现时，不能错拿它当时刻。
+        assert_eq!(hhmm_from_text("0~5 分钟，每天 07:30"), "07:30");
     }
 }

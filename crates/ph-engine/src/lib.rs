@@ -9,9 +9,9 @@
 //! UI 只调这里的方法，不直接碰 vault / providers / store。
 
 use ph_core::{
-    Account, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, DeviceInfo, Error,
-    MergeReport, Result, Settings, SyncPayload, Tombstone, TravelSnapshot, Vendor, VendorSnapshot,
-    SYNC_PROTOCOL,
+    Account, AccountSchedule, ActivityEvent, CheckinOutcome, CheckinStatus, Credential, DeviceInfo,
+    Error, MergeReport, Result, Settings, SyncPayload, Tombstone, TravelSnapshot, Vendor,
+    VendorSnapshot, SYNC_PROTOCOL,
 };
 use ph_providers::{provider_for, TravelAction};
 use ph_store::Store;
@@ -195,10 +195,16 @@ impl Engine {
         if let Some(notice) = vault.notice() {
             store.log(notice);
         }
-        let settings = store.load_settings().unwrap_or_else(|e| {
+        let mut settings = store.load_settings().unwrap_or_else(|e| {
             store.log(&format!("设置读取失败，使用默认值：{e}"));
             Settings::default()
         });
+        // 老 `settings.json` 没有「各平台签到时间」这一段：补默认值并回写，
+        // 否则后面的重算只能拿到空表、每个平台都得现算一遍默认值。
+        // 回写失败不算致命（内存里已经补齐，本轮照常跑），不能因此让程序起不来。
+        if settings.ensure_platform_schedules() {
+            let _ = store.save_settings(&settings);
+        }
         let mut accounts = store.load_accounts().unwrap_or_else(|e| {
             store.log(&format!("账号读取失败：{e}"));
             Vec::new()
@@ -254,13 +260,17 @@ impl Engine {
         for label in reclaimed {
             store.log(&format!("账号「{label}」的执行端设备已不存在，已收回本机"));
         }
-        Ok(Self {
+        let mut engine = Self {
             store,
             vault,
             settings,
             accounts,
             device,
-        })
+        };
+        // 老数据迁移：账号上带的是「按账号 id + 日期」的旧抖动，
+        // 统一收敛到「平台基准 + 同平台序号错峰」，同一平台多账号才真正错开。
+        engine.reconcile_schedules()?;
+        Ok(engine)
     }
 
     // ------------------------------------------------------------ 只读视图
@@ -390,10 +400,61 @@ impl Engine {
 
     // ------------------------------------------------------------ 设置
 
-    pub fn update_settings(&mut self, s: Settings) -> Result<()> {
+    pub fn update_settings(&mut self, mut s: Settings) -> Result<()> {
+        // 前端可能提交一份缺平台行的表（例如老客户端的默认值），先补齐再落盘。
+        s.ensure_platform_schedules();
         self.store.save_settings(&s)?;
         self.settings = s;
+        // 签到时间设置变了，该平台所有账号都要按新规则重排；
+        // 没有任何改动时 reconcile 不落盘，改别的设置不会白白写一次 accounts.json。
+        self.reconcile_schedules()?;
         Ok(())
+    }
+
+    /// 按每个平台的签到时间设置重算全部账号的 schedule；有变化才落盘。
+    ///
+    /// 返回被改动的账号数。组内顺序固定按 `(created_at, accounts.json 下标)` 升序：
+    /// 用户看到的就是「先导入的账号排在前面、时间也更靠前」，不会今天一个序明天另一个序。
+    /// `created_at` 只有秒级精度，同秒导入时用落盘下标兜底；不能用 uuid，
+    /// 否则随机 id 会让「谁排第一」每天看起来都像随机的。
+    pub fn reconcile_schedules(&mut self) -> Result<usize> {
+        // 先按平台分桶（vendor -> 下标），桶内排序后再逐组重写。
+        let mut groups: HashMap<Vendor, Vec<usize>> = HashMap::new();
+        for (i, a) in self.accounts.iter().enumerate() {
+            groups.entry(a.vendor).or_default().push(i);
+        }
+        let mut changed = 0usize;
+        for (vendor, mut idxs) in groups {
+            // 排序键用「创建时间 + accounts.json 里的下标」：`created_at` 只精确到秒，
+            // 同一秒批量导入时若再拿 uuid 兜底，谁排第一就是随机的，
+            // 界面上会出现「后导入的账号时间反而更早」。下标是落盘顺序，跨重启稳定。
+            idxs.sort_by_key(|&i| (self.accounts[i].created_at, i));
+            let total = idxs.len();
+            let plan = self.settings.platform_schedule(vendor);
+            for (pos, &i) in idxs.iter().enumerate() {
+                let want = AccountSchedule::from_platform(
+                    plan.hour,
+                    plan.minute,
+                    pos,
+                    total,
+                    plan.spread_minutes,
+                );
+                let cur = &self.accounts[i].schedule;
+                // 三个字段全等才算没变：只比时分会让旧的 jitter_minutes 残留下来。
+                if cur.hour == want.hour
+                    && cur.minute == want.minute
+                    && cur.jitter_minutes == want.jitter_minutes
+                {
+                    continue;
+                }
+                self.accounts[i].schedule = want;
+                changed += 1;
+            }
+        }
+        if changed > 0 {
+            self.store.save_accounts(&self.accounts)?;
+        }
+        Ok(changed)
     }
 
     // ------------------------------------------------------------ 账号
@@ -431,6 +492,12 @@ impl Engine {
         self.vault.flush()?;
         self.accounts.push(account.clone());
         self.store.save_accounts(&self.accounts)?;
+        // 新账号改变了该平台的账号总数，同平台其它账号的错峰位置跟着变，
+        // 必须立刻重算，否则三号变四号时前三个的时间还停留在旧的平均分布上。
+        self.reconcile_schedules()?;
+        if let Some(updated) = self.accounts.iter().find(|a| a.id == account.id) {
+            account = updated.clone();
+        }
         // 重新导入同一账号时，旧的删除标记要清掉。
         self.store.clear_tombstone(&account.id)?;
         self.store
@@ -548,6 +615,9 @@ impl Engine {
             }
             self.store.save_accounts(&self.accounts)?;
         }
+        // `add_account` 已经重算过一次；这里再跑一遍是幂等的（无改动不落盘），
+        // 保证「upsert 之后该平台的时间一定是最新规则」这个契约不依赖调用顺序。
+        self.reconcile_schedules()?;
         Ok((account, false, 0))
     }
 
@@ -759,6 +829,10 @@ impl Engine {
         self.vault.remove(account_id);
         self.vault.flush()?;
         self.store.save_accounts(&self.accounts)?;
+        // 少了一个账号，该平台的错峰分布也变了：3 个号删到 2 个时，
+        // 剩下两个要重新铺满窗口，否则界面上会出现「2 个账号 · 00:10 / 00:13」
+        // 这种与「窗口内均匀错开」自相矛盾的预览。
+        self.reconcile_schedules()?;
         self.store.log(&format!("删除账号 {account_id}"));
         Ok(())
     }
@@ -1596,6 +1670,9 @@ impl Engine {
         }
         if changed {
             self.store.save_accounts(&self.accounts)?;
+            // 对端带来的 `schedule` 可能是它那边的旧规则（甚至还是按日哈希的老数据），
+            // 合并后立刻按本机平台设置重算，避免「界面显示的时间」与「实际调度」错位到下次启动。
+            self.reconcile_schedules()?;
         }
 
         // 3. 快照 / 活动：先按 id_map 改写账号 id，再做幂等合并。
@@ -1997,6 +2074,254 @@ mod tests {
         let future = e.monthly_series_of_year(None, today.year() + 1);
         assert_eq!(future.len(), 12);
         assert!(future.iter().all(|m| m.days == 0), "未来年份没有采样");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 某账号当前的签到时刻（`HH:MM`），断言用。
+    fn hhmm_of(e: &Engine, account_id: &str) -> String {
+        let a = e
+            .accounts()
+            .iter()
+            .find(|a| a.id == account_id)
+            .expect("账号应当存在");
+        format!("{:02}:{:02}", a.schedule.hour, a.schedule.minute)
+    }
+
+    /// 把一批账号的时刻排好序再比较：`created_at` 精度到秒，
+    /// 同一秒内连续导入时组内先后由 id 兜底，具体谁排第一不该被测试写死。
+    fn sorted_hhmm(e: &Engine, ids: &[String]) -> Vec<String> {
+        let mut v: Vec<String> = ids.iter().map(|id| hhmm_of(e, id)).collect();
+        v.sort();
+        v
+    }
+
+    /// 改某平台的签到设置（只动这一个平台，其余保持原样）。
+    fn set_platform(e: &mut Engine, vendor: Vendor, hour: u8, minute: u8, spread: u8) {
+        let mut s = e.settings().clone();
+        for p in s.platform_schedules.iter_mut() {
+            if p.vendor == vendor {
+                p.hour = hour;
+                p.minute = minute;
+                p.spread_minutes = spread;
+            }
+        }
+        e.update_settings(s).unwrap();
+    }
+
+    #[test]
+    fn reconcile_schedules_spreads_accounts_within_window() {
+        let dir = tmpdir("reconcile-spread");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let mut ids = Vec::new();
+        for (i, label) in ["一号", "二号", "三号"].iter().enumerate() {
+            let a = e
+                .add_account(
+                    Vendor::WorkBuddy,
+                    *label,
+                    Credential::from_refresh_token(format!("tok-wb-spread-{i}-0000")),
+                )
+                .unwrap();
+            ids.push(a.id);
+        }
+        // 3 个账号、5 分钟窗口：窗口切成 [0,2] [2,3] [3,5]，
+        // 起点是 00:10 / 00:12 / 00:13，各自再带 2/1/2 分钟的每日浮动。
+        assert_eq!(sorted_hhmm(&e, &ids), vec!["00:10", "00:12", "00:13"]);
+        let mut widths: Vec<u8> = ids
+            .iter()
+            .map(|id| {
+                e.accounts()
+                    .iter()
+                    .find(|a| &a.id == id)
+                    .unwrap()
+                    .schedule
+                    .jitter_minutes
+            })
+            .collect();
+        widths.sort();
+        assert_eq!(widths, vec![0, 1, 2], "左闭右开分段：前两段让出右端点，末段保留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_second_imports_keep_import_order() {
+        let dir = tmpdir("reconcile-order");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let mut ids = Vec::new();
+        // 连续导入 4 个账号：`created_at` 只有秒级精度，大概率全落在同一秒。
+        // 时间必须按导入顺序递增，不能因为 uuid 随机就谁先谁后。
+        for (i, label) in ["A", "B", "C", "D"].iter().enumerate() {
+            let a = e
+                .add_account(
+                    Vendor::WorkBuddy,
+                    *label,
+                    Credential::from_refresh_token(format!("tok-wb-order-{i}-0000")),
+                )
+                .unwrap();
+            ids.push(a.id);
+        }
+        let seq: Vec<String> = ids.iter().map(|id| hhmm_of(&e, id)).collect();
+        assert_eq!(
+            seq,
+            vec!["00:10", "00:11", "00:13", "00:14"],
+            "4 个账号按导入顺序切窗口，越早导入的越靠前"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn staggered_accounts_never_share_a_minute() {
+        let dir = tmpdir("reconcile-collision");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let mut ids = Vec::new();
+        for (i, label) in ["A", "B", "C", "D"].iter().enumerate() {
+            let a = e
+                .add_account(
+                    Vendor::WorkBuddy,
+                    *label,
+                    Credential::from_refresh_token(format!("tok-wb-collide-{i}-0000")),
+                )
+                .unwrap();
+            ids.push(a.id);
+        }
+        // 4 个账号、5 分钟窗口：落点段 [0,0] [1,2] [3,3] [4,5] 互不重叠。
+        // 这条是行为级断言：曾因段端点双方都能取到 + FNV 低位相关，
+        // 4 个账号有 83.6% 的天数会撞在同一分钟（同一秒打上游）。
+        for d in 1..=30u32 {
+            let date = chrono::NaiveDate::from_ymd_opt(2026, 12, d).unwrap();
+            let mut slots: Vec<_> = ids
+                .iter()
+                .map(|id| {
+                    let a = e.accounts().iter().find(|a| &a.id == id).unwrap();
+                    a.schedule.slot_on(date, &a.id)
+                })
+                .collect();
+            slots.sort();
+            assert!(
+                slots.windows(2).all(|w| w[0] != w[1]),
+                "第 {d} 天有账号撞在同一分钟：{slots:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reconcile_schedules_follows_spread_and_base_time() {
+        let dir = tmpdir("reconcile-follow");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let mut ids = Vec::new();
+        for (i, label) in ["甲", "乙", "丙"].iter().enumerate() {
+            let a = e
+                .add_account(
+                    Vendor::WorkBuddy,
+                    *label,
+                    Credential::from_refresh_token(format!("tok-wb-follow-{i}-0000")),
+                )
+                .unwrap();
+            ids.push(a.id);
+        }
+
+        // 窗口改 0：三个账号都退回基准时刻，不再错开。
+        set_platform(&mut e, Vendor::WorkBuddy, 0, 10, 0);
+        assert_eq!(sorted_hhmm(&e, &ids), vec!["00:10", "00:10", "00:10"]);
+
+        // 基准改 09:30、窗口回到 5 分钟：09:30 / 09:33 / 09:35。
+        set_platform(&mut e, Vendor::WorkBuddy, 9, 30, 5);
+        assert_eq!(sorted_hhmm(&e, &ids), vec!["09:30", "09:32", "09:33"]);
+
+        // 再加第 4 个账号：总数变了，前三个也要重排到 round(i*5/3)。
+        let fourth = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "丁",
+                Credential::from_refresh_token("tok-wb-follow-3-0000"),
+            )
+            .unwrap();
+        ids.push(fourth.id);
+        // 4 个账号重新切窗口：0 / 1 / 3 / 4。
+        assert_eq!(
+            sorted_hhmm(&e, &ids),
+            vec!["09:30", "09:31", "09:33", "09:34"]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reconcile_schedules_after_removal() {
+        let dir = tmpdir("reconcile-remove");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let mut ids = Vec::new();
+        for (i, label) in ["一", "二", "三"].iter().enumerate() {
+            let a = e
+                .add_account(
+                    Vendor::WorkBuddy,
+                    *label,
+                    Credential::from_refresh_token(format!("tok-wb-remove-{i}-0000")),
+                )
+                .unwrap();
+            ids.push(a.id);
+        }
+        assert_eq!(sorted_hhmm(&e, &ids), vec!["00:10", "00:12", "00:13"]);
+
+        // 删掉中间那个：剩下两个要从「00:10 / 00:12」重排成铺满窗口的「00:10 / 00:13」，
+        // 否则界面预览会写着「2 个账号 · 00:10 / 00:13」，与错峰规则自相矛盾。
+        e.remove_account(&ids[1]).unwrap();
+        let rest = vec![ids[0].clone(), ids[2].clone()];
+        assert_eq!(sorted_hhmm(&e, &rest), vec!["00:10", "00:13"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reconcile_schedules_keeps_other_platforms_alone() {
+        let dir = tmpdir("reconcile-iso");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let wb = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "wb",
+                Credential::from_refresh_token("tok-wb-iso-000000"),
+            )
+            .unwrap();
+        let q = e
+            .add_account(
+                Vendor::QoderCn,
+                "q",
+                Credential::from_refresh_token("tok-q-iso-0000000"),
+            )
+            .unwrap();
+        assert_eq!(hhmm_of(&e, &q.id), "10:10", "Qoder 默认 10:10");
+
+        set_platform(&mut e, Vendor::WorkBuddy, 3, 7, 5);
+        assert_eq!(hhmm_of(&e, &wb.id), "03:07");
+        assert_eq!(hhmm_of(&e, &q.id), "10:10", "改 WorkBuddy 不该动 Qoder");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_migrates_legacy_jitter_to_spread() {
+        let dir = tmpdir("reconcile-migrate");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let acc = e
+            .add_account(
+                Vendor::TraeCn,
+                "旧号",
+                Credential::from_refresh_token("tok-trae-legacy-0000"),
+            )
+            .unwrap();
+        // 模拟老数据：账号上还留着按日哈希的抖动。
+        let mut accs = e.accounts().to_vec();
+        accs[0].schedule.jitter_minutes = 4;
+        e.store.save_accounts(&accs).unwrap();
+        drop(e);
+
+        let e2 = Engine::open(Some(dir.clone())).unwrap();
+        let a = e2.accounts().iter().find(|a| a.id == acc.id).unwrap();
+        // 单账号：整段 5 分钟窗口都归它，每天在 00:10~00:15 之间取一个时刻。
+        assert_eq!(a.schedule.jitter_minutes, 5, "启动时应收敛到平台窗口");
+        assert_eq!(
+            (a.schedule.hour, a.schedule.minute),
+            Vendor::TraeCn.default_checkin_time(),
+            "单账号保持在平台基准时刻"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

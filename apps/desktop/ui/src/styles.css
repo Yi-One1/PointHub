@@ -2160,3 +2160,65 @@ html[data-window="ball"] body {
     margin-top: 14px;
   }
 }
+
+/* ------------------------------------------------------------ 各平台签到时间 */
+
+/* 一行里塞两个小输入：左「签到时刻」、右「浮动窗口」，
+   与 .row 的 11px 行高对齐，不挤出分隔线。 */
+.psched {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex: none;
+}
+
+.psched-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.psched-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.psched-label {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.psched-input {
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.psched-input:focus {
+  border-color: var(--accent);
+}
+
+.psched-num {
+  width: 56px;
+}
+
+.psched-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* 说明文字直接跟在行后面时，左内边距要与 .row 的文字对齐 */
+.psched-foot {
+  padding: 0 16px 12px;
+  margin: 8px 0 0;
+}

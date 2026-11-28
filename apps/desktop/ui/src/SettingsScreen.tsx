@@ -624,6 +624,111 @@ export default function SettingsScreen({
                 />
               </div>
             </section>
+
+            {/* 账号时间 = 平台基准 + 同平台分段错峰 + 段内按日浮动；这里只改平台基准与窗口。
+                保存即改即存，后端会把该平台所有账号按新规则重算。 */}
+            <h2 className="settings-group">各平台签到时间</h2>
+            {draft.mode === "remote" ? (
+              // 客户端模式下签到由电脑执行，这里的时间只写进本机设置，
+              // 对电脑上的调度没有任何影响——与其给一个看着能改其实无效的控件，不如直说。
+              <section className="panel">
+                <p className="hint psched-foot">
+                  客户端模式下签到由电脑执行，时间以电脑端设置为准；要改请到电脑上操作。
+                </p>
+              </section>
+            ) : (
+            <section className="panel">
+              {(draft.platform_schedules ?? []).map((p) => {
+                const accounts = view.accounts.filter((a) => a.vendor === p.vendor);
+                // 平台显示名沿用能力表（总览/关于页同一份），不在设置页另造一张表。
+                const display =
+                  view.platforms.find((x) => x.vendor === p.vendor)?.display ?? p.vendor;
+                // 预览用后端算好的「今天实际时刻」：每个账号在窗口里各占一段，
+                // 段内每天还会浮动，所以显示的是今天这一刻而不是固定基准。
+                const preview =
+                  accounts.length === 0
+                    ? "还没有账号"
+                    : accounts.length === 1
+                      ? `1 个账号 · 今天 ${accounts[0].schedule_hhmm}`
+                      : `${accounts.length} 个账号 · 今天 ${accounts
+                          .map((a) => a.schedule_hhmm)
+                          .join(" / ")}`;
+                const hhmm = `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+                return (
+                  <div className="row" key={p.vendor}>
+                    <div>
+                      <div className="row-title psched-title">
+                        <VendorIcon vendor={p.vendor} size={16} />
+                        <span>{display}</span>
+                      </div>
+                      <div className="row-desc" style={{ fontVariant: "numeric" }}>
+                        {preview}
+                      </div>
+                      {accounts.length >= p.spread_minutes + 1 && (
+                        <div className="hint warn">
+                          账号数达到「窗口 + 1」，分钟不够分，部分账号会落在同一分钟。
+                        </div>
+                      )}
+                    </div>
+                    <div className="psched">
+                      <label className="psched-col">
+                        <span className="psched-label">签到时刻</span>
+                        <input
+                          className="psched-input"
+                          type="time"
+                          value={hhmm}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            // 清空/半输入的中间态不写回：type=time 会给出空串。
+                            if (!v) return;
+                            const [h, m] = v.split(":").map((x) => Number(x));
+                            if (!Number.isInteger(h) || h < 0 || h > 23) return;
+                            if (!Number.isInteger(m) || m < 0 || m > 59) return;
+                            change({
+                              ...draft,
+                              platform_schedules: draft.platform_schedules.map((x) =>
+                                x.vendor === p.vendor ? { ...x, hour: h, minute: m } : x,
+                              ),
+                            });
+                          }}
+                        />
+                      </label>
+                      <label className="psched-col">
+                        <span className="psched-label">浮动窗口</span>
+                        <span className="psched-unit">
+                          <input
+                            className="psched-input psched-num"
+                            type="number"
+                            min={0}
+                            max={30}
+                            step={1}
+                            value={p.spread_minutes}
+                            onChange={(e) => {
+                              const raw = e.target.value.trim();
+                              if (raw === "") return;
+                              const n = Number(raw);
+                              if (!Number.isInteger(n) || n < 0 || n > 30) return;
+                              change({
+                                ...draft,
+                                platform_schedules: draft.platform_schedules.map((x) =>
+                                  x.vendor === p.vendor ? { ...x, spread_minutes: n } : x,
+                                ),
+                              });
+                            }}
+                          />
+                          分钟
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="hint psched-foot">
+                浮动窗口由同平台账号平分：每个账号各占一段、每天在自己那段里浮动，
+                窗口够宽时多账号不会撞在同一分钟；只有一个账号时整段窗口都归它。
+              </p>
+            </section>
+            )}
             </>
           )}
 

@@ -52,4 +52,5 @@ export const SETTINGS_FIELD_SECTIONS: Record<keyof Settings, SettingsSectionId> 
   catch_up_missed: "checkin",
   auto_refresh_minutes: "checkin",
   update: "update",
+  platform_schedules: "checkin",
 };

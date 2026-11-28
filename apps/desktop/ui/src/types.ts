@@ -72,6 +72,15 @@ export interface LanInfo {
   allow_checkin: boolean;
 }
 
+/** 一个平台的自动签到时间；账号时间 = 基准 + 同平台序号错峰。 */
+export interface PlatformSchedule {
+  vendor: string;
+  hour: number;
+  minute: number;
+  /** 同平台多账号错开的总窗口（分钟）；0 = 不错开 */
+  spread_minutes: number;
+}
+
 export interface Settings {
   mode: AppMode;
   theme: ThemeMode;
@@ -85,6 +94,7 @@ export interface Settings {
   catch_up_missed: boolean;
   auto_refresh_minutes: number;
   update: UpdateSettings;
+  platform_schedules: PlatformSchedule[];
 }
 
 export interface Aggregate {
@@ -107,6 +117,8 @@ export interface AccountView {
   checkin_enabled: boolean;
   travel_enabled: boolean;
   schedule_text: string;
+  /** 该账号实际执行的时刻（HH:MM）；设置页按平台列账号时直接显示它 */
+  schedule_hhmm: string;
   balance: number | null;
   checked_in_today: boolean | null;
   streak_days: number | null;

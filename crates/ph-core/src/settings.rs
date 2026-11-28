@@ -1,3 +1,4 @@
+use crate::model::Vendor;
 use serde::{Deserialize, Serialize};
 
 /// 运行模式。
@@ -170,6 +171,47 @@ impl Default for UpdateSettings {
     }
 }
 
+/// 错峰窗口的上限（分钟）。
+///
+/// 窗口只是「同平台多账号互相避开」用的，超过半小时就没有意义了；
+/// 老设置里写进更大的值也按这个上限收敛，避免某个账号被推到下一个整点。
+pub const MAX_SPREAD_MINUTES: u8 = 30;
+
+/// 一个平台的自动签到时间设置。
+///
+/// 账号自身不再保存可编辑的时间：时间 = 平台基准 + 同平台序号错峰。
+/// 用户改这里，该平台所有账号一起重算（见 `ph-engine::Engine::reconcile_schedules`）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlatformSchedule {
+    pub vendor: Vendor,
+    pub hour: u8,
+    pub minute: u8,
+    /// 同平台多账号错开的总窗口（分钟）。0 = 不错开、不浮动。
+    #[serde(default = "default_spread")]
+    pub spread_minutes: u8,
+}
+
+fn default_spread() -> u8 {
+    5
+}
+
+impl PlatformSchedule {
+    /// 平台默认值：时刻取平台的额度刷新时间，窗口给 5 分钟。
+    pub fn default_for(v: Vendor) -> Self {
+        let (hour, minute) = v.default_checkin_time();
+        Self {
+            vendor: v,
+            hour,
+            minute,
+            spread_minutes: default_spread(),
+        }
+    }
+
+    pub fn hhmm(&self) -> String {
+        format!("{:02}:{:02}", self.hour, self.minute)
+    }
+}
+
 /// 全局设置。整体落盘为 `settings.json`。
 ///
 /// 注意：数据目录本身不在这里——它由 `ph-store` 的定位逻辑决定，
@@ -209,6 +251,10 @@ pub struct Settings {
     /// 自动更新。
     #[serde(default)]
     pub update: UpdateSettings,
+    /// 各平台的自动签到时间。老 `settings.json` 没有这一段，
+    /// 读取后由 `ensure_platform_schedules()` 补齐。
+    #[serde(default)]
+    pub platform_schedules: Vec<PlatformSchedule>,
 }
 
 impl Default for Settings {
@@ -226,7 +272,58 @@ impl Default for Settings {
             catch_up_missed: true,
             auto_refresh_minutes: 10,
             update: UpdateSettings::default(),
+            platform_schedules: Vendor::ALL
+                .iter()
+                .map(|v| PlatformSchedule::default_for(*v))
+                .collect(),
         }
+    }
+}
+
+impl Settings {
+    /// 为 `Vendor::ALL` 中缺失的平台补默认值，并去掉重复项。
+    ///
+    /// 归一化成「按 `Vendor::ALL` 顺序、每平台一条」：界面照这个顺序渲染，
+    /// 用户不用面对一个乱序或带重复行的列表。返回是否有改动（调用方据此回写）。
+    pub fn ensure_platform_schedules(&mut self) -> bool {
+        let mut next: Vec<PlatformSchedule> = Vec::with_capacity(Vendor::ALL.len());
+        for v in Vendor::ALL {
+            // 同平台只留第一条：后来的重复行是历史数据，不该在界面上叠出来。
+            let mut found = self
+                .platform_schedules
+                .iter()
+                .find(|p| p.vendor == v)
+                .cloned()
+                .unwrap_or_else(|| PlatformSchedule::default_for(v));
+            // 超限值在归一化时就收敛掉：否则界面拿到 99 显示在 max=30 的框里，
+            // 用户既改不动也想不通，而账号实际时间又是按 30 算的。
+            if found.spread_minutes > MAX_SPREAD_MINUTES {
+                found.spread_minutes = MAX_SPREAD_MINUTES;
+            }
+            next.push(found);
+        }
+        if next == self.platform_schedules {
+            return false;
+        }
+        self.platform_schedules = next;
+        true
+    }
+
+    /// 取某平台的签到时间设置；缺失时回落到平台默认值。
+    ///
+    /// 窗口在这里也收敛到 30 分钟：即使调用方没先跑 `ensure_platform_schedules()`
+    /// 也不会拿到超限的值；`ensure` 会把超限的值就地改掉并落盘。
+    pub fn platform_schedule(&self, v: Vendor) -> PlatformSchedule {
+        let mut p = self
+            .platform_schedules
+            .iter()
+            .find(|p| p.vendor == v)
+            .cloned()
+            .unwrap_or_else(|| PlatformSchedule::default_for(v));
+        if p.spread_minutes > MAX_SPREAD_MINUTES {
+            p.spread_minutes = MAX_SPREAD_MINUTES;
+        }
+        p
     }
 }
 
@@ -251,5 +348,80 @@ mod tests {
     fn default_update_mirror_is_ready_to_use() {
         assert_eq!(UpdateSettings::default().mirror, "https://ghfast.top/");
         assert_eq!(Settings::default().update.mirror, "https://ghfast.top/");
+    }
+
+    #[test]
+    fn old_settings_json_gets_platform_schedules_backfilled() {
+        // 老版本 settings.json 完全没有 platform_schedules 段。
+        let mut s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(s.platform_schedules.is_empty(), "缺字段时应先按空表读入");
+        assert!(s.ensure_platform_schedules(), "补齐三个平台应报告有改动");
+        assert_eq!(s.platform_schedules.len(), 3);
+        assert_eq!(
+            s.platform_schedules.iter().map(|p| p.vendor).collect::<Vec<_>>(),
+            Vendor::ALL.to_vec(),
+            "顺序固定为 Vendor::ALL，界面不用自己排"
+        );
+        // Qoder 是 10:10 刷新，窗口默认 5 分钟。
+        let q = s.platform_schedule(Vendor::QoderCn);
+        assert_eq!((q.hour, q.minute), (10, 10));
+        assert_eq!(q.spread_minutes, 5);
+        assert_eq!(q.hhmm(), "10:10");
+        // 已经补齐后再调一次不应再报改动。
+        assert!(!s.ensure_platform_schedules());
+    }
+
+    #[test]
+    fn ensure_platform_schedules_drops_duplicates() {
+        let mut s = Settings::default();
+        // 模拟历史数据：重复的 WorkBuddy + 只保留用户改过的 Qoder。
+        s.platform_schedules = vec![
+            PlatformSchedule {
+                vendor: Vendor::QoderCn,
+                hour: 9,
+                minute: 45,
+                spread_minutes: 8,
+            },
+            PlatformSchedule::default_for(Vendor::WorkBuddy),
+            PlatformSchedule {
+                vendor: Vendor::WorkBuddy,
+                hour: 3,
+                minute: 3,
+                spread_minutes: 3,
+            },
+        ];
+        assert!(s.ensure_platform_schedules());
+        assert_eq!(s.platform_schedules.len(), 3, "每平台只留一条");
+        // 用户改过的值要保住。
+        let q = s.platform_schedule(Vendor::QoderCn);
+        assert_eq!((q.hour, q.minute, q.spread_minutes), (9, 45, 8));
+        // 重复的 WorkBuddy 保留第一条。
+        let wb = s.platform_schedule(Vendor::WorkBuddy);
+        assert_eq!((wb.hour, wb.minute), (0, 10));
+    }
+
+    #[test]
+    fn spread_is_capped_at_thirty_minutes() {
+        let mut s = Settings::default();
+        s.platform_schedules = vec![PlatformSchedule {
+            vendor: Vendor::TraeCn,
+            hour: 0,
+            minute: 10,
+            spread_minutes: 99,
+        }];
+        // 只读一次（不归一化）时也要收敛，避免调用方拿到 99。
+        assert_eq!(s.platform_schedule(Vendor::TraeCn).spread_minutes, 30);
+        // 归一化会把超限值就地收敛：界面显示的与账号实际用的才会一致。
+        assert!(s.ensure_platform_schedules());
+        assert_eq!(s.platform_schedule(Vendor::TraeCn).spread_minutes, 30);
+        assert_eq!(s.platform_schedules[1].spread_minutes, 30);
+    }
+
+    #[test]
+    fn missing_platform_falls_back_to_default() {
+        let mut s = Settings::default();
+        s.platform_schedules.clear();
+        let wb = s.platform_schedule(Vendor::WorkBuddy);
+        assert_eq!((wb.hour, wb.minute, wb.spread_minutes), (0, 10, 5));
     }
 }

@@ -15,7 +15,9 @@ pub use model::{
     SyncPayload, Tombstone, TravelSnapshot, TravelState, Vendor, VendorSnapshot, SYNC_PROTOCOL,
 };
 pub use schedule::AccountSchedule;
-pub use settings::{AppMode, Settings, UpdateSettings, UpdateSource};
+pub use settings::{
+    AppMode, PlatformSchedule, Settings, UpdateSettings, UpdateSource, MAX_SPREAD_MINUTES,
+};
 
 /// 当前程序版本，取自 Cargo.toml，避免手写漂移。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

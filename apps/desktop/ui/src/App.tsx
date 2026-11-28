@@ -297,6 +297,11 @@ export default function App() {
               setSettingsAnchor(null);
               setSettingsOpen(true);
             }}
+            onOpenCheckinSettings={() => {
+              setSettingsSection("checkin");
+              setSettingsAnchor(null);
+              setSettingsOpen(true);
+            }}
           />
         )}
 
@@ -362,6 +367,7 @@ function Overview({
   onOpenTrends,
   updateVersion,
   onOpenUpdate,
+  onOpenCheckinSettings,
 }: {
   view: StateView;
   busy: string | null;
@@ -376,6 +382,8 @@ function Overview({
   /** 发现的新版本号；null 表示没有可更新的版本 */
   updateVersion: string | null;
   onOpenUpdate: () => void;
+  /** 打开设置并落在「签到与通知」分区（各平台签到时间在同一处） */
+  onOpenCheckinSettings: () => void;
 }) {
   const enabled = view.accounts.filter((a) => a.enabled);
   const done = enabled.filter((a) => a.checked_in_today === true).length;
@@ -569,6 +577,15 @@ function Overview({
                     title={`查看 ${g.display} 的近 7 日积分变化`}
                   >
                     近 7 日
+                  </button>
+                )}
+                {view.mode !== "remote" && (
+                  <button
+                    className="phead-btn"
+                    onClick={onOpenCheckinSettings}
+                    title={`设置 ${g.display} 的自动签到时间`}
+                  >
+                    签到时间
                   </button>
                 )}
               </div>

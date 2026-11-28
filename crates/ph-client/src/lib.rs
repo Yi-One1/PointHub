@@ -69,6 +69,11 @@ pub struct RemoteAccount {
     pub has_credential: bool,
     pub can_checkin: bool,
     pub can_travel: bool,
+    /// 平台昵称；手机端只展示，不参与改名。
+    pub nickname: Option<String>,
+    pub label_custom: bool,
+    /// 导入来源：local / browser / token。
+    pub source: Option<String>,
     pub executor: Option<String>,
 }
 
@@ -167,6 +172,9 @@ impl RemoteView {
                 can_checkin: cap.checkin && has_cred && on_server,
                 can_travel: cap.travel && has_cred && on_server && a.travel_enabled,
                 executor: a.executor.clone(),
+                nickname: a.nickname.clone(),
+                label_custom: a.label_custom,
+                source: a.source.clone(),
             });
         }
 

@@ -386,6 +386,11 @@ impl Provider for TraeCnProvider {
         Ok(crate::identity::platform_uid(cred))
     }
 
+    /// Trae 的登录态 JWT 里带昵称；取不到就交给界面兜底。
+    async fn nickname(&self, cred: &Credential) -> Result<Option<String>> {
+        Ok(crate::identity::jwt_nickname(cred))
+    }
+
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot> {
         Self::check_prereq(cred)?;
         let (status, body) = self.post_json(cred, STATUS_PATH).await?;

@@ -123,6 +123,7 @@ pub fn run() {
             commands::local_import,
             commands::browser_login,
             commands::remove_account,
+            commands::rename_account,
             commands::set_account_enabled,
             commands::save_settings,
             commands::default_settings,

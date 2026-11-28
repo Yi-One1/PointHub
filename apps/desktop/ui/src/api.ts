@@ -30,6 +30,9 @@ export const api = {
     cookie?: string;
   }) => invoke<string>("add_account", { payload }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
+  /** 改账号名；改过之后重复导入不再用平台昵称覆盖 */
+  renameAccount: (id: string, label: string) =>
+    invoke<string>("rename_account", { id, label }),
   /** 扫描本机客户端登录态（只读、不联网） */
   localImportScan: () => invoke<LocalImportStatus[]>("local_import_scan"),
   /** 从本机客户端登录态导入；后端先验证余额再落库。allowKeyFetch 只在用户明确同意后传 true。 */

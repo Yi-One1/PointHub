@@ -115,6 +115,19 @@ pub struct Account {
     /// 同一账号同一天只发一条失败系统通知，避免持续失败把通知栏刷屏。
     #[serde(default)]
     pub last_failure_notice_at: Option<i64>,
+    /// 平台侧昵称（例如 WorkBuddy 的「毅One」）。拿不到就是空。
+    ///
+    /// 只作为默认账号名的来源，改名时不会被覆盖。
+    #[serde(default)]
+    pub nickname: Option<String>,
+    /// `label` 是否是用户手动改过的。
+    ///
+    /// true 时重复导入不会用平台昵称覆盖它——用户起的名优先。
+    #[serde(default)]
+    pub label_custom: bool,
+    /// 导入来源：`local` / `browser` / `token`。老数据为空，界面就不显示来源。
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 impl Account {
@@ -139,6 +152,9 @@ impl Account {
             origin_device: None,
             retry_after: None,
             last_failure_notice_at: None,
+            nickname: None,
+            label_custom: false,
+            source: None,
         }
     }
 }
@@ -598,6 +614,23 @@ mod tests {
             assert_eq!(v, back);
             assert_eq!(Vendor::parse(v.id()), Some(v));
         }
+    }
+
+    /// 老 `accounts.json` 没有昵称/来源/自定义名三个字段，必须能按默认值读回，
+    /// 否则升级后用户的账号列表会直接读不出来。
+    #[test]
+    fn account_json_without_new_fields_uses_defaults() {
+        let a = Account::new(Vendor::WorkBuddy, "旧记录", "hint");
+        let mut v = serde_json::to_value(&a).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("nickname");
+        obj.remove("label_custom");
+        obj.remove("source");
+        let back: Account = serde_json::from_value(v).unwrap();
+        assert_eq!(back.label, "旧记录");
+        assert_eq!(back.nickname, None);
+        assert!(!back.label_custom);
+        assert_eq!(back.source, None);
     }
 
     #[test]

@@ -379,6 +379,50 @@ impl Provider for QoderCnProvider {
         Ok(self.resolve_user_id(cred).await)
     }
 
+    /// Qoder 的令牌不是 JWT，昵称只能问 userinfo。
+    ///
+    /// 失败一律当作「没有昵称」：取名不该阻断导入。
+    async fn nickname(&self, cred: &Credential) -> Result<Option<String>> {
+        let Some(token) = cred.access_token.as_deref() else {
+            return Ok(None);
+        };
+        let resp = match self
+            .client
+            .get(format!("{QODER_BASE}/api/v1/userinfo"))
+            .bearer_auth(token)
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+        let body: Value = match resp.json().await {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
+        let keys = [
+            "nickname",
+            "nickName",
+            "name",
+            "displayName",
+            "userName",
+            "user_name",
+        ];
+        if let Some(v) = crate::http::pick_str(&body, &keys) {
+            return Ok(Some(v));
+        }
+        if let Some(data) = body.get("data") {
+            if let Some(v) = crate::http::pick_str(data, &keys) {
+                return Ok(Some(v));
+            }
+        }
+        Ok(None)
+    }
+
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot> {
         Self::token(cred)?;
         let now = chrono::Local::now().timestamp();

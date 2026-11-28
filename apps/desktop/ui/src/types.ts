@@ -122,6 +122,12 @@ export interface AccountView {
   can_checkin: boolean;
   can_travel: boolean;
   verified: boolean;
+  /** 平台昵称；账号默认名从这里来 */
+  nickname: string | null;
+  /** 名字是否用户手动改过；true 时重导不覆盖 */
+  label_custom: boolean;
+  /** 导入来源：local / browser / token；老数据为 null */
+  source: "local" | "browser" | "token" | null;
 }
 
 export interface PlatformCap {

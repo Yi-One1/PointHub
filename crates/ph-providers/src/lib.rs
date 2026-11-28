@@ -69,6 +69,13 @@ pub trait Provider: Send + Sync {
         Ok(None)
     }
 
+    /// 平台昵称，用于给账号起个默认名字（例如 WorkBuddy 的「毅One」）。
+    ///
+    /// 拿不到不是错误：界面会退回「平台名 + 账号」。默认实现返回 `None`。
+    async fn nickname(&self, _cred: &Credential) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// 执行签到。
     async fn checkin(&self, account: &Account, cred: &Credential) -> Result<CheckinOutcome>;
 

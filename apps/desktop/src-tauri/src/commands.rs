@@ -53,6 +53,12 @@ pub struct AccountView {
     pub can_checkin: bool,
     pub can_travel: bool,
     pub verified: bool,
+    /// 平台昵称；界面把它当作「这个名字是平台给的」的说明。
+    pub nickname: Option<String>,
+    /// 名字是否用户手动改过；true 时重复导入不会覆盖。
+    pub label_custom: bool,
+    /// 导入来源：local / browser / token；老数据为 None。
+    pub source: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -153,6 +159,9 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
                 can_checkin: cap.checkin,
                 can_travel: cap.travel && a.travel_enabled,
                 verified: cap.verified,
+                nickname: a.nickname.clone(),
+                label_custom: a.label_custom,
+                source: a.source.clone(),
             }
         })
         .collect();
@@ -251,6 +260,9 @@ fn build_remote_state(
                 can_checkin: a.can_checkin,
                 can_travel: a.can_travel,
                 verified,
+                nickname: a.nickname,
+                label_custom: a.label_custom,
+                source: a.source,
             }
         })
         .collect();
@@ -635,18 +647,42 @@ pub async fn add_account(
     if let Some(uid) = cred.platform_uid.clone() {
         let _ = engine.adopt_identities(vendor, &uid).await;
     }
+    let nickname = provider_for(vendor).nickname(&cred).await.ok().flatten();
+    // 用户填了别名就以别名为准（并标记为自定义，重导不覆盖）；
+    // 没填才用默认名，之后由平台昵称替换。
+    let user_label = payload.label.trim().to_string();
+    let base = if user_label.is_empty() {
+        format!("{} 账号", vendor.display())
+    } else {
+        user_label.clone()
+    };
+    let label = unique_label(&engine, vendor, &base);
     let (acc, updated, merged) = engine
-        .upsert_account(vendor, payload.label, cred)
+        .upsert_account(vendor, label, cred)
         .map_err(|e| e.user_message())?;
+    if !user_label.is_empty() {
+        engine
+            .rename_account(&acc.id, &user_label)
+            .map_err(|e| e.user_message())?;
+    }
+    engine
+        .apply_identity_meta(&acc.id, nickname, "token")
+        .map_err(|e| e.user_message())?;
+    let label = engine
+        .accounts()
+        .iter()
+        .find(|a| a.id == acc.id)
+        .map(|a| a.label.clone())
+        .unwrap_or(acc.label);
     Ok(if updated {
         let tail = if merged > 0 {
             format!("，并合并了 {merged} 条重复记录")
         } else {
             String::new()
         };
-        format!("该账号已存在，已更新凭据「{}」{tail}", acc.label)
+        format!("该账号已存在，已更新凭据「{label}」{tail}")
     } else {
-        format!("已添加账号「{}」", acc.label)
+        format!("已添加账号「{label}」")
     })
 }
 
@@ -692,6 +728,12 @@ pub async fn local_import(
     let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
     let found = ph_providers::local_import::import(v, allow_key_fetch.unwrap_or(false))
         .map_err(|e| e.user_message())?;
+    // 先问一次平台昵称（JWT 里就有，Qoder 走 userinfo）；拿不到不是错误。
+    let nickname = provider_for(v)
+        .nickname(&found.credential)
+        .await
+        .ok()
+        .flatten();
 
     let (label, snap, updated, merged) = {
         let mut engine = state.engine.lock().await;
@@ -701,7 +743,18 @@ pub async fn local_import(
             .upsert_account_verified(v, label, found.credential)
             .await
             .map_err(|e| e.user_message())?;
-        (acc.label, snap, updated, merged)
+        // 落库后再写元信息：昵称会替换掉「平台 本机」这种默认名，
+        // 但用户手动改过的名字不动。
+        engine
+            .apply_identity_meta(&acc.id, nickname, "local")
+            .map_err(|e| e.user_message())?;
+        let label = engine
+            .accounts()
+            .iter()
+            .find(|a| a.id == acc.id)
+            .map(|a| a.label.clone())
+            .unwrap_or(acc.label);
+        (label, snap, updated, merged)
     };
 
     let bal = snap
@@ -733,6 +786,25 @@ pub async fn remove_account(state: State<'_, SharedState>, id: String) -> Result
     remote_guard(state.inner()).await?;
     let mut engine = state.engine.lock().await;
     engine.remove_account(&id).map_err(|e| e.user_message())
+}
+
+/// 改账号名。改过之后重复导入不会用平台昵称覆盖它。
+#[tauri::command]
+pub async fn rename_account(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+    label: String,
+) -> Result<String, String> {
+    remote_guard(state.inner()).await?;
+    let renamed = {
+        let mut engine = state.engine.lock().await;
+        engine
+            .rename_account(&id, &label)
+            .map_err(|e| e.user_message())?
+    };
+    let _ = app.emit("ph://changed", ());
+    Ok(renamed.label)
 }
 
 #[tauri::command]
@@ -781,6 +853,8 @@ pub async fn import_credential(
     cred: ph_core::Credential,
 ) -> Result<(), String> {
     let state = app.state::<SharedState>();
+    // 昵称要在凭据被 move 进 upsert 之前取。
+    let nickname = provider_for(vendor).nickname(&cred).await.ok().flatten();
 
     let (account_id, label, updated, merged) = {
         let mut engine = state.engine.lock().await;
@@ -793,7 +867,16 @@ pub async fn import_credential(
         let (acc, updated, merged) = engine
             .upsert_account(vendor, label, cred)
             .map_err(|e| e.user_message())?;
-        (acc.id, acc.label, updated, merged)
+        engine
+            .apply_identity_meta(&acc.id, nickname, "browser")
+            .map_err(|e| e.user_message())?;
+        let label = engine
+            .accounts()
+            .iter()
+            .find(|a| a.id == acc.id)
+            .map(|a| a.label.clone())
+            .unwrap_or(acc.label);
+        (acc.id, label, updated, merged)
     };
 
     let message = {

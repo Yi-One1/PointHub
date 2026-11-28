@@ -355,6 +355,11 @@ impl Provider for WorkBuddyProvider {
         Ok(())
     }
 
+    /// 昵称在登录态 JWT 里（`nickname`），本机导入与手动令牌都能取到。
+    async fn nickname(&self, cred: &Credential) -> Result<Option<String>> {
+        Ok(crate::identity::jwt_nickname(cred))
+    }
+
     async fn snapshot(&self, account: &Account, cred: &Credential) -> Result<VendorSnapshot> {
         let mut cred = cred.clone();
         let body = self.get_status(&mut cred).await?;

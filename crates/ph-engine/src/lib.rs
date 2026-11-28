@@ -78,6 +78,22 @@ pub struct Engine {
 }
 
 /// 设备类型：安卓壳编译出来就是 `android`，其余按 `pc` 处理。
+/// 老数据不记导入来源：从默认命名（`平台 本机` / `平台 网页` / `平台 账号`）推断一次。
+///
+/// 只认「平台名开头 + 三种后缀」，用户改过的名字认不出来就保持 `None`，
+/// 界面只是不显示来源，不会乱猜。
+fn infer_source(a: &Account) -> Option<String> {
+    let label = a.label.trim();
+    let display = a.vendor.display();
+    let rest = label.strip_prefix(display)?.trim();
+    match rest.split_whitespace().next().unwrap_or("") {
+        "本机" => Some("local".to_string()),
+        "网页" => Some("browser".to_string()),
+        "账号" => Some("token".to_string()),
+        _ => None,
+    }
+}
+
 fn device_kind() -> &'static str {
     if cfg!(target_os = "android") {
         "android"
@@ -191,6 +207,12 @@ impl Engine {
         let mut dirty = false;
         let mut reclaimed = Vec::new();
         for a in &mut accounts {
+            if a.source.is_none() {
+                a.source = infer_source(a);
+                if a.source.is_some() {
+                    dirty = true;
+                }
+            }
             if a.executor.is_none() {
                 a.executor = Some(device.id.clone());
                 dirty = true;
@@ -542,7 +564,74 @@ impl Engine {
         self.store.save_accounts(&self.accounts)
     }
 
-    /// 带验证的导入：先用临时账号刷新 + 采样，全部通过才落库。
+    /// 记录平台昵称与导入来源，并在用户没改过名时用昵称刷新账号名。
+    ///
+    /// 规则：
+    /// - `label_custom == false` 且拿到昵称 → `label` 换成昵称；
+    /// - 用户改过名（`label_custom == true`）→ 名字不动，只更新 nickname 字段；
+    /// - 昵称为空（例如手动令牌、平台没返回）→ 名字保持导入时的「平台 账号」。
+    pub fn apply_identity_meta(
+        &mut self,
+        id: &str,
+        nickname: Option<String>,
+        source: &str,
+    ) -> Result<()> {
+        let Some(idx) = self.accounts.iter().position(|a| a.id == id) else {
+            return Ok(());
+        };
+        let nickname = nickname
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty());
+        let mut changed = false;
+        {
+            let acc = &mut self.accounts[idx];
+            if acc.source.as_deref() != Some(source) {
+                acc.source = Some(source.to_string());
+                changed = true;
+            }
+            if acc.nickname != nickname {
+                acc.nickname = nickname.clone();
+                changed = true;
+            }
+            if !acc.label_custom {
+                if let Some(name) = nickname {
+                    if acc.label != name {
+                        acc.label = name;
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                acc.updated_at = chrono::Local::now().timestamp();
+            }
+        }
+        if changed {
+            self.store.save_accounts(&self.accounts)?;
+        }
+        Ok(())
+    }
+
+    /// 用户手动改名：写入 `label` 并标记为自定义，之后重复导入不会覆盖。
+    pub fn rename_account(&mut self, id: &str, label: &str) -> Result<Account> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err(Error::Invalid("账号名不能为空。".into()));
+        }
+        if label.chars().count() > 24 {
+            return Err(Error::Invalid("账号名最多 24 个字。".into()));
+        }
+        let Some(idx) = self.accounts.iter().position(|a| a.id == id) else {
+            return Err(Error::NotFound("找不到该账号，可能已被删除。".into()));
+        };
+        {
+            let acc = &mut self.accounts[idx];
+            acc.label = label.to_string();
+            acc.label_custom = true;
+            acc.updated_at = chrono::Local::now().timestamp();
+        }
+        self.store.save_accounts(&self.accounts)?;
+        Ok(self.accounts[idx].clone())
+    }
     ///
     /// 本机导入专用。凭据来自客户端存储，先验一次能避免「导入成功但根本用不了」，
     /// 也符合 ADR-0003「验证通过才落库」。同一账号已存在时更新凭据，不新建。
@@ -1618,6 +1707,90 @@ mod tests {
         assert_eq!(last.up, Some(300.0), "新增只看签到领取流水");
         assert_eq!(last.down, Some(350.0), "消耗 = 昨日余额 + 今日领取 − 今日余额");
         assert_eq!(last.gain, Some(-50.0), "净值仍是余额差");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn infer_source_from_default_labels() {
+        let mk = |vendor: Vendor, label: &str| Account::new(vendor, label, "h");
+        assert_eq!(
+            infer_source(&mk(Vendor::WorkBuddy, "WorkBuddy 本机")).as_deref(),
+            Some("local")
+        );
+        // 多账号时默认名会带序号
+        assert_eq!(
+            infer_source(&mk(Vendor::WorkBuddy, "WorkBuddy 本机 2")).as_deref(),
+            Some("local")
+        );
+        assert_eq!(
+            infer_source(&mk(Vendor::TraeCn, "Trae CN 网页")).as_deref(),
+            Some("browser")
+        );
+        assert_eq!(
+            infer_source(&mk(Vendor::QoderCn, "Qoder CN 账号")).as_deref(),
+            Some("token")
+        );
+        // 用户改过名、或平台前缀对不上：不猜
+        assert_eq!(infer_source(&mk(Vendor::WorkBuddy, "我的主号")), None);
+        assert_eq!(infer_source(&mk(Vendor::WorkBuddy, "Trae CN 本机")), None);
+    }
+
+    #[test]
+    fn nickname_fills_label_until_user_renames() {
+        let dir = tmpdir("nick");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let acc = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "WorkBuddy 本机",
+                Credential::from_refresh_token("tok-nick-123456"),
+            )
+            .unwrap();
+
+        // 首次导入拿到昵称：默认名换成昵称，来源记下来。
+        e.apply_identity_meta(&acc.id, Some("毅One".into()), "local")
+            .unwrap();
+        let a = e.accounts().iter().find(|a| a.id == acc.id).unwrap();
+        assert_eq!(a.label, "毅One");
+        assert_eq!(a.nickname.as_deref(), Some("毅One"));
+        assert_eq!(a.source.as_deref(), Some("local"));
+        assert!(!a.label_custom);
+
+        // 拿不到昵称时不把名字改回默认值。
+        e.apply_identity_meta(&acc.id, None, "local").unwrap();
+        let a = e.accounts().iter().find(|a| a.id == acc.id).unwrap();
+        assert_eq!(a.label, "毅One", "没昵称时不该动名字");
+
+        // 用户改名后，重导即使拿到昵称也不覆盖。
+        e.rename_account(&acc.id, "我的主号").unwrap();
+        e.apply_identity_meta(&acc.id, Some("毅One".into()), "browser")
+            .unwrap();
+        let a = e.accounts().iter().find(|a| a.id == acc.id).unwrap();
+        assert_eq!(a.label, "我的主号");
+        assert_eq!(a.nickname.as_deref(), Some("毅One"));
+        assert_eq!(a.source.as_deref(), Some("browser"));
+        assert!(a.label_custom);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_account_rejects_empty_and_too_long() {
+        let dir = tmpdir("nick-bad");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let acc = e
+            .add_account(
+                Vendor::TraeCn,
+                "Trae 本机",
+                Credential::from_refresh_token("tok-nick-654321"),
+            )
+            .unwrap();
+        assert!(e.rename_account(&acc.id, "   ").is_err(), "空名应被拒绝");
+        assert!(
+            e.rename_account(&acc.id, &"名".repeat(25)).is_err(),
+            "超长名应被拒绝"
+        );
+        assert!(e.rename_account(&acc.id, "主号").is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

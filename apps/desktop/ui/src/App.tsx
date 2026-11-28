@@ -687,6 +687,20 @@ function ActivityCard({ events }: { events: StateView["events"] }) {
   );
 }
 
+/// 导入来源的界面用词；老数据没有来源时返回空串（界面只显示签到时间）。
+function importSourceText(source: AccountView["source"]): string {
+  switch (source) {
+    case "local":
+      return "本机导入";
+    case "browser":
+      return "浏览器授权";
+    case "token":
+      return "手动令牌";
+    default:
+      return "";
+  }
+}
+
 function statusOf(a: AccountView): { kind: string; text: string; hint: string } {
   if (!a.enabled) return { kind: "idle", text: "已停用", hint: "该账号已停用，不会自动签到" };
   if (!a.has_credential) return { kind: "idle", text: "缺凭据", hint: "还没有导入令牌" };
@@ -724,6 +738,9 @@ function AccountsPage({
   const [deviceId, setDeviceId] = useState("");
   const [domain, setDomain] = useState("");
   const [target, setTarget] = useState<AccountView | null>(null);
+  // 就地改名：editingId 指向正在编辑的行；cancelRename 用来吞掉 Esc 之后的 blur 提交。
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const cancelRename = useRef(false);
   const [opening, setOpening] = useState(false);
   // 授权链接：浏览器没被自动拉起来时的兜底入口
   const [authUrl, setAuthUrl] = useState("");
@@ -794,7 +811,9 @@ function AccountsPage({
     try {
       const msg = await api.addAccount({
         vendor,
-        label: label || `${cap?.display ?? vendor} 账号`,
+        // 留空交给后端：先试平台昵称，拿不到才用「平台 账号」。
+        // 传默认名会被当成「用户自定义」，昵称就永远覆盖不上。
+        label,
         secret,
         secret_kind: kind,
         device_id: deviceId || undefined,
@@ -817,6 +836,40 @@ function AccountsPage({
       setTarget(null);
       onChanged(await api.bootstrap());
       notify(`已删除 ${a.label}`);
+    } catch (e) {
+      notify(String(e), "warn");
+    }
+  };
+
+  // 按平台分组，顺序跟能力表——平台顺序是产品决定，不该被导入顺序带跑。
+  const groups = useMemo(() => {
+    const map = new Map<string, AccountView[]>();
+    for (const a of view.accounts) {
+      const list = map.get(a.vendor);
+      if (list) list.push(a);
+      else map.set(a.vendor, [a]);
+    }
+    const order = view.platforms.map((p) => p.vendor);
+    const keys = [...order.filter((v) => map.has(v)), ...[...map.keys()].filter((v) => !order.includes(v))];
+    return keys.map((v) => {
+      const list = map.get(v)!;
+      const cap = view.platforms.find((p) => p.vendor === v);
+      return {
+        vendor: v,
+        display: cap?.display ?? list[0].vendor_display,
+        accounts: list,
+      };
+    });
+  }, [view.accounts, view.platforms]);
+
+  const saveName = async (a: AccountView, raw: string) => {
+    setEditingId(null);
+    const next = raw.trim();
+    if (!next || next === a.label) return;
+    try {
+      await api.renameAccount(a.id, next);
+      onChanged(await api.bootstrap());
+      notify(`已改名为「${next}」`);
     } catch (e) {
       notify(String(e), "warn");
     }
@@ -861,37 +914,79 @@ function AccountsPage({
           {view.accounts.length === 0 ? (
             <p className="panel-empty">还没有账号。右侧导入第一个。</p>
           ) : (
-            <ul className="acct-list">
-              {view.accounts.map((a) => (
-                <li key={a.id} className="acct-row">
-                  <VendorIcon vendor={a.vendor} size={24} />
-                  <div className="acct-main">
-                    <div className="acct-title">
-                      {a.label}
-                      <span className="acct-vendor">{a.vendor_display}</span>
-                      {!a.enabled && <span className="tag tag-muted">已停用</span>}
-                      {!a.has_credential && <span className="tag tag-warn">缺凭据</span>}
-                    </div>
-                    <div className="acct-sub">
-                      {a.hint} · {a.schedule_text}
-                    </div>
-                  </div>
-                  <div className="acct-balance">
-                    {a.balance === null ? (
-                      "—"
-                    ) : (
-                      <>
-                        {credits(a.balance)}
-                        <PointsIcon tone="jade" size={12} />
-                      </>
-                    )}
-                  </div>
-                  <button className="icon-btn" title="删除" onClick={() => setTarget(a)} disabled={busy !== null}>
-                    <IconTrash />
-                  </button>
-                </li>
-              ))}
-            </ul>
+            groups.map((g) => (
+              <div className="acct-group" key={g.vendor}>
+                <div className="acct-group-head">
+                  <VendorIcon vendor={g.vendor} size={18} />
+                  <span className="acct-group-name">{g.display}</span>
+                  <span className="acct-group-count">{g.accounts.length}</span>
+                </div>
+                <ul className="acct-list">
+                  {g.accounts.map((a) => (
+                    <li key={a.id} className="acct-row">
+                      <div className="acct-main">
+                        <div className="acct-title">
+                          {editingId === a.id ? (
+                            <input
+                              className="acct-name-input"
+                              defaultValue={a.label}
+                              maxLength={24}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") e.currentTarget.blur();
+                                if (e.key === "Escape") {
+                                  cancelRename.current = true;
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              onBlur={(e) => {
+                                if (cancelRename.current) {
+                                  cancelRename.current = false;
+                                  setEditingId(null);
+                                  return;
+                                }
+                                void saveName(a, e.currentTarget.value);
+                              }}
+                            />
+                          ) : (
+                            <button
+                              className="acct-name"
+                              title="点击改名"
+                              onClick={() => setEditingId(a.id)}
+                            >
+                              {a.label}
+                            </button>
+                          )}
+                          {!a.enabled && <span className="tag tag-muted">已停用</span>}
+                          {!a.has_credential && <span className="tag tag-warn">缺凭据</span>}
+                        </div>
+                        <div
+                          className="acct-sub"
+                          title={`令牌指纹 ${a.hint}｜用于区分同一平台的多份凭据；重新导入后会变`}
+                        >
+                          {[importSourceText(a.source), a.schedule_text]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      </div>
+                      <div className="acct-balance">
+                        {a.balance === null ? (
+                          "—"
+                        ) : (
+                          <>
+                            {credits(a.balance)}
+                            <PointsIcon tone="jade" size={12} />
+                          </>
+                        )}
+                      </div>
+                      <button className="icon-btn" title="删除" onClick={() => setTarget(a)} disabled={busy !== null}>
+                        <IconTrash />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
           )}
         </section>
 

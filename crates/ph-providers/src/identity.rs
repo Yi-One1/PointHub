@@ -25,6 +25,43 @@ pub fn platform_uid(cred: &Credential) -> Option<String> {
         .or_else(|| cred.access_token.as_deref().and_then(subject))
 }
 
+/// 从凭据里的 JWT 猜一个昵称。
+///
+/// 只用于「账号默认叫什么」，不参与鉴权与去重；不同平台字段名不一样，
+/// 这里按常见写法依次尝试。拿不到就返回 `None`，调用方退回「平台名 + 账号」。
+pub fn jwt_nickname(cred: &Credential) -> Option<String> {
+    for token in [&cred.refresh_token, &cred.access_token] {
+        let Some(payload) = token.as_deref().and_then(jwt_payload) else {
+            continue;
+        };
+        for key in ["nickname", "nickName", "userName", "user_name", "name", "displayName"] {
+            let Some(v) = payload.get(key).and_then(Value::as_str) else {
+                continue;
+            };
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+        // 有些平台的昵称挂在 `data` / `user` 下面。
+        for holder in ["data", "user", "account"] {
+            let Some(obj) = payload.get(holder) else {
+                continue;
+            };
+            for key in ["nickname", "nickName", "userName", "name", "displayName"] {
+                let Some(v) = obj.get(key).and_then(Value::as_str) else {
+                    continue;
+                };
+                let v = v.trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 fn subject(token: &str) -> Option<String> {
     let payload = jwt_payload(token)?;
     payload

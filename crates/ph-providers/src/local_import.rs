@@ -41,6 +41,11 @@ pub struct LocalCredential {
     pub credential: Credential,
     /// 给人看的来源说明，不含令牌。
     pub detail: String,
+    /// 客户端登录态里自带的昵称（有就填），用来给账号起名。
+    ///
+    /// 从登录态直接拿比事后解析 JWT 更可靠：新版 WorkBuddy 的令牌是加密信封，
+    /// 昵称在明文 `account` 段里。
+    pub nickname: Option<String>,
 }
 
 /// 扫描各平台的本机登录态（只读，不联网）。
@@ -131,11 +136,15 @@ fn workbuddy_v5_credential(path: &Path, allow_key_fetch: bool) -> Result<LocalCr
         expires_at: auth.expires_at,
         ..Default::default()
     };
-    let detail = match auth.nickname {
+    let detail = match auth.nickname.as_deref() {
         Some(name) => format!("已找到 WorkBuddy 5.x 登录态（{name}）"),
         None => "已找到 WorkBuddy 5.x 登录态".to_string(),
     };
-    Ok(LocalCredential { credential, detail })
+    Ok(LocalCredential {
+        credential,
+        detail,
+        nickname: auth.nickname,
+    })
 }
 
 /// 旧版 `~/.workbuddy/checkin-rt.json`（明文 rt）。
@@ -198,6 +207,7 @@ fn workbuddy_legacy_credential(path: &Path) -> Result<LocalCredential> {
             refresh_token: Some(rt.to_string()),
             ..Default::default()
         },
+        nickname: (!nickname.is_empty()).then(|| nickname.to_string()),
         detail,
     })
 }
@@ -306,6 +316,10 @@ fn read_trae_storage(path: &Path) -> Result<LocalCredential> {
     credential.platform_uid = pick_uid(&auth, &["userId", "user_id", "uid"]);
 
     Ok(LocalCredential {
+        nickname: crate::http::pick_str(
+            &auth,
+            &["nickname", "nickName", "userName", "user_name", "name"],
+        ),
         detail: match expires_at {
             Some(exp) => format!(
                 "已找到 Trae CN 客户端登录态（令牌有效期至 {}）",
@@ -416,6 +430,10 @@ fn qoder_credential(home: &Path) -> Result<LocalCredential> {
     credential.platform_uid = pick_uid(&session, &["user_id", "userId", "uid"]);
 
     Ok(LocalCredential {
+        nickname: crate::http::pick_str(
+            &session,
+            &["nickname", "nickName", "userName", "user_name", "name"],
+        ),
         detail: match expires_at {
             Some(exp) => format!(
                 "已找到 Qoder CN 客户端登录态（令牌有效期至 {}）",

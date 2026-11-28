@@ -728,12 +728,16 @@ pub async fn local_import(
     let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
     let found = ph_providers::local_import::import(v, allow_key_fetch.unwrap_or(false))
         .map_err(|e| e.user_message())?;
-    // 先问一次平台昵称（JWT 里就有，Qoder 走 userinfo）；拿不到不是错误。
-    let nickname = provider_for(v)
-        .nickname(&found.credential)
-        .await
-        .ok()
-        .flatten();
+    // 昵称优先用登录态里自带的（WorkBuddy 的 account.nickname、Trae 的 auth 字段）；
+    // 没有再去问平台（Qoder 走 userinfo）。拿不到不是错误。
+    let nickname = match found.nickname.clone() {
+        Some(name) => Some(name),
+        None => provider_for(v)
+            .nickname(&found.credential)
+            .await
+            .ok()
+            .flatten(),
+    };
 
     let (label, snap, updated, merged) = {
         let mut engine = state.engine.lock().await;

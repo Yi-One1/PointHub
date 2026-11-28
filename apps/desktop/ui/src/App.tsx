@@ -1011,15 +1011,17 @@ function AccountsPage({
           <div className="pbody">
             <div className="field">
               <label>平台</label>
-              <div className="seg">
+              {/* 平台会越来越多：等宽网格自动换行，不依赖固定 3 格滑轨 */}
+              <div className="seg seg-platforms">
                 {view.platforms.map((p) => (
                   <button
                     key={p.vendor}
                     className={`seg-item ${vendor === p.vendor ? "active" : ""}`}
                     onClick={() => setVendor(p.vendor)}
+                    title={p.display}
                   >
                     <VendorIcon vendor={p.vendor} size={15} />
-                    {p.display}
+                    <span className="seg-label">{p.display}</span>
                   </button>
                 ))}
               </div>
@@ -1056,9 +1058,17 @@ function AccountsPage({
             {mode === "browser" ? (
               <>
                 <ol className="steps">
-                  <li>点下面的按钮，会在你<strong>平时用的浏览器</strong>里新开一个标签页（不是新窗口）</li>
-                  <li>登录并点「授权」，看到成功提示就可以关掉那个标签页</li>
-                  <li>这里会自动导入；导入完会显示余额，确认令牌真的能用</li>
+                  <li>
+                    <strong>打开授权页</strong>：点击下方按钮，系统默认浏览器会新开一个标签页
+                    （不会新开窗口）。
+                  </li>
+                  <li>
+                    <strong>完成授权</strong>：在该页面登录，并点击「授权」；看到成功提示后即可关闭标签页。
+                  </li>
+                  <li>
+                    <strong>确认结果</strong>：返回本应用，导入会自动完成并显示账户余额，
+                    用于确认令牌确实可用。
+                  </li>
                 </ol>
                 <button className="btn primary block" onClick={startBrowserLogin} disabled={opening}>
                   {opening ? "正在打开…" : `用浏览器授权 ${cap?.display ?? "平台"}`}

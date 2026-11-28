@@ -219,6 +219,9 @@ nav {
 main {
   padding: 22px 28px 28px;
   overflow-y: auto;
+  /* 始终为纵向滚动条留出 10px：否则「浏览器授权 ↔ 手动令牌」切换时
+     滚动条忽有忽无，.split 两栏按比例重算，卡片宽度会跳 10px。 */
+  scrollbar-gutter: stable;
   min-width: 0;
 }
 
@@ -911,6 +914,10 @@ html[data-theme="dark"] .go.solid {
   height: 26px;
   display: grid;
   place-items: center;
+  /* 必须清零：按钮的 UA 默认内边距是 6px，会把内容盒压到 12px，
+     15px 的图标放不下就被挤到偏右 1.5px，看起来没在悬停框中间。 */
+  padding: 0;
+  line-height: 0;
   border-radius: 7px;
   border: 1px solid transparent;
   background: transparent;
@@ -988,6 +995,38 @@ textarea {
   font-size: 12px;
   padding: 5px 10px;
   border-radius: 7px;
+  white-space: nowrap;
+}
+
+/* 平台选择器：平台数量会继续长，改成等宽网格——每行放下几个就放几个，
+   多的整行换行，不会像滑轨那样挤成一团或横向溢出。 */
+.seg-platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 2px;
+}
+
+.seg-platforms .seg-item {
+  min-width: 0;
+  justify-content: center;
+  /* 三列等宽时单格约 93px：图标 14 + 间距 4 + 左右内边距 10 = 28，
+     留给文字 65px，刚好放下 11.5px 的「WorkBuddy」而不截断。 */
+  gap: 4px;
+  padding: 5px 5px;
+  font-size: 11.5px;
+}
+
+.seg-platforms .vicon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* 名字过长时截断，靠 title 看全名；不撑破单元格 */
+.seg-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

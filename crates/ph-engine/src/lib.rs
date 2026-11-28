@@ -150,6 +150,18 @@ fn month_start_epoch() -> i64 {
         .unwrap_or(0)
 }
 
+/// 领取成功但平台未回金额时，用快照里的每日额度兜底。
+///
+/// Trae CN 的领取响应只有「领取成功」，没有 credits 字段；若直接记 None，
+/// 当日「新增」会少算一次。WorkBuddy / Qoder 自带金额，不受影响。
+fn fill_claimed_credit(outcome: &mut CheckinOutcome, snap: &VendorSnapshot) {
+    if outcome.status == CheckinStatus::Claimed && outcome.credit.is_none() {
+        if let Some(credit) = snap.daily_credit.filter(|c| *c > 0) {
+            outcome.credit = Some(credit);
+        }
+    }
+}
+
 /// 失败后的自动重试间隔。
 ///
 /// 凭据失效重试也没用，直接等到次日 0 点；普通失败 30 分钟后再试。
@@ -1007,7 +1019,7 @@ impl Engine {
         self.vault.put(account_id, cred);
         self.vault.flush()?;
 
-        let outcome = match outcome {
+        let mut outcome = match outcome {
             Ok(o) => o,
             Err(e) => CheckinOutcome {
                 account_id: account.id.clone(),
@@ -1030,6 +1042,9 @@ impl Engine {
         let cred_after = self.vault.get(account_id).cloned().unwrap_or_default();
         match provider.snapshot(&account, &cred_after).await {
             Ok(mut snap) => {
+                // 部分平台（如 Trae CN）领取成功但响应不含积分数字，
+                // 用快照里的每日额度兜底，避免「已领取」却没有 +N。
+                fill_claimed_credit(&mut outcome, &snap);
                 snap.today_gain = self.estimate_gain(account_id, snap.balance);
                 let _ = self.store.append_snapshot(&snap);
             }
@@ -1807,6 +1822,47 @@ mod tests {
         assert!(!json.contains("access_token"));
         assert!(!json.contains("\"cookie\""));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn claimed_without_reported_credit_uses_daily_credit() {
+        let snap = VendorSnapshot {
+            account_id: "a".into(),
+            vendor: Vendor::TraeCn,
+            captured_at: 0,
+            balance: Some(900.0),
+            checked_in_today: Some(true),
+            streak_days: None,
+            daily_credit: Some(100),
+            today_gain: None,
+            travel: None,
+            note: None,
+        };
+        let mut outcome = CheckinOutcome {
+            account_id: "a".into(),
+            vendor: Vendor::TraeCn,
+            status: CheckinStatus::Claimed,
+            credit: None,
+            streak_days: None,
+            message: "领取成功".into(),
+            at: 0,
+        };
+        fill_claimed_credit(&mut outcome, &snap);
+        assert_eq!(outcome.credit, Some(100));
+
+        // 平台已回金额时不覆盖
+        outcome.credit = Some(80);
+        fill_claimed_credit(&mut outcome, &snap);
+        assert_eq!(outcome.credit, Some(80));
+
+        // 非「领取成功」不补
+        let mut already = CheckinOutcome {
+            status: CheckinStatus::AlreadyDone,
+            credit: None,
+            ..outcome
+        };
+        fill_claimed_credit(&mut already, &snap);
+        assert_eq!(already.credit, None);
     }
 
     #[test]

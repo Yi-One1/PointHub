@@ -434,7 +434,8 @@ function Overview({
               "—"
             ) : (
               <>
-                {upPositive ? `+${credits(todayUp ?? 0)}` : "0"}
+                <span className="ksign">{upPositive ? "+" : ""}</span>
+                {credits(upPositive ? (todayUp ?? 0) : 0)}
                 <PointsIcon tone={upPositive ? "jade" : "ink"} size={18} />
               </>
             )}
@@ -448,7 +449,8 @@ function Overview({
               "—"
             ) : (
               <>
-                {downPositive ? `-${credits(todayDown ?? 0)}` : "0"}
+                <span className="ksign">{downPositive ? "-" : ""}</span>
+                {credits(downPositive ? (todayDown ?? 0) : 0)}
                 <PointsIcon tone={downPositive ? "ruby" : "ink"} size={18} />
               </>
             )}

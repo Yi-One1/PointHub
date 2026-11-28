@@ -405,6 +405,15 @@ html[data-theme="dark"] .btn.primary {
   color: var(--danger);
 }
 
+/* 正负号定宽：Segoe UI 下 26px 的「+」约 17.6px、「-」约 9.9px，
+   不定宽会让两张卡的数字起点差 7.6px。min-width 而不是 width：
+   宁可多留一点空白，也不把「+」压窄或裁掉。0 也占位，保持三态对齐。 */
+.kval .ksign {
+  display: inline-block;
+  min-width: 0.7em;
+  text-align: center;
+}
+
 /* ------------------------------------------------------------ 平台面板 */
 
 .panels {

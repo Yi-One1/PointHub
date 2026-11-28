@@ -54,11 +54,22 @@ test("积分总额卡用文字小字替代进度条", () => {
 test("今日新增涨绿、今日消耗跌红，消耗显示负数并用 ruby 图标", () => {
   assert.ok(APP.includes('className={`kval ${upPositive ? "up" : ""}`}'));
   assert.ok(APP.includes('className={`kval ${downPositive ? "down" : ""}`}'));
-  assert.ok(APP.includes("`-${credits(todayDown ?? 0)}`"), "消耗应显示为负数");
+  assert.ok(APP.includes('{downPositive ? "-" : ""}'), "消耗应带负号");
+  assert.ok(APP.includes("credits(downPositive ? (todayDown ?? 0) : 0)"));
   assert.ok(APP.includes('tone={downPositive ? "ruby" : "ink"}'));
   assert.ok(APP.includes('tone={upPositive ? "jade" : "ink"}'));
   assert.match(CSS, /\.kval\.up \{\s*color: var\(--accent\);/);
   assert.match(CSS, /\.kval\.down \{\s*color: var\(--danger\);/);
+});
+
+test("正负号定宽，两张卡的数字起点对齐", () => {
+  // Segoe UI 26px 下「+」≈17.6px、「-」≈9.9px；不定宽会让数字起点差 7.6px。
+  assert.ok(APP.includes('<span className="ksign">{upPositive ? "+" : ""}</span>'));
+  assert.ok(APP.includes('<span className="ksign">{downPositive ? "-" : ""}</span>'));
+  assert.match(
+    CSS,
+    /\.kval \.ksign \{[\s\S]*?min-width:\s*0\.7em;[\s\S]*?text-align:\s*center;/,
+  );
 });
 
 test("图标不再用滤镜把绿色染灰", () => {

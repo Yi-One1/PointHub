@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "./api";
-import { BRAND_MARK, BRAND_MARK_DARK } from "./assets";
+import { BRAND_MARK, BRAND_MARK_DARK, VENDOR_NAME } from "./assets";
 import { useTheme } from "./theme";
 import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
@@ -751,6 +751,7 @@ function EventRow({ e }: { e: StateView["events"][number] }) {
   return (
     <div className="ev">
       <b>{e.label}</b>
+      <span className="ev-vendor">{VENDOR_NAME[e.vendor] ?? e.vendor}</span>
       <span className="ev-text">{e.text}</span>
       {e.delta !== null && e.delta > 0 && (
         <span className="ev-delta">

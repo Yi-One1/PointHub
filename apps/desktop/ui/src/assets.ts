@@ -40,3 +40,10 @@ export const VENDOR_ICON: Record<string, string> = {
   "trae-cn": vendorTrae,
   "qoder-cn": vendorQoder,
 };
+
+/** 平台显示名：活动流水里用来区分不同平台的同名账号。 */
+export const VENDOR_NAME: Record<string, string> = {
+  "workbuddy": "WorkBuddy",
+  "trae-cn": "Trae",
+  "qoder-cn": "Qoder",
+};

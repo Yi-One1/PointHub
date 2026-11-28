@@ -125,3 +125,13 @@ test("最近活动：卡片只留 4 条，「更多」弹窗复用同一行", ()
   // 后端一次多取一些流水，弹窗才能看到比卡片更多的记录。
   assert.match(COMMANDS, /recent_events\(48\)/);
 });
+
+test("最近活动始终显示平台标签，用于区分同名账号", () => {
+  assert.match(ASSETS, /export const VENDOR_NAME/);
+  assert.ok(ASSETS.includes('"workbuddy": "WorkBuddy"'));
+  assert.ok(ASSETS.includes('"trae-cn": "Trae"'));
+  assert.ok(ASSETS.includes('"qoder-cn": "Qoder"'));
+  assert.ok(APP.includes("VENDOR_NAME[e.vendor]"), "活动行应显示平台名");
+  assert.ok(APP.includes('className="ev-vendor"'));
+  assert.match(CSS, /\.ev-vendor \{[\s\S]*?flex: none;/);
+});

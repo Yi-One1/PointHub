@@ -828,10 +828,21 @@ html[data-theme="dark"] .go.solid {
   font-weight: 500;
   color: var(--text);
   flex: none;
-  max-width: 96px;
+  max-width: 84px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 平台标签：同名账号靠它区分，始终显示 */
+.ev-vendor {
+  flex: none;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 
 .ev-text {

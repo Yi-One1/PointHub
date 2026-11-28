@@ -162,6 +162,16 @@ fn fill_claimed_credit(outcome: &mut CheckinOutcome, snap: &VendorSnapshot) {
     }
 }
 
+/// 「今天已签」是重复轮询产生的噪音：不写入流水，也不在最近活动里展示。
+fn is_repeated_checkin(e: &ActivityEvent) -> bool {
+    e.kind == "checkin" && e.delta.is_none() && e.text == "今天已签"
+}
+
+/// 已签到的幂等结果只写日志，不写活动流水。
+fn should_record_event(status: CheckinStatus) -> bool {
+    status != CheckinStatus::AlreadyDone
+}
+
 /// 失败后的自动重试间隔。
 ///
 /// 凭据失效重试也没用，直接等到次日 0 点；普通失败 30 分钟后再试。
@@ -1076,12 +1086,15 @@ impl Engine {
             outcome.message
         ));
         // 记流水：界面「最近活动」直接读它，不再从日志里正则捞。
-        let _ = self.store.append_event(&ActivityEvent::checkin(
-            &account,
-            outcome.at,
-            outcome.status.label(),
-            outcome.credit,
-        ));
+        // 「今天已签」是幂等结果，只留日志，不占活动列表。
+        if should_record_event(outcome.status) {
+            let _ = self.store.append_event(&ActivityEvent::checkin(
+                &account,
+                outcome.at,
+                outcome.status.label(),
+                outcome.credit,
+            ));
+        }
         Ok(outcome)
     }
 
@@ -1411,9 +1424,19 @@ impl Engine {
         out
     }
 
-    /// 最近的活动流水（新的在前）。
+    /// 最近的活动流水（新的在前）。重复的「今天已签」不展示。
     pub fn recent_events(&self, limit: usize) -> Vec<ActivityEvent> {
-        self.store.load_events(limit).unwrap_or_default()
+        let limit = limit.max(1);
+        // 多取一批候选，过滤噪音后再截断，避免历史噪音把有效记录挤出窗口。
+        let candidates = self
+            .store
+            .load_events(limit.saturating_mul(8).max(48))
+            .unwrap_or_default();
+        candidates
+            .into_iter()
+            .filter(|e| !is_repeated_checkin(e))
+            .take(limit)
+            .collect()
     }
 
     // ------------------------------------------------------------ 调度支持
@@ -1863,6 +1886,34 @@ mod tests {
         };
         fill_claimed_credit(&mut already, &snap);
         assert_eq!(already.credit, None);
+    }
+
+    #[test]
+    fn repeated_checkin_is_not_recorded_or_shown() {
+        assert!(!should_record_event(CheckinStatus::AlreadyDone));
+        assert!(should_record_event(CheckinStatus::Claimed));
+        assert!(should_record_event(CheckinStatus::Failed));
+
+        let dir = tmpdir("noise");
+        let e = Engine::open(Some(dir.clone())).unwrap();
+        let ev = |at: i64, delta: Option<i64>, text: &str| ActivityEvent {
+            at,
+            account_id: "a".into(),
+            label: "毅One".into(),
+            vendor: Vendor::TraeCn,
+            kind: "checkin".into(),
+            delta,
+            text: text.into(),
+        };
+        e.store.append_event(&ev(1, None, "今天已签")).unwrap();
+        e.store.append_event(&ev(2, None, "失败")).unwrap();
+        e.store.append_event(&ev(3, Some(100), "已领取")).unwrap();
+
+        let got = e.recent_events(10);
+        assert_eq!(got.len(), 2, "只隐藏「今天已签」，失败记录保留");
+        assert_eq!(got[0].text, "已领取");
+        assert_eq!(got[1].text, "失败");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

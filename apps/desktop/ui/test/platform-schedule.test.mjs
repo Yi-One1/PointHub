@@ -149,3 +149,21 @@ test("新增样式类都已落地（.psched 系列）", () => {
   assert.match(CSS, /\.psched-input\s*\{/);
   assert.match(CSS, /\.psched-num\s*\{/);
 });
+
+test("时间控件的时钟图标用矢量图，非整数缩放不发糊", () => {
+  // 原生 ::-webkit-calendar-picker-indicator 是位图，125% / 150% 缩放下会重采样。
+  const rule = CSS.match(
+    /\.psched-input::-webkit-calendar-picker-indicator\s*\{([\s\S]*?)\}/,
+  );
+  assert.ok(rule, "缺少时间控件的时钟图标规则");
+  assert.match(rule[1], /background:\s*var\(--clock-icon\)/, "图标应使用 --clock-icon 变量");
+  assert.match(rule[1], /14px 14px/, "图标尺寸必须固定为整数像素，避免重采样");
+  // 浅色 / 深色各一份，深色下不能继续沿用浅色描边。
+  const light = CSS.match(/:root\s*\{([\s\S]*?)\}/);
+  const dark = CSS.match(/html\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
+  assert.ok(light && dark, "找不到主题变量块");
+  assert.match(light[1], /--clock-icon:/, "浅色主题缺少时钟图标");
+  assert.match(dark[1], /--clock-icon:/, "深色主题缺少时钟图标");
+  // 自绘图标之后仍是原生时间控件，点击才打得开系统时间选择器。
+  assert.match(SCREEN, /type="time"/);
+});

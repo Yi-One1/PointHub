@@ -69,3 +69,14 @@ test("账号视图带上昵称、自定义标记与来源", () => {
   assert.match(TYPES, /label_custom: boolean;/);
   assert.match(TYPES, /source: "local" \| "browser" \| "token" \| null;/);
 });
+
+test("账号副标题与页面其他小字同一字体，不再单独用等宽字体", () => {
+  const rule = CSS.match(/\.rhint\s*\{([\s\S]*?)\}/);
+  assert.ok(rule, "缺少 .rhint 规则");
+  assert.doesNotMatch(
+    rule[1],
+    /font-family/,
+    "副标题不应再单独指定等宽字体：中文会回退到另一套字体，11px 下显糊",
+  );
+  assert.match(rule[1], /font-variant-numeric: tabular-nums;/, "时间数字仍需等宽对齐");
+});

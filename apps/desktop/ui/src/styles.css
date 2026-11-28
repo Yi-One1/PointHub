@@ -25,6 +25,8 @@
   --rail-w: 212px;
   /* 趋势图「积分总额」曲线：与涨绿跌红区分开，避免三条线抢同一个色系 */
   --chart-total: #4f46e5;
+  /* 时间控件的时钟图标：WebView2 自带的是位图，非整数缩放下会糊，改用内联 SVG */
+  --clock-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2398a2b3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='5.8'/%3E%3Cpath d='M8 4.6V8l2.4 1.4'/%3E%3C/svg%3E");
 }
 
 html[data-theme="dark"] {
@@ -44,6 +46,7 @@ html[data-theme="dark"] {
   --btn-line: #2c3a50;
   --shadow: none;
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --clock-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b7b92' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='5.8'/%3E%3Cpath d='M8 4.6V8l2.4 1.4'/%3E%3C/svg%3E");
 }
 
 * {
@@ -550,10 +553,12 @@ html[data-theme="dark"] .vicon {
   text-overflow: ellipsis;
 }
 
+/* 与页面其他小字共用正文字体：等宽字体没有中文，CJK 会回退到另一套字体，
+   在 11px 下显得糊且和旁边的小字不一致；时间数字用 tabular-nums 保持对齐。 */
 .rhint {
   font-size: 11px;
   color: var(--faint);
-  font-family: "Cascadia Mono", Consolas, "SFMono-Regular", monospace;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2203,6 +2208,23 @@ html[data-window="ball"] body {
 
 .psched-input:focus {
   border-color: var(--accent);
+}
+
+/* 原生 ::-webkit-calendar-picker-indicator 是位图，在 125% / 150% 缩放下
+   会被重采样而发糊；改用固定整数尺寸的内联 SVG，任何 DPI 都是矢量渲染。
+   点击行为不变，仍然由这里打开系统时间选择器。 */
+.psched-input::-webkit-calendar-picker-indicator {
+  width: 14px;
+  height: 14px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  background: var(--clock-icon) center / 14px 14px no-repeat;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.psched-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 
 .psched-num {

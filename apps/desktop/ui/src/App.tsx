@@ -966,42 +966,33 @@ function AccountsPage({
             ) : mode === "local" ? (
               <>
                 {localStatus ? (
-                  localStatus.available ? (
-                    <>
-                      <p className="hint">{localStatus.detail}</p>
-                      <ol className="steps">
-                        <li>只读取本机已登录客户端的登录态，<strong>不改动</strong>客户端文件</li>
-                        <li>导入前会联网验证一次余额；验证不过不会留下账号</li>
-                        <li>导入后由本应用负责签到，同一账号不要在两处同时签到</li>
-                        <li>同一个账号重复导入会自动更新凭据，不会出现两条记录</li>
-                      </ol>
-                      <button
-                        className="btn primary block"
-                        onClick={() => void startLocalImport()}
-                        disabled={importing || busy !== null}
-                      >
-                        {importing ? "正在导入…" : `从本机导入 ${cap?.display ?? vendor}`}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="hint warn">{localStatus.detail}</p>
-                      {localStatus.needs_key && (
+                  <>
+                    <p
+                      className={
+                        localStatus.available || localStatus.needs_key ? "hint" : "hint warn"
+                      }
+                    >
+                      {localStatus.detail}
+                    </p>
+                    {localStatus.needs_key && (
+                      <p className="hint">
+                        导入时会<strong>无窗口、不联网</strong>地短暂启动一次{" "}
+                        {cap?.display ?? "该平台"}客户端读取本地密钥，读完立即退出。
+                      </p>
+                    )}
+                    {(localStatus.available || localStatus.needs_key) && (
+                      <>
+                        <LocalImportSteps />
                         <button
                           className="btn primary block"
-                          onClick={() => void startLocalImport(true)}
+                          onClick={() => void startLocalImport(Boolean(localStatus.needs_key))}
                           disabled={importing || busy !== null}
                         >
-                          {importing ? "正在读取…" : "允许一次并导入"}
+                          {importing ? "正在导入…" : `从本机导入 ${cap?.display ?? vendor}`}
                         </button>
-                      )}
-                      <div className="link-row">
-                        <button className="link-btn" onClick={() => setMode("token")}>
-                          改用手动令牌
-                        </button>
-                      </div>
-                    </>
-                  )
+                      </>
+                    )}
+                  </>
                 ) : (
                   <p className="hint">正在检查本机客户端…</p>
                 )}
@@ -1091,6 +1082,21 @@ function AccountsPage({
         </Modal>
       )}
     </>
+  );
+}
+
+/// 本机导入的说明步骤。三个平台共用同一份，避免某个平台因为“需要先授权”
+/// 就退化成一行警告，面板结构和其它平台对不上。
+function LocalImportSteps() {
+  return (
+    <ol className="steps">
+      <li>
+        只读取本机已登录客户端的登录态，<strong>不改动</strong>客户端文件
+      </li>
+      <li>导入前会联网验证一次余额；验证不过不会留下账号</li>
+      <li>导入后由本应用负责签到，同一账号不要在两处同时签到</li>
+      <li>同一个账号重复导入会自动更新凭据，不会出现两条记录</li>
+    </ol>
   );
 }
 

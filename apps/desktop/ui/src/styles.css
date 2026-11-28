@@ -862,6 +862,18 @@ html[data-theme="dark"] .go.solid {
   padding: 6px 0;
 }
 
+/* 最近活动弹窗：条目多时在弹窗内滚动，不把页面撑高 */
+.modal-ev {
+  width: min(520px, 100%);
+}
+
+.ev-list {
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
 /* ------------------------------------------------------------ 空态 */
 
 .empty {

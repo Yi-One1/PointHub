@@ -717,26 +717,48 @@ function TrendCard({ trend, onOpenMonths }: { trend: DayPoint[]; onOpenMonths?: 
 
 function ActivityCard({ events }: { events: StateView["events"] }) {
   const list = events.slice(0, 4);
+  const [open, setOpen] = useState(false);
   return (
     <div className="bcard">
-      <div className="btitle">最近活动</div>
+      <div className="btitle">
+        最近活动
+        {events.length > list.length && (
+          <button className="btitle-btn" onClick={() => setOpen(true)}>
+            更多
+          </button>
+        )}
+      </div>
       {list.length === 0 ? (
         <div className="ev-empty">还没有签到记录，跑一次就有</div>
       ) : (
-        list.map((e, i) => (
-          <div className="ev" key={`${e.at}-${e.account_id}-${i}`}>
-            <b>{e.label}</b>
-            <span className="ev-text">{e.text}</span>
-            {e.delta !== null && e.delta > 0 && (
-              <span className="ev-delta">
-                +{e.delta}
-                <PointsIcon tone="jade" size={8} />
-              </span>
-            )}
-            <time>{clock(e.at)}</time>
-          </div>
-        ))
+        list.map((e, i) => <EventRow key={`${e.at}-${e.account_id}-${i}`} e={e} />)
       )}
+      {open && (
+        <Modal title="最近活动" className="modal-ev" onClose={() => setOpen(false)}>
+          <div className="ev-list">
+            {events.map((e, i) => (
+              <EventRow key={`${e.at}-${e.account_id}-${i}`} e={e} />
+            ))}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/// 一条活动流水：卡片只取前 4 条，弹窗里复用同一行，避免两处口径不一致。
+function EventRow({ e }: { e: StateView["events"][number] }) {
+  return (
+    <div className="ev">
+      <b>{e.label}</b>
+      <span className="ev-text">{e.text}</span>
+      {e.delta !== null && e.delta > 0 && (
+        <span className="ev-delta">
+          +{e.delta}
+          <PointsIcon tone="jade" size={8} />
+        </span>
+      )}
+      <time>{clock(e.at)}</time>
     </div>
   );
 }

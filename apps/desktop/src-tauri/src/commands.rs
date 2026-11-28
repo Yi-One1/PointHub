@@ -196,7 +196,7 @@ pub(crate) fn build_state(engine: &ph_engine::Engine) -> StateView {
         aggregate: engine.aggregate(),
         trend: engine.daily_series(7),
         events: engine
-            .recent_events(12)
+            .recent_events(48)
             .into_iter()
             .map(|e| EventView {
                 at: e.at,
@@ -1495,6 +1495,21 @@ pub async fn update_open_page(
     let (u, _) = update_ctx(state.inner()).await;
     app.opener()
         .open_url(ph_update::releases_page(&u), None::<&str>)
+        .map_err(|e| format!("打开浏览器失败：{e}"))
+}
+
+/// 关于页的固定外链：只认仓库与 Issues 两个地址，
+/// 不开放任意 URL 参数，避免前端被注入后能拉起任意页面。
+#[tauri::command]
+pub async fn open_project_link(app: AppHandle, link: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = match link.as_str() {
+        "repo" => "https://github.com/Yi-One1/PointHub",
+        "issues" => "https://github.com/Yi-One1/PointHub/issues",
+        _ => return Err("未知的链接".into()),
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
         .map_err(|e| format!("打开浏览器失败：{e}"))
 }
 

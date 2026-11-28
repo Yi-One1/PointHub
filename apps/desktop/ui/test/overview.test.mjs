@@ -19,6 +19,10 @@ const APP = readFileSync(path.join(UI_DIR, "src", "App.tsx"), "utf8");
 const CSS = readFileSync(path.join(UI_DIR, "src", "styles.css"), "utf8");
 const TYPES = readFileSync(path.join(UI_DIR, "src", "types.ts"), "utf8");
 const ASSETS = readFileSync(path.join(UI_DIR, "src", "assets.ts"), "utf8");
+const COMMANDS = readFileSync(
+  path.resolve(UI_DIR, "..", "src-tauri", "src", "commands.rs"),
+  "utf8",
+);
 
 test("KPI 顺序为 积分总额 → 今日新增 → 今日消耗 → 本月领取总积分 → 今日已签", () => {
   const labels = ["积分总额", "今日新增", "今日消耗", "本月领取总积分", "今日已签"];
@@ -108,4 +112,16 @@ test("新增/消耗来自后端拆分，不在前端自行累加", () => {
     !/events[^\n]*filter\([^\n]*kind === "checkin"/.test(APP),
     "前端不应自己从 events 汇总",
   );
+});
+
+test("最近活动：卡片只留 4 条，「更多」弹窗复用同一行", () => {
+  assert.ok(APP.includes("events.slice(0, 4)"), "卡片应只取前 4 条");
+  assert.ok(APP.includes("events.length > list.length"), "超过 4 条时才显示「更多」");
+  assert.match(APP, /className="btitle-btn"[\s\S]{0,60}?更多/, "缺少「更多」入口");
+  assert.ok(APP.includes('className="modal-ev"'), "弹窗应使用加宽样式");
+  assert.ok(APP.includes('className="ev-list"'), "弹窗列表需要独立滚动容器");
+  assert.match(CSS, /\.ev-list \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto;/);
+  assert.match(CSS, /\.modal-ev \{\s*width: min\(520px, 100%\);/);
+  // 后端一次多取一些流水，弹窗才能看到比卡片更多的记录。
+  assert.match(COMMANDS, /recent_events\(48\)/);
 });

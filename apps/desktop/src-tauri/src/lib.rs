@@ -146,6 +146,7 @@ pub fn run() {
             commands::update_check,
             commands::update_apply,
             commands::update_open_page,
+            commands::open_project_link,
         ])
         .setup(|app| {
             // 数据目录：命令行指定 > 安卓应用私有目录 > 各平台默认。

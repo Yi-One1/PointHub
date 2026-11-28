@@ -23,6 +23,10 @@ const COMMANDS = readFileSync(
   path.resolve(UI_DIR, "..", "src-tauri", "src", "commands.rs"),
   "utf8",
 );
+const LIB = readFileSync(
+  path.resolve(UI_DIR, "..", "src-tauri", "src", "lib.rs"),
+  "utf8",
+);
 const LAN = readFileSync(path.resolve(UI_DIR, "..", "src-tauri", "src", "lan.rs"), "utf8");
 const PREVIEW = readFileSync(
   path.resolve(UI_DIR, "..", "..", "..", "scripts", "preview.ps1"),
@@ -162,6 +166,23 @@ test("系统通知合并为一个开关", () => {
   assert.match(SCREEN, /notify_on_checkin: v, notify_on_failure: v/);
   assert.doesNotMatch(SCREEN, /成功 \{draft\.notify_on_checkin/);
   assert.doesNotMatch(SCREEN, /失败 \{draft\.notify_on_failure/);
+});
+
+test("关于页有作者、仓库、反馈入口与许可，不再放退出按钮", () => {
+  const about = SCREEN.slice(SCREEN.indexOf('settings-group">关于</h2>'));
+  assert.ok(about.includes("毅One"), "关于页缺少作者名");
+  assert.ok(about.includes("GitHub 仓库") && about.includes("Yi-One1/PointHub"));
+  assert.ok(about.includes("问题反馈") && about.includes('openProjectLink("issues")'));
+  assert.ok(about.includes('openProjectLink("repo")'), "仓库入口应可打开");
+  assert.ok(about.includes("MIT License"), "关于页缺少许可说明");
+  assert.ok(!about.includes("退出程序"), "关于页不应再有「退出程序」按钮");
+  assert.ok(!SCREEN.includes("api.quit"), "设置页不应再调用 quit");
+  // 后端只放行仓库与 Issues 两个固定地址，不接受任意 URL。
+  assert.match(API, /openProjectLink: \(link: "repo" \| "issues"\)/);
+  assert.match(COMMANDS, /pub async fn open_project_link/);
+  assert.match(COMMANDS, /"repo" => "https:\/\/github\.com\/Yi-One1\/PointHub"/);
+  assert.match(COMMANDS, /"issues" => "https:\/\/github\.com\/Yi-One1\/PointHub\/issues"/);
+  assert.match(LIB, /commands::open_project_link/);
 });
 
 test("数据目录合并为一行，用系统选择文件夹", () => {

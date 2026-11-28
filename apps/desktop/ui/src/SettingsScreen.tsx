@@ -1118,12 +1118,46 @@ export default function SettingsScreen({
                       使用非公开接口，可能因平台改版失效；请仅管理本人持有的账号。
                     </div>
                   </div>
+                </div>
+                <div className="row">
+                  <div>
+                    <div className="row-title">作者</div>
+                    <div className="row-desc">毅One</div>
+                  </div>
+                </div>
+                <div className="row">
+                  <div>
+                    <div className="row-title">GitHub 仓库</div>
+                    <div className="row-desc">Yi-One1/PointHub</div>
+                  </div>
                   <button
                     className="btn"
-                    onClick={() => api.quit().catch(() => undefined)}
+                    onClick={() =>
+                      api.openProjectLink("repo").catch((e) => notify(String(e), "warn"))
+                    }
                   >
-                    退出程序
+                    打开仓库
                   </button>
+                </div>
+                <div className="row">
+                  <div>
+                    <div className="row-title">问题反馈</div>
+                    <div className="row-desc">遇到问题或有建议，到 GitHub Issues 反馈</div>
+                  </div>
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      api.openProjectLink("issues").catch((e) => notify(String(e), "warn"))
+                    }
+                  >
+                    打开 Issues
+                  </button>
+                </div>
+                <div className="row">
+                  <div>
+                    <div className="row-title">开源许可</div>
+                    <div className="row-desc">MIT License</div>
+                  </div>
                 </div>
               </section>
             </>

@@ -80,4 +80,6 @@ export const api = {
   updateApply: () => invoke<UpdateApply>("update_apply"),
   /** 手动下载兜底：打开 Releases 页面 */
   updateOpenPage: () => invoke<void>("update_open_page"),
+  openProjectLink: (link: "repo" | "issues") =>
+    invoke<void>("open_project_link", { link }),
 };

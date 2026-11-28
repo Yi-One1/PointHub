@@ -180,7 +180,7 @@ impl RemoteView {
 
         let mut events = payload.events.clone();
         events.sort_by(|a, b| b.at.cmp(&a.at));
-        events.truncate(12);
+        events.truncate(48);
 
         Self {
             server_name: config.server_name.clone(),

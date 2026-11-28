@@ -26,14 +26,16 @@ export function Modal({
   title,
   children,
   onClose,
+  className,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  className?: string;
 }) {
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className={className ? `modal ${className}` : "modal"} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{title}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="关闭">

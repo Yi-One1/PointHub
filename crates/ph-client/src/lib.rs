@@ -78,6 +78,10 @@ pub struct RemoteDay {
     pub total: f64,
     pub known: usize,
     pub gain: Option<f64>,
+    /// 各账号正增长之和；与电脑端 `DayPoint::up` 同口径。
+    pub up: Option<f64>,
+    /// 各账号下降之和（正数）；与电脑端 `DayPoint::down` 同口径。
+    pub down: Option<f64>,
 }
 
 /// 手机界面要的远程状态。由一份 `SyncPayload` 纯函数算出，方便单测。
@@ -225,31 +229,49 @@ fn daily_series(snaps: &[VendorSnapshot], accounts: &[Account], days: i64) -> Ve
     }
 
     let mut out = Vec::with_capacity(days.max(1) as usize);
-    let mut prev: Option<(f64, usize)> = None;
+    let mut prev: Option<(f64, usize, BTreeMap<String, f64>)> = None;
     for i in (0..days.max(1)).rev() {
         let d = today - chrono::Duration::days(i);
         let mut total = 0f64;
         let mut known = 0usize;
+        let mut today_map: BTreeMap<String, f64> = BTreeMap::new();
         if let Some(m) = per_day.get(&d) {
             for a in accounts {
                 if let Some(b) = m.get(&a.id) {
                     total += *b;
                     known += 1;
+                    today_map.insert(a.id.clone(), *b);
                 }
             }
         }
-        let gain = match prev {
-            Some((pt, pk)) if known > 0 && pk > 0 => Some(total - pt),
-            _ => None,
+        let (gain, up, down) = match &prev {
+            Some((pt, pk, prev_map)) if known > 0 && *pk > 0 => {
+                let mut up = 0f64;
+                let mut down = 0f64;
+                for (id, cur) in &today_map {
+                    if let Some(before) = prev_map.get(id) {
+                        let diff = cur - before;
+                        if diff > 0.0 {
+                            up += diff;
+                        } else {
+                            down -= diff;
+                        }
+                    }
+                }
+                (Some(total - *pt), Some(up), Some(down))
+            }
+            _ => (None, None, None),
         };
         if known > 0 {
-            prev = Some((total, known));
+            prev = Some((total, known, today_map));
         }
         out.push(RemoteDay {
             date: format!("{:02}-{:02}", d.month(), d.day()),
             total,
             known,
             gain,
+            up,
+            down,
         });
     }
     out
@@ -877,6 +899,49 @@ mod tests {
         assert_eq!(v.trend[5].total, 100.0, "昨天最后一条余额");
         assert_eq!(v.trend[6].total, 140.0, "今天最后一条余额");
         assert_eq!(v.trend[6].gain, Some(40.0), "相邻两天都有数据才算新增");
+    }
+
+    #[test]
+    fn remote_view_trend_splits_up_and_down() {
+        let now = chrono::Local::now().timestamp();
+        let yesterday = now - 86_400;
+        let mut a = Account::new(Vendor::WorkBuddy, "涨", "h");
+        a.id = "a1".into();
+        a.executor = Some("pc-1".into());
+        let mut b = Account::new(Vendor::TraeCn, "跌", "h");
+        b.id = "b1".into();
+        b.executor = Some("pc-1".into());
+
+        let mk = |acc: &Account, ts: i64, bal: f64| {
+            let mut s = VendorSnapshot::empty(acc, ts);
+            s.balance = Some(bal);
+            s
+        };
+
+        let mut p = SyncPayload::new(&ph_core::DeviceInfo::new("pc", "pc"), 0);
+        p.from_device = "pc-1".into();
+        p.accounts = vec![a.clone(), b.clone()];
+        p.snapshots = vec![
+            mk(&a, yesterday, 100.0),
+            mk(&b, yesterday, 100.0),
+            mk(&a, now, 130.0),
+            mk(&b, now, 80.0),
+        ];
+        p.credential_ids = vec!["a1".into(), "b1".into()];
+
+        let cfg = ClientConfig {
+            base_url: "http://pc:1".into(),
+            token: "t".into(),
+            device_id: "phone-9".into(),
+            server_id: "pc-1".into(),
+            server_name: "pc".into(),
+            paired_at: 0,
+        };
+        let v = RemoteView::build(&p, &cfg);
+        let last = &v.trend[6];
+        assert_eq!(last.up, Some(30.0), "手机端与电脑端同口径：涨的计入新增");
+        assert_eq!(last.down, Some(20.0), "跌的计入消耗且取正值");
+        assert_eq!(last.gain, Some(10.0));
     }
 
     #[test]

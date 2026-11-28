@@ -55,6 +55,13 @@ pub struct DayPoint {
     pub known: usize,
     /// 相对前一天的新增（余额差）。前一天没有数据时为 None，**不要填 0**。
     pub gain: Option<f64>,
+    /// 当天各账号余额的正增长之和；无法与前一天比较时为 None。
+    ///
+    /// 与 `down` 一起把 `gain` 拆开：只比较两天都有余额的账号，
+    /// 新加入的账号不被当成「涨了一大截」。
+    pub up: Option<f64>,
+    /// 当天各账号余额的下降之和（正数，表示消耗了多少）；无法比较时为 None。
+    pub down: Option<f64>,
 }
 
 pub struct Engine {
@@ -1050,32 +1057,53 @@ impl Engine {
         }
 
         let mut out = Vec::with_capacity(days.max(1) as usize);
-        let mut prev: Option<(f64, usize)> = None;
+        // 上一个有数据的天：总额、覆盖账号数、各账号余额（拆分新增/消耗要用后者）。
+        let mut prev: Option<(f64, usize, BTreeMap<String, f64>)> = None;
         for i in (0..days.max(1)).rev() {
             let d = today - chrono::Duration::days(i);
             let mut total = 0f64;
             let mut known = 0usize;
+            let mut today_map: BTreeMap<String, f64> = BTreeMap::new();
             if let Some(m) = per_day.get(&d) {
                 for a in &self.accounts {
                     if let Some(b) = m.get(&a.id) {
                         total += *b;
                         known += 1;
+                        today_map.insert(a.id.clone(), *b);
                     }
                 }
             }
             // 只有两天都有数据才算得出「新增」，否则宁可空着。
-            let gain = match prev {
-                Some((pt, pk)) if known > 0 && pk > 0 => Some(total - pt),
-                _ => None,
+            let (gain, up, down) = match &prev {
+                Some((pt, pk, prev_map)) if known > 0 && *pk > 0 => {
+                    let mut up = 0f64;
+                    let mut down = 0f64;
+                    // 只比较两天都有余额的账号：昨天没采到的账号今天出现，
+                    // 把它整份额度算成「增长」会让新增虚高。
+                    for (id, cur) in &today_map {
+                        if let Some(before) = prev_map.get(id) {
+                            let diff = cur - before;
+                            if diff > 0.0 {
+                                up += diff;
+                            } else {
+                                down -= diff;
+                            }
+                        }
+                    }
+                    (Some(total - *pt), Some(up), Some(down))
+                }
+                _ => (None, None, None),
             };
             if known > 0 {
-                prev = Some((total, known));
+                prev = Some((total, known, today_map));
             }
             out.push(DayPoint {
                 date: format!("{:02}-{:02}", d.month(), d.day()),
                 total,
                 known,
                 gain,
+                up,
+                down,
             });
         }
         out
@@ -1527,6 +1555,51 @@ mod tests {
 
         assert_eq!(e.claimed_this_month(), 15.0);
         assert_eq!(e.aggregate().claimed_this_month, Some(15.0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn daily_series_splits_up_and_down() {
+        let dir = tmpdir("trend-split");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let up = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "涨",
+                Credential::from_refresh_token("tok-up-123456"),
+            )
+            .unwrap();
+        let down = e
+            .add_account(
+                Vendor::TraeCn,
+                "跌",
+                Credential::from_refresh_token("tok-down-123456"),
+            )
+            .unwrap();
+
+        let today = chrono::Local::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+        let at = |d: chrono::NaiveDate, h: u32| local_epoch(d.and_hms_opt(h, 0, 0).unwrap());
+
+        let mut snap = ph_core::VendorSnapshot::empty(&up, at(yesterday, 10));
+        snap.balance = Some(100.0);
+        e.store.append_snapshot(&snap).unwrap();
+        let mut snap = ph_core::VendorSnapshot::empty(&down, at(yesterday, 10));
+        snap.balance = Some(100.0);
+        e.store.append_snapshot(&snap).unwrap();
+
+        let mut snap = ph_core::VendorSnapshot::empty(&up, at(today, 10));
+        snap.balance = Some(130.0);
+        e.store.append_snapshot(&snap).unwrap();
+        let mut snap = ph_core::VendorSnapshot::empty(&down, at(today, 10));
+        snap.balance = Some(80.0);
+        e.store.append_snapshot(&snap).unwrap();
+
+        let series = e.daily_series(2);
+        let last = series.last().unwrap();
+        assert_eq!(last.up, Some(30.0), "涨的账号计入新增");
+        assert_eq!(last.down, Some(20.0), "跌的账号计入消耗，且取正值");
+        assert_eq!(last.gain, Some(10.0), "净值仍是总额差");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

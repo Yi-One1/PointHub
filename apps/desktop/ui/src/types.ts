@@ -141,6 +141,10 @@ export interface DayPoint {
   known: number;
   /** 相对前一天的新增；前一天无数据时为 null */
   gain: number | null;
+  /** 各账号正增长之和；与后端 DayPoint.up 同口径 */
+  up: number | null;
+  /** 各账号下降之和（正数，表示消耗了多少）；与后端 DayPoint.down 同口径 */
+  down: number | null;
 }
 
 /** 一条活动流水 */

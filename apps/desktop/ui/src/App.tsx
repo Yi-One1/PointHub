@@ -345,10 +345,13 @@ function Overview({
   const enabled = view.accounts.filter((a) => a.enabled);
   const done = enabled.filter((a) => a.checked_in_today === true).length;
   const pending = Math.max(enabled.length - done, 0);
-  // 「今日变化」与趋势图同源：都是余额差，避免两个数字互相打脸。
-  const todayGain = view.trend.length > 0 ? view.trend[view.trend.length - 1].gain : null;
-  // 正数绿、负数偏红；0 保持中性，避免「没变化」也被染成涨色。
-  const gainTone = todayGain === null || todayGain === 0 ? "" : todayGain > 0 ? "up" : "down";
+  // 「今日新增 / 今日消耗」与趋势图同源：都是余额差，避免数字互相打脸。
+  const todayPoint = view.trend.length > 0 ? view.trend[view.trend.length - 1] : null;
+  const todayUp = todayPoint?.up ?? null;
+  const todayDown = todayPoint?.down ?? null;
+  // 小于半分的变化当成 0：浮点残差不该让卡片显示「-0」。
+  const upPositive = todayUp !== null && todayUp >= 0.005;
+  const downPositive = todayDown !== null && todayDown >= 0.005;
 
   // 按平台分组，顺序跟随能力表——平台顺序是产品决定，不该被账号加入顺序带跑。
   const groups = useMemo(() => {
@@ -425,15 +428,28 @@ function Overview({
           </div>
         </div>
         <div className="kpi">
-          <div className="klabel">今日变化</div>
-          <div className={`kval ${gainTone}`} title="按每日余额差计算：领取为增，消耗为减">
-            {todayGain === null ? (
+          <div className="klabel">今日新增</div>
+          <div className={`kval ${upPositive ? "up" : ""}`}>
+            {todayUp === null ? (
               "—"
             ) : (
               <>
-                {todayGain > 0 ? "+" : ""}
-                {credits(todayGain)}
-                <PointsIcon tone="jade" size={18} />
+                {upPositive ? `+${credits(todayUp ?? 0)}` : "0"}
+                <PointsIcon tone={upPositive ? "jade" : "ink"} size={18} />
+              </>
+            )}
+          </div>
+          <div className="kfoot">较昨日余额</div>
+        </div>
+        <div className="kpi">
+          <div className="klabel">今日消耗</div>
+          <div className={`kval ${downPositive ? "down" : ""}`}>
+            {todayDown === null ? (
+              "—"
+            ) : (
+              <>
+                {downPositive ? `-${credits(todayDown ?? 0)}` : "0"}
+                <PointsIcon tone={downPositive ? "ruby" : "ink"} size={18} />
               </>
             )}
           </div>

@@ -350,7 +350,9 @@ html[data-theme="dark"] .btn.primary {
 
 .kpis {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 五张卡：总额 / 今日新增 / 今日消耗 / 本月领取 / 今日已签。
+     每列都能被压缩到 0，避免长数字把整行撑出横向滚动。 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -393,19 +395,14 @@ html[data-theme="dark"] .btn.primary {
   margin-top: 2px;
 }
 
-/* 涨跌：增加绿、减少偏红。图标是彩色位图，下降时去饱和，
-   否则绿色图标配红色数字会自相矛盾。 */
+/* 涨跌：增加绿、减少偏红。图标各自用同色系的位图（jade / ruby），
+   不做滤镜染色——滤镜会让高光发灰，深浅主题下观感也不一致。 */
 .kval.up {
   color: var(--accent);
 }
 
 .kval.down {
   color: var(--danger);
-}
-
-.kval.down .pts {
-  filter: grayscale(1);
-  opacity: 0.75;
 }
 
 /* ------------------------------------------------------------ 平台面板 */

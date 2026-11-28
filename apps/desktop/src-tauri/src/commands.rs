@@ -289,6 +289,8 @@ fn build_remote_state(
                 total: d.total,
                 known: d.known,
                 gain: d.gain,
+                up: d.up,
+                down: d.down,
             })
             .collect(),
         events: events

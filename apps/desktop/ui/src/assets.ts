@@ -12,6 +12,7 @@ import brandMark from "./assets/brand/pointhub-mark.svg";
 import pointsBronze from "./assets/points/points-bronze.png";
 import pointsInk from "./assets/points/points-ink.png";
 import pointsJade from "./assets/points/points-jade.png";
+import pointsRuby from "./assets/points/points-ruby.png";
 import vendorQoder from "./assets/vendors/qoder.png";
 import vendorTrae from "./assets/vendors/trae.png";
 import vendorWorkBuddy from "./assets/vendors/workbuddy.png";
@@ -23,13 +24,14 @@ export const BRAND_MARK = brandMark;
 /** 深色底专用的标记：绿色提亮，留给深色主题与深色托盘。 */
 export const BRAND_MARK_DARK = brandMarkDark;
 
-export type PointsTone = "bronze" | "ink" | "jade";
+export type PointsTone = "bronze" | "ink" | "jade" | "ruby";
 
 /** 积分单位图标。 */
 export const POINTS_ICON: Record<PointsTone, string> = {
   bronze: pointsBronze,
   ink: pointsInk,
   jade: pointsJade,
+  ruby: pointsRuby,
 };
 
 /** 平台 logo。查不到时返回 undefined，由调用方回退成 VENDOR_TONE 圆点。 */

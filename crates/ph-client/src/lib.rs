@@ -925,7 +925,16 @@ mod tests {
     #[test]
     fn remote_view_trend_takes_new_from_claims_and_derives_spend() {
         // 与电脑端同口径：昨日 100，今日领 300，余额剩 50 → 新增 300、消耗 350。
-        let now = chrono::Local::now().timestamp();
+        // 时间锚定在今天中午：若直接用 now-1h，凌晨 0~1 点跑测试会落到昨天。
+        use chrono::TimeZone;
+        let now = chrono::Local::now()
+            .date_naive()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .single()
+            .unwrap()
+            .timestamp();
         let yesterday = now - 86_400;
         let mut a = Account::new(Vendor::WorkBuddy, "主号", "h");
         a.id = "a1".into();

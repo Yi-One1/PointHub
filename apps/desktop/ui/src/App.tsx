@@ -345,9 +345,10 @@ function Overview({
   const enabled = view.accounts.filter((a) => a.enabled);
   const done = enabled.filter((a) => a.checked_in_today === true).length;
   const pending = Math.max(enabled.length - done, 0);
-  const pct = enabled.length === 0 ? 0 : Math.round((done / enabled.length) * 100);
-  // 「今日新增」与趋势图同源：都是余额差，避免两个数字互相打脸。
+  // 「今日变化」与趋势图同源：都是余额差，避免两个数字互相打脸。
   const todayGain = view.trend.length > 0 ? view.trend[view.trend.length - 1].gain : null;
+  // 正数绿、负数偏红；0 保持中性，避免「没变化」也被染成涨色。
+  const gainTone = todayGain === null || todayGain === 0 ? "" : todayGain > 0 ? "up" : "down";
 
   // 按平台分组，顺序跟随能力表——平台顺序是产品决定，不该被账号加入顺序带跑。
   const groups = useMemo(() => {
@@ -373,7 +374,6 @@ function Overview({
     });
   }, [view.accounts, view.platforms]);
 
-  const next = nextRun(view.next_run_at, view.settings.scheduler_enabled);
   const lastSample = view.aggregate.last_sampled_at ? clock(view.aggregate.last_sampled_at) : null;
 
   return (
@@ -413,31 +413,25 @@ function Overview({
 
       <div className="kpis">
         <div className="kpi">
-          <div className="klabel">积分合计</div>
+          <div className="klabel">积分总额</div>
           <div className="kval">
             {credits(view.aggregate.total_balance)}
             <PointsIcon tone="bronze" size={18} />
           </div>
-          <div className="prog" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-            <i style={{ width: `${pct}%` }} />
+          <div className="kfoot">
+            {enabled.length === 0
+              ? "还没有账号"
+              : `已签 ${done}/${enabled.length}${lastSample ? ` · 最近采样 ${lastSample}` : ""}`}
           </div>
         </div>
         <div className="kpi">
-          <div className="klabel">今日已签</div>
-          <div className="kval">
-            {done}
-            <small>/ {enabled.length}</small>
-          </div>
-          <div className="kfoot">{pending > 0 ? `${pending} 个待签` : "全部完成"}</div>
-        </div>
-        <div className="kpi">
-          <div className="klabel">今日新增</div>
-          <div className="kval">
+          <div className="klabel">今日变化</div>
+          <div className={`kval ${gainTone}`} title="按每日余额差计算：领取为增，消耗为减">
             {todayGain === null ? (
               "—"
             ) : (
               <>
-                {todayGain >= 0 ? "+" : ""}
+                {todayGain > 0 ? "+" : ""}
                 {credits(todayGain)}
                 <PointsIcon tone="jade" size={18} />
               </>
@@ -446,12 +440,26 @@ function Overview({
           <div className="kfoot">较昨日余额</div>
         </div>
         <div className="kpi">
-          <div className="klabel">下一次自动</div>
+          <div className="klabel">本月领取总积分</div>
           <div className="kval">
-            {next.value}
-            {next.small && <small>{next.small}</small>}
+            {view.aggregate.claimed_this_month === null ? (
+              "—"
+            ) : (
+              <>
+                {credits(view.aggregate.claimed_this_month)}
+                <PointsIcon tone="jade" size={18} />
+              </>
+            )}
           </div>
-          <div className="kfoot">{next.foot}</div>
+          <div className="kfoot">签到实际到账</div>
+        </div>
+        <div className="kpi">
+          <div className="klabel">今日已签</div>
+          <div className="kval">
+            {done}
+            <small>/ {enabled.length}</small>
+          </div>
+          <div className="kfoot">{pending > 0 ? `${pending} 个待签` : "全部完成"}</div>
         </div>
       </div>
 
@@ -670,28 +678,6 @@ function statusOf(a: AccountView): { kind: string; text: string; hint: string } 
   if (a.checked_in_today === true) return { kind: "ok", text: "今日已签", hint: "今天已领到" };
   if (a.checked_in_today === false) return { kind: "todo", text: "待签到", hint: "今天还没领" };
   return { kind: "idle", text: "未采样", hint: "还没有拉到余额" };
-}
-
-function nextRun(ts: number | null, enabled: boolean): { value: string; small: string; foot: string } {
-  if (ts === null) {
-    return enabled
-      ? { value: "—", small: "", foot: "没有开启签到的账号" }
-      : { value: "已关闭", small: "", foot: "设置里可开启定时签到" };
-  }
-  const d = new Date(ts * 1000);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const today = new Date();
-  const tomorrow = new Date(today.getTime());
-  tomorrow.setDate(today.getDate() + 1);
-  const sameDay = d.toDateString() === today.toDateString();
-  const nextDay = d.toDateString() === tomorrow.toDateString();
-  const label = sameDay ? "今天" : nextDay ? "明天" : `${d.getMonth() + 1}/${d.getDate()}`;
-  if (!enabled) {
-    // 关掉定时也别藏着时间：用户需要知道「打开后几点跑」。
-    return { value: "已关闭", small: "", foot: `开启后 ${label} ${hh}:${mm}` };
-  }
-  return { value: `${hh}:${mm}`, small: label, foot: `${label} ${hh}:${mm} 起` };
 }
 
 // ------------------------------------------------------------------ 账号页

@@ -529,6 +529,12 @@ pub struct SyncPayload {
     /// 对端的下一次自动签到时刻（epoch 秒）。
     #[serde(default)]
     pub next_run_at: Option<i64>,
+    /// 对端本月签到实际到账的积分合计。
+    ///
+    /// 手机端算不出来（本地只有增量事件），所以由执行端直接给结果；
+    /// 旧版对端不带这个字段时保持 `None`，界面显示「—」而不是假的 0。
+    #[serde(default)]
+    pub claimed_this_month: Option<f64>,
 }
 
 fn default_kind() -> String {
@@ -550,6 +556,7 @@ impl SyncPayload {
             tombstones: Vec::new(),
             credential_ids: Vec::new(),
             next_run_at: None,
+            claimed_this_month: None,
         }
     }
 }

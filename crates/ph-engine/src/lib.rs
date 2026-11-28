@@ -30,6 +30,10 @@ pub struct Aggregate {
     pub balance_known: usize,
     /// 最近一次采样时间。
     pub last_sampled_at: Option<i64>,
+    /// 本月签到实际到账的积分之和；`None` 表示这份数据来源没有提供（例如旧版电脑端）。
+    ///
+    /// 只看 `checkin` 且 `delta > 0` 的流水：旅行、失败、负向调整都不算「领取」。
+    pub claimed_this_month: Option<f64>,
 }
 
 /// 今日签到异常，供总览页提示「还有账号没签成功」。
@@ -90,6 +94,16 @@ fn today_start_epoch() -> Option<i64> {
         .from_local_datetime(&start)
         .single()
         .map(|d| d.timestamp())
+}
+
+/// 本月 1 日 0 点的 epoch 秒（用于「本月领取总积分」的统计起点）。
+fn month_start_epoch() -> i64 {
+    use chrono::Datelike;
+    let now = chrono::Local::now();
+    chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .map(local_epoch)
+        .unwrap_or(0)
 }
 
 /// 失败后的自动重试间隔。
@@ -981,7 +995,25 @@ impl Engine {
             }
         }
         agg.total_balance = total;
+        agg.claimed_this_month = Some(self.claimed_this_month());
         agg
+    }
+
+    /// 本月（本地时区）签到实际到账的积分。
+    ///
+    /// 口径是「领取流水」而不是余额差：只累加 `kind == "checkin"` 且 `delta > 0`
+    /// 的事件。派猫猫旅行花掉的积分、失败记录、负向调整都不计入，
+    /// 这样「本月领取」不会因为消费而变小。
+    pub fn claimed_this_month(&self) -> f64 {
+        let from = month_start_epoch();
+        self.store
+            .load_all_events()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| e.at >= from && e.kind == "checkin")
+            .filter_map(|e| e.delta)
+            .filter(|d| *d > 0)
+            .sum::<i64>() as f64
     }
 
     pub fn latest_snapshots(&self) -> std::collections::BTreeMap<String, VendorSnapshot> {
@@ -1173,6 +1205,7 @@ impl Engine {
             .map(|a| a.id.clone())
             .collect();
         p.next_run_at = self.next_run_at();
+        p.claimed_this_month = Some(self.claimed_this_month());
         p
     }
 
@@ -1455,6 +1488,45 @@ mod tests {
         assert!(!json.contains("refresh_token"));
         assert!(!json.contains("access_token"));
         assert!(!json.contains("\"cookie\""));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn claimed_this_month_counts_only_positive_checkins_this_month() {
+        let dir = tmpdir("month-claimed");
+        let mut e = Engine::open(Some(dir.clone())).unwrap();
+        let acc = e
+            .add_account(
+                Vendor::WorkBuddy,
+                "主号",
+                Credential::from_refresh_token("tok-dddddddddddd"),
+            )
+            .unwrap();
+
+        let now = chrono::Local::now().timestamp();
+        let before_month = month_start_epoch() - 1;
+        let ev = |at: i64, kind: &str, delta: Option<i64>| ph_core::ActivityEvent {
+            at,
+            account_id: acc.id.clone(),
+            label: acc.label.clone(),
+            vendor: Vendor::WorkBuddy,
+            kind: kind.into(),
+            delta,
+            text: "测试".into(),
+        };
+
+        e.store.append_event(&ev(now, "checkin", Some(10))).unwrap();
+        e.store.append_event(&ev(now, "checkin", Some(5))).unwrap();
+        // 下面四种都不该算进「本月领取」
+        e.store.append_event(&ev(now, "travel", Some(100))).unwrap();
+        e.store.append_event(&ev(now, "checkin", None)).unwrap();
+        e.store.append_event(&ev(now, "checkin", Some(-3))).unwrap();
+        e.store
+            .append_event(&ev(before_month, "checkin", Some(50)))
+            .unwrap();
+
+        assert_eq!(e.claimed_this_month(), 15.0);
+        assert_eq!(e.aggregate().claimed_this_month, Some(15.0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

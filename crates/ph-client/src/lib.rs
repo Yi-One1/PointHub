@@ -94,6 +94,8 @@ pub struct RemoteView {
     pub trend: Vec<RemoteDay>,
     pub events: Vec<ActivityEvent>,
     pub next_run_at: Option<i64>,
+    /// 电脑端算好的「本月领取总积分」；旧版电脑端不带时为 None。
+    pub claimed_this_month: Option<f64>,
 }
 
 impl RemoteView {
@@ -180,6 +182,7 @@ impl RemoteView {
             trend: daily_series(&payload.snapshots, &payload.accounts, 7),
             events,
             next_run_at: payload.next_run_at,
+            claimed_this_month: payload.claimed_this_month,
         }
     }
 }

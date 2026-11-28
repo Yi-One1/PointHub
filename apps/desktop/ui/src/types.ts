@@ -93,6 +93,8 @@ export interface Aggregate {
   pending_count: number;
   balance_known: number;
   last_sampled_at: number | null;
+  /** 本月签到实际到账的积分；null = 数据来源没提供（例如旧版电脑端） */
+  claimed_this_month: number | null;
 }
 
 export interface AccountView {

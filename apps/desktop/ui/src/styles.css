@@ -393,24 +393,19 @@ html[data-theme="dark"] .btn.primary {
   margin-top: 2px;
 }
 
-.prog {
-  height: 5px;
-  border-radius: 999px;
-  background: var(--bg);
-  margin-top: 9px;
-  overflow: hidden;
+/* 涨跌：增加绿、减少偏红。图标是彩色位图，下降时去饱和，
+   否则绿色图标配红色数字会自相矛盾。 */
+.kval.up {
+  color: var(--accent);
 }
 
-html[data-theme="dark"] .prog {
-  background: #0a1220;
+.kval.down {
+  color: var(--danger);
 }
 
-.prog i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 999px;
-  transition: width 0.3s ease;
+.kval.down .pts {
+  filter: grayscale(1);
+  opacity: 0.75;
 }
 
 /* ------------------------------------------------------------ 平台面板 */

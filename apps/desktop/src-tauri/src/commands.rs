@@ -217,6 +217,7 @@ fn build_remote_state(
         trend,
         events,
         next_run_at,
+        claimed_this_month,
         ..
     } = view;
 
@@ -279,6 +280,7 @@ fn build_remote_state(
             pending_count,
             balance_known,
             last_sampled_at,
+            claimed_this_month,
         },
         trend: trend
             .into_iter()

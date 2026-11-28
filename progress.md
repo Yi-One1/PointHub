@@ -19,6 +19,11 @@
   - Qoder CN：`campaigns` + `/claim`，余额为 `usage` 各配额桶 `remaining` 之和。
 - **导入三方式**：浏览器授权（三平台，可续期）、本机导入（三平台客户端登录态，
   仅 Windows，只读）、手动令牌兜底；统一按平台用户 id 去重，旧重复记录导入时自动合并（D19）。
+- **WorkBuddy 5.6+ 本机导入（0.14.0 进行中）**：优先读客户端共享登录态
+  （`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`），
+  支持 `$wbEncrypted` 加密信封；扫描不动客户端，点导入才以 Node 模式无窗口读一次密钥；
+  旧 `checkin-rt.json` 兼容。导入面板三平台共用同一套步骤与按钮；
+  「凭据存在哪」跳到设置 → 数据与安全并定位数据目录。
 - **多账号与调度**：独立凭据 / 排期 / 历史；逐账号签到 + 一键全部签到；
   默认 00:10 + 确定性抖动，启动补签。
 - **签到稳定性（0.13.1）**：执行端指向「已不存在的设备」时启动自动收回本机；
@@ -72,6 +77,9 @@
   目前仍由安装向导确认。
 - [ ] **自定义签到时间**：界面只有平台默认时刻 + 确定性抖动（D06），
   后续支持每账号自定义时间。
+- [ ] **0.14.0 体验改造（分组进行中）**：G1 已完成（WorkBuddy 5.6+ 本机导入）；
+  待做 G2 总览 KPI、G3 账号身份与分组、G4 账号页细节、G5 趋势图、G6 自定义签到时间、G7 活动与关于页。
+  G4 含一项已确认的布局缺陷：导入方式切换时纵向滚动条出现/消失，两栏宽度抖动 10px。
 
 ---
 
@@ -90,15 +98,15 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（构建缓存 `E:\Cache\Android_Build`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（49 项；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"` 指定解释器；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
-| Rust 测试 | `cargo test --workspace`（106 项）；桌面端 16 项 |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（55 项；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"` 指定解释器；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
+| Rust 测试 | `cargo test --workspace`（112 项）；桌面端 16 项 |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
 | 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
 
 ### 验证过的证据
 
-- `cargo test --workspace` **106 项全绿**；前端 **49/49**、`tsc --noEmit`、`vite build` 通过。
+- `cargo test --workspace` **112 项全绿**；桌面端 16 项、前端 **55/55**、`tsc --noEmit`、`vite build` 通过。
 - 0.13.1 修复用真实数据副本实测：三个账号 `executor` 从幽灵 id 收回本机、
   日志有记录、`phctl status` 恢复「已签」；预览版总览异常提示条出现并在补签后自动消失。
 - 0.13.1 产物：Windows exe FileVersion 0.13.1（5.4 MB / 安装包 2.2 MB）；

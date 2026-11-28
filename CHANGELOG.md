@@ -6,6 +6,20 @@
 > **产物不覆盖**：`dist/` 里已出的包视为交付历史，构建脚本拒绝覆盖或删除。
 > 要再出一版，先升 `Cargo.toml` 的 `[workspace.package] version`。
 
+## [未发布]
+
+**新增：WorkBuddy 5.6+ 本机导入；导入面板三个平台统一**
+
+- 本机导入优先读 WorkBuddy 新版的共享登录态
+  `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`，
+  支持 `$wbEncrypted` 加密信封（AES-256-GCM）；旧版 `~/.workbuddy/checkin-rt.json` 继续兼容。
+- 扫描阶段不启动客户端；只有点了导入按钮，才以 Node 模式无窗口、不联网地启动一次客户端读取密钥，
+  读完立即退出，不改动客户端文件。
+- 本机导入面板：可用与「需读取一次密钥」共用同一套 4 条说明与同一个导入按钮，
+  不再退化成一行黄色警告；去掉与上方方式标签重复的「改用手动令牌」链接。
+- 账号页「凭据存在哪」改为跳到「设置 → 数据与安全」，并滚动定位到「数据目录」。
+- 测试：workspace 112 项、桌面端 16 项、前端 55 项；`tsc --noEmit` 与 `vite build` 通过。
+
 ## [0.13.1] - 2026-11-28
 
 **修复：设备 id 变更后账号永久签到失败、通知每分钟刷屏**

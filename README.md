@@ -33,6 +33,10 @@ Windows 桌面端 + Android 手机端，数据只在本机。
   只读、不改客户端文件；导入前会联网验证一次余额，验证不过不落库。
   同一个账号重复导入只会更新那条记录，不会出现两条。Trae / Qoder 拿到的是短期令牌，
   过期后重新导入一次即可。
+  WorkBuddy 5.6 起把登录态放在
+  `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`，令牌是加密信封：
+  点导入时会**无窗口、不联网**地短暂启动一次客户端读取本地密钥，读完立即退出；
+  旧版 `~/.workbuddy/checkin-rt.json` 仍然兼容。
 - **手动令牌**：从客户端或网页复制令牌粘进来，授权流程走不通时兜底。
 
 **同一账号只会存在一条**：软件按平台用户 id 识别账号——Trae 读 JWT 的 `data.id`，

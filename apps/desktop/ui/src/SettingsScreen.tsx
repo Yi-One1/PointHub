@@ -79,6 +79,7 @@ export default function SettingsScreen({
   notify,
   onClose,
   initialSection,
+  initialAnchor,
   update,
   checkingUpdate,
   onCheckUpdate,
@@ -90,6 +91,8 @@ export default function SettingsScreen({
   onClose: () => void;
   /** 从总览「有新版本」进来时直接落在更新分区 */
   initialSection?: SettingsSectionId;
+  /** 从账号页「凭据存在哪」进来时滚到数据位置 */
+  initialAnchor?: "data-location";
   /** 检查结果由 App 层持有，总览和设置页共用 */
   update: UpdateCheck | null;
   checkingUpdate: boolean;
@@ -99,6 +102,13 @@ export default function SettingsScreen({
   const [active, setActive] = useState<SettingsSectionId>(
     initialSection ?? SETTINGS_SECTIONS[0].id,
   );
+  useEffect(() => {
+    if (!initialAnchor) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(initialAnchor)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialAnchor, active]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Settings>(view.settings);
   const [defaults, setDefaults] = useState<Settings | null>(null);
@@ -912,7 +922,7 @@ export default function SettingsScreen({
             <>
               <h2 className="settings-group">数据位置</h2>
               <section className="panel">
-                <div className="row">
+                <div className="row" id="settings-data-location">
                   <div>
                     <div className="row-title">数据目录</div>
                     <div className="row-desc">重启后生效，并自动清理旧目录</div>

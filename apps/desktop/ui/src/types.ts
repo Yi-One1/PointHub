@@ -182,6 +182,8 @@ export interface LocalImportStatus {
   vendor: string;
   display: string;
   available: boolean;
+  /** 登录态已找到，但读取它需要用户允许一次额外的本地操作 */
+  needs_key: boolean;
   detail: string;
 }
 

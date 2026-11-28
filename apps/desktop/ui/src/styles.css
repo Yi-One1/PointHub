@@ -346,6 +346,16 @@ html[data-theme="dark"] .btn.primary {
   padding: 0;
 }
 
+.link-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.link-row .link-btn {
+  margin-top: 0;
+}
+
 /* ------------------------------------------------------------ KPI */
 
 .kpis {

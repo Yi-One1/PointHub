@@ -32,8 +32,9 @@ export const api = {
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
   /** 扫描本机客户端登录态（只读、不联网） */
   localImportScan: () => invoke<LocalImportStatus[]>("local_import_scan"),
-  /** 从本机客户端登录态导入；后端先验证余额再落库 */
-  localImport: (vendor: string) => invoke<string>("local_import", { vendor }),
+  /** 从本机客户端登录态导入；后端先验证余额再落库。allowKeyFetch 只在用户明确同意后传 true。 */
+  localImport: (vendor: string, allowKeyFetch = false) =>
+    invoke<string>("local_import", { vendor, allowKeyFetch }),
   /** 打开该平台官方登录页；登录成功后后端自动建账号并发 ph://login 事件 */
   browserLogin: (vendor: string) => invoke<void>("browser_login", { vendor }),
   setAccountEnabled: (id: string, enabled: boolean) =>

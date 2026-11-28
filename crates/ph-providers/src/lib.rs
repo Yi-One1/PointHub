@@ -15,6 +15,7 @@ pub mod local_import;
 pub mod oauth;
 pub mod qoder;
 pub mod trae;
+pub mod wb_auth;
 pub mod workbuddy;
 
 use async_trait::async_trait;

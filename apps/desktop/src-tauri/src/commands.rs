@@ -653,6 +653,8 @@ pub struct LocalImportView {
     pub vendor: String,
     pub display: String,
     pub available: bool,
+    /// 登录态已找到，但读取它需要用户允许一次额外的本地操作。
+    pub needs_key: bool,
     pub detail: String,
 }
 
@@ -668,6 +670,7 @@ pub async fn local_import_scan(
             vendor: s.vendor.id().to_string(),
             display: s.vendor.display().to_string(),
             available: s.available,
+            needs_key: s.needs_key,
             detail: s.detail,
         })
         .collect())
@@ -679,10 +682,12 @@ pub async fn local_import(
     app: AppHandle,
     state: State<'_, SharedState>,
     vendor: String,
+    allow_key_fetch: Option<bool>,
 ) -> Result<String, String> {
     remote_guard(state.inner()).await?;
     let v = Vendor::parse(&vendor).ok_or_else(|| format!("不认识的平台：{vendor}"))?;
-    let found = ph_providers::local_import::import(v).map_err(|e| e.user_message())?;
+    let found = ph_providers::local_import::import(v, allow_key_fetch.unwrap_or(false))
+        .map_err(|e| e.user_message())?;
 
     let (label, snap, updated, merged) = {
         let mut engine = state.engine.lock().await;

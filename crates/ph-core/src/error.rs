@@ -30,6 +30,11 @@ pub enum Error {
 
     #[error("当前平台不支持该能力：{0}")]
     Unsupported(String),
+
+    /// 本机登录态已找到，但读取它需要用户授权一次额外的本地操作。
+    /// 界面据此显示「允许一次」按钮，而不是把它当成普通失败。
+    #[error("{0}")]
+    NeedsKey(String),
 }
 
 impl From<std::io::Error> for Error {

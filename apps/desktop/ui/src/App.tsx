@@ -25,6 +25,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | null>(null);
+  const [settingsAnchor, setSettingsAnchor] = useState<"data-location" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // 更新检查结果放在 App 层：总览右侧的「有新版本」提示和设置页共用同一份。
   const [update, setUpdate] = useState<UpdateCheck | null>(null);
@@ -237,6 +238,7 @@ export default function App() {
             className="nav rail-settings"
             onClick={() => {
               setSettingsSection(null);
+              setSettingsAnchor(null);
               setSettingsOpen(true);
             }}
             aria-label="设置"
@@ -264,6 +266,7 @@ export default function App() {
             updateVersion={update?.latest?.version ?? null}
             onOpenUpdate={() => {
               setSettingsSection("update");
+              setSettingsAnchor(null);
               setSettingsOpen(true);
             }}
           />
@@ -275,8 +278,9 @@ export default function App() {
             busy={busy}
             onChanged={setView}
             notify={notify}
-            onOpenSettings={() => {
-              setSettingsSection(null);
+            onOpenSettings={(section) => {
+              setSettingsSection(section ?? null);
+              setSettingsAnchor(section === "data" ? "data-location" : null);
               setSettingsOpen(true);
             }}
           />
@@ -288,8 +292,12 @@ export default function App() {
           view={view}
           onSave={saveSettings}
           notify={notify}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsAnchor(null);
+          }}
           initialSection={settingsSection ?? undefined}
+          initialAnchor={settingsAnchor ?? undefined}
           update={update}
           checkingUpdate={updateChecking}
           onCheckUpdate={() => void checkUpdate()}
@@ -699,7 +707,7 @@ function AccountsPage({
   busy: string | null;
   onChanged: (v: StateView) => void;
   notify: (t: string, k?: "ok" | "warn") => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: SettingsSectionId) => void;
 }) {
   const [vendor, setVendor] = useState("workbuddy");
   const [mode, setMode] = useState<"browser" | "local" | "token">("browser");
@@ -752,10 +760,10 @@ function AccountsPage({
     };
   }, [isPhone]);
 
-  const startLocalImport = async () => {
+  const startLocalImport = async (allowKeyFetch = false) => {
     setImporting(true);
     try {
-      const msg = await api.localImport(vendor);
+      const msg = await api.localImport(vendor, allowKeyFetch);
       onChanged(await api.bootstrap());
       notify(msg);
     } catch (e) {
@@ -969,7 +977,7 @@ function AccountsPage({
                       </ol>
                       <button
                         className="btn primary block"
-                        onClick={startLocalImport}
+                        onClick={() => void startLocalImport()}
                         disabled={importing || busy !== null}
                       >
                         {importing ? "正在导入…" : `从本机导入 ${cap?.display ?? vendor}`}
@@ -978,9 +986,20 @@ function AccountsPage({
                   ) : (
                     <>
                       <p className="hint warn">{localStatus.detail}</p>
-                      <button className="link-btn" onClick={() => setMode("token")}>
-                        改用手动令牌
-                      </button>
+                      {localStatus.needs_key && (
+                        <button
+                          className="btn primary block"
+                          onClick={() => void startLocalImport(true)}
+                          disabled={importing || busy !== null}
+                        >
+                          {importing ? "正在读取…" : "允许一次并导入"}
+                        </button>
+                      )}
+                      <div className="link-row">
+                        <button className="link-btn" onClick={() => setMode("token")}>
+                          改用手动令牌
+                        </button>
+                      </div>
                     </>
                   )
                 ) : (
@@ -1049,8 +1068,8 @@ function AccountsPage({
               </>
             )}
 
-            <button className="link-btn" onClick={onOpenSettings}>
-              凭据存在哪？看设置页的说明
+            <button className="link-btn" onClick={() => onOpenSettings("data")}>
+              凭据存在哪？去「设置 → 数据与安全 → 数据位置」查看
             </button>
           </div>
         </section>

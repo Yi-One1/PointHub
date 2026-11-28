@@ -18,6 +18,7 @@
 
 use crate::client_crypto;
 use crate::identity::jwt_payload;
+use crate::wb_auth;
 use base64::Engine as _;
 use chrono::TimeZone as _;
 use ph_core::{Credential, Error, Result, Vendor};
@@ -29,6 +30,8 @@ use std::path::{Path, PathBuf};
 pub struct ImportStatus {
     pub vendor: Vendor,
     pub available: bool,
+    /// 登录态已找到，但读取它需要用户允许一次额外的本地操作（WorkBuddy 官方密钥）。
+    pub needs_key: bool,
     pub detail: String,
 }
 
@@ -49,32 +52,36 @@ pub fn scan() -> Vec<ImportStatus> {
             .map(|v| ImportStatus {
                 vendor: *v,
                 available: false,
+                needs_key: false,
                 detail: "本机导入仅支持 Windows".into(),
             })
             .collect(),
     }
 }
 
-/// 读取某平台的本机登录态。调用方负责先展示扫描结果，再让用户确认导入。
-pub fn import(vendor: Vendor) -> Result<LocalCredential> {
-    let home = home_dir()
-        .ok_or_else(|| Error::Unsupported("本机导入仅支持 Windows".into()))?;
-    import_in(vendor, &home)
+/// 读取某平台的本机登录态。
+///
+/// `allow_key_fetch` 只在用户点过「允许一次」后为 true；扫描阶段永远不启动客户端。
+pub fn import(vendor: Vendor, allow_key_fetch: bool) -> Result<LocalCredential> {
+    let home = home_dir().ok_or_else(|| Error::Unsupported("本机导入仅支持 Windows".into()))?;
+    import_in(vendor, &home, allow_key_fetch)
 }
 
 /// 指定用户目录的扫描版本（测试与自定义环境用）。
 pub fn scan_in(home: &Path) -> Vec<ImportStatus> {
     Vendor::ALL
         .iter()
-        .map(|v| match read_credential(*v, home) {
+        .map(|v| match read_credential(*v, home, false) {
             Ok(found) => ImportStatus {
                 vendor: *v,
                 available: true,
+                needs_key: false,
                 detail: found.detail,
             },
             Err(e) => ImportStatus {
                 vendor: *v,
                 available: false,
+                needs_key: matches!(e, Error::NeedsKey(_)),
                 detail: e.user_message(),
             },
         })
@@ -82,13 +89,13 @@ pub fn scan_in(home: &Path) -> Vec<ImportStatus> {
 }
 
 /// 指定用户目录的导入版本。
-pub fn import_in(vendor: Vendor, home: &Path) -> Result<LocalCredential> {
-    read_credential(vendor, home)
+pub fn import_in(vendor: Vendor, home: &Path, allow_key_fetch: bool) -> Result<LocalCredential> {
+    read_credential(vendor, home, allow_key_fetch)
 }
 
-fn read_credential(vendor: Vendor, home: &Path) -> Result<LocalCredential> {
+fn read_credential(vendor: Vendor, home: &Path, allow_key_fetch: bool) -> Result<LocalCredential> {
     match vendor {
-        Vendor::WorkBuddy => workbuddy_credential(home),
+        Vendor::WorkBuddy => workbuddy_credential(home, allow_key_fetch),
         Vendor::TraeCn => trae_credential(home),
         Vendor::QoderCn => qoder_credential(home),
     }
@@ -96,21 +103,58 @@ fn read_credential(vendor: Vendor, home: &Path) -> Result<LocalCredential> {
 
 // ---------------------------------------------------------------- WorkBuddy
 
-fn workbuddy_credential(home: &Path) -> Result<LocalCredential> {
-    let path = home.join(".workbuddy").join("checkin-rt.json");
-    let raw = std::fs::read_to_string(&path).map_err(|e| match e.kind() {
+fn workbuddy_credential(home: &Path, allow_key_fetch: bool) -> Result<LocalCredential> {
+    let legacy = home.join(".workbuddy").join("checkin-rt.json");
+    // 旧版文件存在时优先沿用，避免同一台机器上有两份登录态时行为漂移。
+    if legacy.is_file() {
+        return workbuddy_legacy_credential(&legacy);
+    }
+    if let Some(path) = wb_auth::auth_file_path() {
+        return workbuddy_v5_credential(&path, allow_key_fetch);
+    }
+    workbuddy_legacy_credential(&legacy)
+}
+
+/// WorkBuddy 5.6+ 共享登录态：优先读 `$wbEncrypted`，必要时才向用户申请取密钥。
+fn workbuddy_v5_credential(path: &Path, allow_key_fetch: bool) -> Result<LocalCredential> {
+    let key = if allow_key_fetch {
+        Some(wb_auth::load_key()?)
+    } else {
+        None
+    };
+    let auth = wb_auth::read_auth(path, key.as_ref())?;
+    let credential = Credential {
+        refresh_token: auth.refresh_token,
+        access_token: auth.access_token,
+        domain: auth.domain,
+        platform_uid: auth.uid,
+        expires_at: auth.expires_at,
+        ..Default::default()
+    };
+    let detail = match auth.nickname {
+        Some(name) => format!("已找到 WorkBuddy 5.x 登录态（{name}）"),
+        None => "已找到 WorkBuddy 5.x 登录态".to_string(),
+    };
+    Ok(LocalCredential { credential, detail })
+}
+
+/// 旧版 `~/.workbuddy/checkin-rt.json`（明文 rt）。
+fn workbuddy_legacy_credential(path: &Path) -> Result<LocalCredential> {
+    let raw = std::fs::read_to_string(path).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => Error::NotFound(format!(
             "没找到 WorkBuddy 客户端的登录态（{}）。请先登录 WorkBuddy 客户端，或改用手动令牌。",
             path.display()
         )),
-        std::io::ErrorKind::PermissionDenied => Error::Auth(
-            "没有权限读取 WorkBuddy 客户端的登录态文件，请检查文件权限后重试。".into(),
-        ),
+        std::io::ErrorKind::PermissionDenied => {
+            Error::Auth("没有权限读取 WorkBuddy 客户端的登录态文件，请检查文件权限后重试。".into())
+        }
         _ => Error::Io(format!("读取 WorkBuddy 登录态失败：{e}")),
     })?;
 
     let json: Value = serde_json::from_str(&raw).map_err(|_| {
-        Error::Format("WorkBuddy 客户端登录态格式无法解析（客户端可能已升级），请改用手动令牌。".into())
+        Error::Format(
+            "WorkBuddy 客户端登录态格式无法解析（客户端可能已升级），请改用手动令牌。".into(),
+        )
     })?;
     let rt = json
         .get("rt")
@@ -119,7 +163,8 @@ fn workbuddy_credential(home: &Path) -> Result<LocalCredential> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
             Error::Format(
-                "WorkBuddy 客户端登录态里没有长效令牌（rt 为空），请打开客户端重新登录后再试。".into(),
+                "WorkBuddy 客户端登录态里没有长效令牌（rt 为空），请打开客户端重新登录后再试。"
+                    .into(),
             )
         })?;
 
@@ -262,7 +307,10 @@ fn read_trae_storage(path: &Path) -> Result<LocalCredential> {
 
     Ok(LocalCredential {
         detail: match expires_at {
-            Some(exp) => format!("已找到 Trae CN 客户端登录态（令牌有效期至 {}）", fmt_time(exp)),
+            Some(exp) => format!(
+                "已找到 Trae CN 客户端登录态（令牌有效期至 {}）",
+                fmt_time(exp)
+            ),
             None => "已找到 Trae CN 客户端登录态".into(),
         },
         credential,
@@ -308,8 +356,7 @@ fn decode_trae_auth(raw: &str) -> Result<String> {
             "Trae 登录态完整性校验失败（客户端可能正在写入或格式已变化），请稍后重试".into(),
         ));
     }
-    String::from_utf8(body.to_vec())
-        .map_err(|_| Error::Format("Trae 登录态不是 UTF-8 文本".into()))
+    String::from_utf8(body.to_vec()).map_err(|_| Error::Format("Trae 登录态不是 UTF-8 文本".into()))
 }
 
 // ---------------------------------------------------------------- Qoder CN
@@ -338,8 +385,9 @@ fn qoder_credential(home: &Path) -> Result<LocalCredential> {
     let key_blob = key_blob
         .strip_prefix(b"DPAPI".as_slice())
         .ok_or_else(|| Error::Format("Qoder 的登录态密钥格式已变化".into()))?;
-    let key = client_crypto::dpapi_unprotect(key_blob)
-        .map_err(|_| Error::Auth("解不开 Qoder 登录态（需要同一 Windows 用户），请重新登录客户端".into()))?;
+    let key = client_crypto::dpapi_unprotect(key_blob).map_err(|_| {
+        Error::Auth("解不开 Qoder 登录态（需要同一 Windows 用户），请重新登录客户端".into())
+    })?;
 
     let raw = std::fs::read(root.join(QODER_AUTH_FILE))
         .map_err(|e| Error::Io(format!("读取 Qoder 的登录态失败：{e}")))?;
@@ -369,7 +417,10 @@ fn qoder_credential(home: &Path) -> Result<LocalCredential> {
 
     Ok(LocalCredential {
         detail: match expires_at {
-            Some(exp) => format!("已找到 Qoder CN 客户端登录态（令牌有效期至 {}）", fmt_time(exp)),
+            Some(exp) => format!(
+                "已找到 Qoder CN 客户端登录态（令牌有效期至 {}）",
+                fmt_time(exp)
+            ),
             None => "已找到 Qoder CN 客户端登录态".into(),
         },
         credential,
@@ -418,10 +469,9 @@ fn decrypt_qoder_v10(key: &[u8], raw: &[u8]) -> Result<Vec<u8>> {
 // ---------------------------------------------------------------- 路径与时间
 
 fn roaming_dir(home: &Path) -> PathBuf {
-    if let (Some(appdata), Some(profile)) = (
-        std::env::var_os("APPDATA"),
-        std::env::var_os("USERPROFILE"),
-    ) {
+    if let (Some(appdata), Some(profile)) =
+        (std::env::var_os("APPDATA"), std::env::var_os("USERPROFILE"))
+    {
         if PathBuf::from(profile) == home {
             return PathBuf::from(appdata);
         }
@@ -599,8 +649,11 @@ mod tests {
         let token = jwt(serde_json::json!({ "exp": now + 3600, "nickname": "测试号" }));
         write_checkin(&home, &token);
 
-        let found = import_in(Vendor::WorkBuddy, &home).unwrap();
-        assert_eq!(found.credential.refresh_token.as_deref(), Some(token.as_str()));
+        let found = import_in(Vendor::WorkBuddy, &home, false).unwrap();
+        assert_eq!(
+            found.credential.refresh_token.as_deref(),
+            Some(token.as_str())
+        );
         assert!(found.credential.access_token.is_none());
         assert!(found.detail.contains("测试号"));
         let _ = std::fs::remove_dir_all(&home);
@@ -612,7 +665,7 @@ mod tests {
         let now = chrono::Local::now().timestamp();
         write_checkin(&home, &jwt(serde_json::json!({ "exp": now - 60 })));
 
-        let err = import_in(Vendor::WorkBuddy, &home).unwrap_err();
+        let err = import_in(Vendor::WorkBuddy, &home, false).unwrap_err();
         assert!(err.user_message().contains("过期"));
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -620,7 +673,9 @@ mod tests {
     #[test]
     fn missing_file_points_to_manual_token() {
         let home = temp_home("missing");
-        let err = import_in(Vendor::WorkBuddy, &home).unwrap_err();
+        // 直接测旧版路径的缺失提示；不要受本机真实 WorkBuddy 5.x 登录态影响。
+        let legacy = home.join(".workbuddy").join("checkin-rt.json");
+        let err = workbuddy_legacy_credential(&legacy).unwrap_err();
         assert!(err.user_message().contains("手动令牌"));
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -629,8 +684,61 @@ mod tests {
     fn malformed_rt_is_rejected_not_guessed() {
         let home = temp_home("bad");
         write_checkin(&home, "not-a-jwt");
-        let err = import_in(Vendor::WorkBuddy, &home).unwrap_err();
+        let err = import_in(Vendor::WorkBuddy, &home, false).unwrap_err();
         assert!(err.user_message().contains("JWT"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    fn write_v5_auth(dir: &Path, value: &Value) -> PathBuf {
+        let path = dir.join("workbuddy-desktop.info");
+        std::fs::write(&path, value.to_string()).unwrap();
+        path
+    }
+
+    #[test]
+    fn reads_workbuddy_v5_plaintext_auth() {
+        let home = temp_home("wb5-plain");
+        let path = write_v5_auth(
+            &home,
+            &serde_json::json!({
+                "auth": {
+                    "refreshToken": "v5-refresh",
+                    "accessToken": "v5-access",
+                    "domain": "www.codebuddy.cn",
+                    "expiresAt": 1_893_456_000_000i64
+                },
+                "account": { "uid": "uid-v5", "nickname": "测试号" }
+            }),
+        );
+
+        let found = workbuddy_v5_credential(&path, false).unwrap();
+        assert_eq!(
+            found.credential.refresh_token.as_deref(),
+            Some("v5-refresh")
+        );
+        assert_eq!(found.credential.access_token.as_deref(), Some("v5-access"));
+        assert_eq!(found.credential.platform_uid.as_deref(), Some("uid-v5"));
+        assert_eq!(found.credential.domain.as_deref(), Some("www.codebuddy.cn"));
+        assert_eq!(found.credential.expires_at, Some(1_893_456_000));
+        assert!(found.detail.contains("测试号"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn workbuddy_v5_encrypted_tokens_need_user_permission() {
+        let home = temp_home("wb5-enc");
+        let path = write_v5_auth(
+            &home,
+            &serde_json::json!({
+                "auth": {
+                    "refreshToken": { "$wbEncrypted": 1, "envelope": "e30=" }
+                },
+                "account": { "uid": "uid-v5" }
+            }),
+        );
+
+        let err = workbuddy_v5_credential(&path, false).unwrap_err();
+        assert!(matches!(err, Error::NeedsKey(_)), "{err:?}");
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -641,7 +749,10 @@ mod tests {
         write_checkin(&home, &jwt(serde_json::json!({ "exp": now + 3600 })));
 
         let statuses = scan_in(&home);
-        let wb = statuses.iter().find(|s| s.vendor == Vendor::WorkBuddy).unwrap();
+        let wb = statuses
+            .iter()
+            .find(|s| s.vendor == Vendor::WorkBuddy)
+            .unwrap();
         assert!(wb.available, "找到客户端登录态时应可用：{}", wb.detail);
         for v in [Vendor::TraeCn, Vendor::QoderCn] {
             let s = statuses.iter().find(|s| s.vendor == v).unwrap();
@@ -661,10 +772,13 @@ mod tests {
         .to_string();
         write_trae_storage(&home, &auth, "iCubeAuthInfo://icube-dc:device-123");
 
-        let found = import_in(Vendor::TraeCn, &home).unwrap();
+        let found = import_in(Vendor::TraeCn, &home, false).unwrap();
         assert_eq!(found.credential.access_token.as_deref(), Some("trae-token"));
         assert_eq!(found.credential.device_id.as_deref(), Some("device-123"));
-        assert_eq!(found.credential.platform_uid.as_deref(), Some("trae-user-9"));
+        assert_eq!(
+            found.credential.platform_uid.as_deref(),
+            Some("trae-user-9")
+        );
         assert!(found.credential.expires_at.is_some());
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -680,7 +794,7 @@ mod tests {
         let sealed = encrypt_trae_auth(&auth);
         write_trae_storage(&home, &sealed, "iCubeAuthInfo://icube-dc:dev-xyz");
 
-        let found = import_in(Vendor::TraeCn, &home).unwrap();
+        let found = import_in(Vendor::TraeCn, &home, false).unwrap();
         assert_eq!(
             found.credential.access_token.as_deref(),
             Some("trae-encrypted-token")
@@ -699,8 +813,12 @@ mod tests {
         .to_string();
         write_trae_storage(&home, &auth, "iCubeAuthInfo://icube-dc:dev");
 
-        let err = import_in(Vendor::TraeCn, &home).unwrap_err();
-        assert!(err.user_message().contains("过期"), "{}", err.user_message());
+        let err = import_in(Vendor::TraeCn, &home, false).unwrap_err();
+        assert!(
+            err.user_message().contains("过期"),
+            "{}",
+            err.user_message()
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -717,9 +835,15 @@ mod tests {
         });
         write_qoder_store(&home, &key, &session);
 
-        let found = import_in(Vendor::QoderCn, &home).unwrap();
-        assert_eq!(found.credential.access_token.as_deref(), Some("qoder-token"));
-        assert_eq!(found.credential.platform_uid.as_deref(), Some("qoder-user-7"));
+        let found = import_in(Vendor::QoderCn, &home, false).unwrap();
+        assert_eq!(
+            found.credential.access_token.as_deref(),
+            Some("qoder-token")
+        );
+        assert_eq!(
+            found.credential.platform_uid.as_deref(),
+            Some("qoder-user-7")
+        );
         assert!(found.credential.expires_at.is_some());
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -735,8 +859,12 @@ mod tests {
         });
         write_qoder_store(&home, &key, &session);
 
-        let err = import_in(Vendor::QoderCn, &home).unwrap_err();
-        assert!(err.user_message().contains("过期"), "{}", err.user_message());
+        let err = import_in(Vendor::QoderCn, &home, false).unwrap_err();
+        assert!(
+            err.user_message().contains("过期"),
+            "{}",
+            err.user_message()
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 

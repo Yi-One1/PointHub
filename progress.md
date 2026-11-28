@@ -27,6 +27,9 @@
 - **总览 KPI（0.14.0 进行中）**：五张卡（积分总额 / 今日新增 / 今日消耗 / 本月领取总积分 / 今日已签）；
   新增取签到领取流水、消耗按 昨日余额 + 今日领取 − 今日余额 反推；本月领取只算本月签到到账；
   新增 ruby 红色积分图标，正负号定宽对齐。
+- **账号身份与分组（0.14.0 进行中）**：账号默认名取平台昵称（本机导入优先读客户端登录态），
+  可就地改名且改过之后重导不覆盖；令牌指纹只在悬停提示里，行内显示「导入来源 · 签到时间」；
+  账号页按平台拆成独立卡片，数量放在页面标题右侧。
 - **多账号与调度**：独立凭据 / 排期 / 历史；逐账号签到 + 一键全部签到；
   默认 00:10 + 确定性抖动，启动补签。
 - **签到稳定性（0.13.1）**：执行端指向「已不存在的设备」时启动自动收回本机；
@@ -80,8 +83,8 @@
   目前仍由安装向导确认。
 - [ ] **自定义签到时间**：界面只有平台默认时刻 + 确定性抖动（D06），
   后续支持每账号自定义时间。
-- [ ] **0.14.0 体验改造（分组进行中）**：G1（本机导入）与 G2（总览 KPI）已完成；
-  待做 G3 账号身份与分组、G4 账号页细节、G5 趋势图、G6 自定义签到时间、G7 活动与关于页。
+- [ ] **0.14.0 体验改造（分组进行中）**：G1（本机导入）、G2（总览 KPI）、G3（账号身份与分组）已完成；
+  待做 G4 账号页细节、G5 趋势图、G6 自定义签到时间、G7 活动与关于页。
   G4 含一项已确认的布局缺陷：导入方式切换时纵向滚动条出现/消失，两栏宽度抖动 10px。
 
 ---
@@ -101,15 +104,15 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（构建缓存 `E:\Cache\Android_Build`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（65 项；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"` 指定解释器；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
-| Rust 测试 | `cargo test --workspace`（115 项）；桌面端 16 项 |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（71 项；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"` 指定解释器；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
+| Rust 测试 | `cargo test --workspace`（119 项）；桌面端 16 项 |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
 | 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
 
 ### 验证过的证据
 
-- `cargo test --workspace` **115 项全绿**；桌面端 16 项、前端 **65/65**、`tsc --noEmit`、`vite build` 通过。
+- `cargo test --workspace` **119 项全绿**；桌面端 16 项、前端 **71/71**、`tsc --noEmit`、`vite build` 通过。
 - 0.13.1 修复用真实数据副本实测：三个账号 `executor` 从幽灵 id 收回本机、
   日志有记录、`phctl status` 恢复「已签」；预览版总览异常提示条出现并在补签后自动消失。
 - 0.13.1 产物：Windows exe FileVersion 0.13.1（5.4 MB / 安装包 2.2 MB）；

@@ -38,6 +38,45 @@ const SECTION_ICONS: Record<SettingsSectionId, () => ReactElement> = {
   about: IconAbout,
 };
 
+/** Release 说明的轻量排版：只处理标题、列表、引用，并去掉行内 Markdown 记号。 */
+function ReleaseNotes({ notes }: { notes: string }) {
+  const clean = (s: string) => s.replace(/\*\*/g, "").replace(/`/g, "");
+  return (
+    <>
+      {notes.split("\n").map((raw, i) => {
+        const line = raw.trim();
+        if (line === "") return <div className="un-gap" key={i} />;
+        if (line.startsWith("## ")) {
+          return (
+            <div className="un-h" key={i}>
+              {clean(line.slice(3))}
+            </div>
+          );
+        }
+        if (line.startsWith("- ")) {
+          return (
+            <div className="un-li" key={i}>
+              • {clean(line.slice(2))}
+            </div>
+          );
+        }
+        if (line.startsWith("> ")) {
+          return (
+            <div className="un-note" key={i}>
+              {clean(line.slice(2))}
+            </div>
+          );
+        }
+        return (
+          <div className="un-p" key={i}>
+            {clean(line)}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /** 深比较：判断当前分区是否已经和默认值一致。 */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -1019,6 +1058,15 @@ export default function SettingsScreen({
                   )}
                 </div>
               </div>
+
+              {update?.latest && update.latest.notes.trim() !== "" && (
+                <div className="row row-block">
+                  <div className="row-title">更新内容</div>
+                  <div className="update-notes">
+                    <ReleaseNotes notes={update.latest.notes} />
+                  </div>
+                </div>
+              )}
               </section>
             </>
           )}

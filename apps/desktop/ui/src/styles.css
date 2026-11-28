@@ -1275,6 +1275,44 @@ textarea {
   margin-top: 1px;
 }
 
+/* 新版本说明：整行铺开，长内容在卡片内滚动 */
+.row-block {
+  display: block;
+}
+
+.update-notes {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding-right: 4px;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.un-h {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.un-h:first-child {
+  margin-top: 0;
+}
+
+.un-li {
+  padding-left: 2px;
+}
+
+.un-note {
+  color: var(--faint);
+}
+
+.un-gap {
+  height: 6px;
+}
+
 .mono {
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 11px;

@@ -168,6 +168,15 @@ test("系统通知合并为一个开关", () => {
   assert.doesNotMatch(SCREEN, /失败 \{draft\.notify_on_failure/);
 });
 
+test("检测到新版本时展示 Release 更新内容", () => {
+  assert.match(SCREEN, /function ReleaseNotes/);
+  assert.ok(SCREEN.includes("update.latest.notes"), "应读取 Release notes");
+  assert.ok(SCREEN.includes("更新内容"));
+  assert.match(SCREEN, /line\.startsWith\("## "\)/);
+  assert.match(CSS, /\.update-notes \{[\s\S]*?max-height: 240px;[\s\S]*?overflow-y: auto;/);
+  assert.match(CSS, /\.row-block \{\s*display: block;/);
+});
+
 test("关于页有作者、仓库、反馈入口与许可，不再放退出按钮", () => {
   const about = SCREEN.slice(SCREEN.indexOf('settings-group">关于</h2>'));
   assert.ok(about.includes("毅One"), "关于页缺少作者名");

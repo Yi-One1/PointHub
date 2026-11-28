@@ -187,7 +187,7 @@ VendorSnapshot     一次采样
 
 ## 六、验收状态（v0.13.1）
 
-- [x] `cargo test --workspace` 95 个测试全绿；`cargo check --workspace` 零错误
+- [x] `cargo test --workspace` 106 个测试全绿；桌面端 16 项、前端 49 项通过；`cargo check --workspace` 零错误
 - [x] 前端 `tsc --noEmit` 零错误，`vite build` 成功
 - [x] 桌面端启动、数据目录可创建、CLI 全链路闭环
 - [x] WorkBuddy 真实账号端到端：签到、余额、旅行均跑通
@@ -239,6 +239,6 @@ VendorSnapshot     一次采样
 
 ## 七、下一步（按优先级）
 
-1. **发布 0.13.0**：设置页改造出双端正式包并发布 Release。
-2. Windows 静默自替换：需接 Tauri updater 签名链，暂不做（D08）。
-3. 更细的当前快照与阻塞项见 `progress.md`。
+1. **每账号自定义签到时间**（D06）：当前只有平台默认时刻 + 确定性抖动，界面无编辑入口。
+2. **Windows 静默自替换**：需接 Tauri updater 签名链，暂不做（D08）。
+3. 当前快照、验证命令与阻塞项见 `progress.md`。

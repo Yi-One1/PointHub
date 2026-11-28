@@ -102,7 +102,7 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 - 国产 ROM 需在系统设置里允许后台运行，否则可能被省电策略延后；
   打开 App 补签是兜底。
 
-## 应用内安装更新（未发版）
+## 应用内安装更新（0.12.0 已发）
 
 更新时不再跳浏览器，链路如下（D26）：
 
@@ -120,7 +120,7 @@ release 构建成功后会自动复制到 `dist\积分枢纽PointHub_v<版本>.a
 - 以上改动都由 `scripts/patch-android-sources.ps1` 幂等写入 `gen/`（Manifest 权限、
   `res/xml/file_paths.xml`、R8 规则、`MainActivity`），换机器重 init 不会丢。
 
-## 凭据存储与旧仓迁移（未发版）
+## 凭据存储与旧仓迁移（0.12.0 已发）
 
 - 安卓凭据仓（`vault.bin`）改用 AndroidKeyStore 托管密钥（D05 / D27）：
   `VaultKeystore.kt` 用 `AES/GCM/NoPadding` 加解密，密钥只在系统密钥库里生成，

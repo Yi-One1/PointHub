@@ -90,8 +90,8 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（构建缓存 `E:\Cache\Android_Build`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（46 项） |
-| Rust 测试 | `cargo test --workspace`（99 项）；桌面端另有独立测试 |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（49 项；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"` 指定解释器；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
+| Rust 测试 | `cargo test --workspace`（106 项）；桌面端 16 项 |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
 | 单实例验证 | `powershell -File scripts\test-single-instance.ps1`（需先 `cargo build` 出 debug exe） |
 | 排障 | `phctl doctor` / `phctl status --data-dir <目录>`；日志在 `logs/` |
@@ -115,7 +115,7 @@
 
 ### 隐私与仓库卫生
 
-- 仓库 132 个跟踪文件，最大为 `Cargo.lock`（约 150 KB）；无 exe / apk / 数据文件。
+- 仓库 133 个跟踪文件，最大为 `Cargo.lock`（约 150 KB）；无 exe / apk / 数据文件。
 - `dist/`、`target/`、`gen/`、`node_modules/`、`.trae/`、`用户提供的文件/`、
   `GitHub上的参考项目/` 均不入库；运行产物 `debug.log` / `device.json` / `logs/` 已忽略。
 - 用户真实账号数据只在本机 `data/`，永远不会被提交。

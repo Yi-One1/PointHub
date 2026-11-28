@@ -32,12 +32,12 @@ export const api = {
     cookie?: string;
   }) => invoke<string>("add_account", { payload }),
   removeAccount: (id: string) => invoke<void>("remove_account", { id }),
-  /** 指定平台（null 为全部）与区间的每日积分序列；月度下钻传该月 1 号与天数 */
+  /** 指定平台（null 为全部）与区间的每日积分序列；趋势页「本月」传该月 1 号与天数 */
   creditDays: (vendor: string | null, from: string, days: number) =>
     invoke<DayPoint[]>("credit_days", { vendor, from, days }),
-  /** 近 N 个月的三项汇总 */
-  creditMonths: (vendor: string | null, months: number) =>
-    invoke<MonthPoint[]>("credit_months", { vendor, months }),
+  /** 某一年 1~12 月的三项汇总，固定 12 条（没采样的月 days 为 0） */
+  creditYearMonths: (vendor: string | null, year: number) =>
+    invoke<MonthPoint[]>("credit_year_months", { vendor, year }),
   /** 改账号名；改过之后重复导入不再用平台昵称覆盖 */
   renameAccount: (id: string, label: string) =>
     invoke<string>("rename_account", { id, label }),

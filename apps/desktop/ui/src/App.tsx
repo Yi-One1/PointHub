@@ -5,10 +5,11 @@ import { BRAND_MARK, BRAND_MARK_DARK } from "./assets";
 import { useTheme } from "./theme";
 import { PointsIcon } from "./PointsIcon";
 import { VendorIcon } from "./VendorIcon";
-import { IconAccounts, IconGear, IconOverview } from "./icons";
+import { IconAccounts, IconGear, IconOverview, IconTrend } from "./icons";
 import SettingsScreen from "./SettingsScreen";
 import { TrendModal } from "./TrendModal";
-import { TrendChart, TrendLegend, useTrendVisible, type TrendPoint } from "./TrendChart";
+import { TrendsScreen } from "./TrendsScreen";
+import { TrendChart, TrendLegend, dayTrendPoints, useTrendVisible, type TrendPoint } from "./TrendChart";
 import { credits } from "./format";
 import type { SettingsSectionId } from "./settings";
 import { Modal } from "./ui";
@@ -21,11 +22,13 @@ import type {
   UpdateCheck,
 } from "./types";
 
-type Tab = "overview" | "accounts";
+type Tab = "overview" | "accounts" | "trends";
 
 export default function App() {
   const [view, setView] = useState<StateView | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  // 趋势页看哪个平台；null = 全部平台。受控在这一层，总览与弹窗都能把用户送过去。
+  const [trendScope, setTrendScope] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | null>(null);
   const [settingsAnchor, setSettingsAnchor] = useState<"data-location" | null>(null);
@@ -141,6 +144,18 @@ export default function App() {
     }
   };
 
+  /// 跳到趋势页并指定平台（null = 全部平台）。总览卡片与平台弹窗共用这一条路径。
+  const openTrends = useCallback((vendor: string | null) => {
+    setTrendScope(vendor);
+    setTab("trends");
+  }, []);
+
+  // 趋势页在远程模式下没有入口也取不到数：配对成功时把还停在该页的用户送回
+  // 总览，否则主区会只剩一片空白。
+  useEffect(() => {
+    if (view?.mode === "remote" && tab === "trends") setTab("overview");
+  }, [view?.mode, tab]);
+
   const refresh = () =>
     run("refresh", async () => {
       const v = await api.refreshAll();
@@ -237,6 +252,15 @@ export default function App() {
             badge={view.accounts.length}
             icon={<IconAccounts />}
           />
+          {/* 远程模式下趋势命令在电脑端，本机会直接拒绝，入口干脆不出现 */}
+          {view.mode !== "remote" && (
+            <NavItem
+              active={tab === "trends"}
+              onClick={() => setTab("trends")}
+              label="趋势"
+              icon={<IconTrend />}
+            />
+          )}
           <button
             className="nav rail-settings"
             onClick={() => {
@@ -266,6 +290,7 @@ export default function App() {
             onTravel={travel}
             onToggle={toggle}
             onAdd={() => setTab("accounts")}
+            onOpenTrends={openTrends}
             updateVersion={update?.latest?.version ?? null}
             onOpenUpdate={() => {
               setSettingsSection("update");
@@ -286,6 +311,15 @@ export default function App() {
               setSettingsAnchor(section === "data" ? "data-location" : null);
               setSettingsOpen(true);
             }}
+          />
+        )}
+
+        {tab === "trends" && view.mode !== "remote" && (
+          <TrendsScreen
+            view={view}
+            scope={trendScope}
+            onScope={setTrendScope}
+            onBack={() => setTab("overview")}
           />
         )}
       </main>
@@ -330,6 +364,7 @@ function Overview({
   onTravel,
   onToggle,
   onAdd,
+  onOpenTrends,
   updateVersion,
   onOpenUpdate,
 }: {
@@ -341,6 +376,8 @@ function Overview({
   onTravel: (a: AccountView) => void;
   onToggle: (a: AccountView, enabled: boolean) => void;
   onAdd: () => void;
+  /** 跳到趋势页；参数是该图要看的平台（null = 全部平台） */
+  onOpenTrends: (vendor: string | null) => void;
   /** 发现的新版本号；null 表示没有可更新的版本 */
   updateVersion: string | null;
   onOpenUpdate: () => void;
@@ -381,8 +418,9 @@ function Overview({
   }, [view.accounts, view.platforms]);
 
   const lastSample = view.aggregate.last_sampled_at ? clock(view.aggregate.last_sampled_at) : null;
-  // null 表示没开弹窗；vendor 为 null 时看全部平台。
-  const [trendScope, setTrendScope] = useState<{ vendor: string | null; display: string } | null>(null);
+  // null 表示没开弹窗；vendor 为 null 时看全部平台。弹窗只放近 7 日，
+  // 本月/本年度在左侧「趋势」页（`onOpenTrends`）。
+  const [modalScope, setModalScope] = useState<{ vendor: string | null; display: string } | null>(null);
 
   return (
     <>
@@ -532,8 +570,8 @@ function Overview({
                 {view.mode !== "remote" && (
                   <button
                     className="phead-btn"
-                    onClick={() => setTrendScope({ vendor: g.vendor, display: g.display })}
-                    title={`查看 ${g.display} 的近 7 日与各月积分变化`}
+                    onClick={() => setModalScope({ vendor: g.vendor, display: g.display })}
+                    title={`查看 ${g.display} 的近 7 日积分变化`}
                   >
                     趋势
                   </button>
@@ -615,20 +653,21 @@ function Overview({
       <div className="bottom">
         <TrendCard
           trend={view.trend}
-          onOpenMonths={
-            view.mode === "remote"
-              ? undefined
-              : () => setTrendScope({ vendor: null, display: "全部平台" })
-          }
+          onOpenMonths={view.mode === "remote" ? undefined : () => onOpenTrends(null)}
         />
         <ActivityCard events={view.events} />
       </div>
 
-      {trendScope && (
+      {modalScope && (
         <TrendModal
-          vendor={trendScope.vendor}
-          display={trendScope.display}
-          onClose={() => setTrendScope(null)}
+          vendor={modalScope.vendor}
+          display={modalScope.display}
+          onClose={() => setModalScope(null)}
+          onOpenTrends={() => {
+            const vendor = modalScope.vendor;
+            setModalScope(null);
+            onOpenTrends(vendor);
+          }}
         />
       )}
     </>
@@ -636,14 +675,10 @@ function Overview({
 }
 
 function TrendCard({ trend, onOpenMonths }: { trend: DayPoint[]; onOpenMonths?: () => void }) {
+  // 这一张图自己一份图例 state，与趋势页的两张图互不影响。
   const [visible, toggle] = useTrendVisible();
-  // 总额、新增、消耗都画成折线；当天没有采样就断线，不补 0。
-  const points: TrendPoint[] = trend.map((d) => ({
-    label: d.date,
-    total: d.known > 0 ? d.total : null,
-    up: d.up,
-    down: d.down,
-  }));
+  // 总额、新增、消耗都画成曲线；当天没有采样就断线，不补 0（口径见 dayTrendPoints）。
+  const points: TrendPoint[] = dayTrendPoints(trend);
   const hasAny = trend.some((d) => d.known > 0);
 
   return (
@@ -651,7 +686,7 @@ function TrendCard({ trend, onOpenMonths }: { trend: DayPoint[]; onOpenMonths?: 
       <div className="btitle">
         <span>近 7 日积分变化</span>
         {onOpenMonths && (
-          <button className="btitle-btn" onClick={onOpenMonths} title="查看最近 12 个月与每月每日">
+          <button className="btitle-btn" onClick={onOpenMonths} title="去趋势页看本月每日与本年度 12 个月">
             月度 ›
           </button>
         )}

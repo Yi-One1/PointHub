@@ -68,7 +68,7 @@ pub struct DayPoint {
     pub down: Option<f64>,
 }
 
-/// 某个月的积分汇总（月度下钻的第一级）。
+/// 某个月的积分汇总（年度视图里的一格）。
 ///
 /// 月度里的 `up`/`down` 是当月逐日之和：日口径改了，月口径跟着改，不用另写一套。
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -77,7 +77,7 @@ pub struct MonthPoint {
     pub month: String,
     /// 该月最后一个有数据日的余额合计。
     pub total: f64,
-    /// 该月有余额数据的天数（0 表示整月没采样，这种月不会出现在结果里）。
+    /// 该月有余额数据的天数（0 表示整月没采样，这种月在年度视图里占位、三项为 0）。
     pub days: usize,
     /// 该月签到领取之和。
     pub up: f64,
@@ -1279,41 +1279,41 @@ impl Engine {
         out
     }
 
-    /// 近 `months` 个月的三项汇总（含本月，按时间升序）。
+    /// 某一年 1~12 月的汇总，**固定返回 12 条**，按月份升序。
     ///
-    /// 没有采样的月份直接跳过：补一个 0 会让总额曲线凭空掉到底。
-    pub fn monthly_series(&self, vendor: Option<Vendor>, months: i64) -> Vec<MonthPoint> {
+    /// 年度视图必须能画出完整的 12 格，所以没有采样的月也占位（`days == 0`、
+    /// `total`/`up`/`down` 为 0），由前端决定是断线还是提示「还没有数据」。
+    /// 未来的月份不扫：区间右端取「该年最后一天」与今天中较小的那个。
+    ///
+    /// `series_dated` 会从 `from - 1` 取基线，所以 1 月的「消耗」还能看到去年
+    /// 12 月 31 日的余额，跨年不串月。
+    pub fn monthly_series_of_year(&self, vendor: Option<Vendor>, year: i32) -> Vec<MonthPoint> {
         use chrono::Datelike;
 
         let today = chrono::Local::now().date_naive();
-        let months = months.clamp(1, 60) as i32;
-        let mut year = today.year();
-        let mut month = today.month() as i32 - (months - 1);
-        while month <= 0 {
-            month += 12;
-            year -= 1;
-        }
-        let Some(start) = chrono::NaiveDate::from_ymd_opt(year, month as u32, 1) else {
+        let Some(first) = chrono::NaiveDate::from_ymd_opt(year, 1, 1) else {
             return Vec::new();
         };
+        let last = chrono::NaiveDate::from_ymd_opt(year, 12, 31).unwrap_or(first);
+        // 整年都在未来：12 个空月份照样返回，前端不用为「未来年份」写特例。
+        let mut out: Vec<MonthPoint> = (1..=12)
+            .map(|m| MonthPoint {
+                month: format!("{year:04}-{m:02}"),
+                ..Default::default()
+            })
+            .collect();
+        let to = last.min(today);
+        if to < first {
+            return out;
+        }
 
-        let mut out: Vec<MonthPoint> = Vec::new();
-        for (d, p) in self.series_dated(vendor, start, today) {
-            // 整天没有采样的月不建条目：补 0 会让总额曲线凭空掉到底。
+        for (d, p) in self.series_dated(vendor, first, to) {
+            // 整天没采样：不建条目，该月保持 days == 0。
             if p.known == 0 {
                 continue;
             }
-            let key = format!("{:04}-{:02}", d.year(), d.month());
-            let slot = match out.last_mut() {
-                Some(last) if last.month == key => last,
-                _ => {
-                    out.push(MonthPoint {
-                        month: key,
-                        ..Default::default()
-                    });
-                    out.last_mut().expect("刚 push 过")
-                }
-            };
+            let slot = &mut out[d.month() as usize - 1];
+            // 日期升序覆盖写，最后一次写到的就是「该月最后一个有数据日」。
             slot.total = p.total;
             slot.days += 1;
             slot.up += p.up.unwrap_or(0.0);
@@ -1823,7 +1823,9 @@ mod tests {
     }
 
     #[test]
-    fn series_filters_by_vendor_and_monthly_groups_by_calendar_month() {
+    fn yearly_series_is_twelve_slots_and_respects_vendor() {
+        use chrono::Datelike;
+
         let dir = tmpdir("trend-vendor-month");
         let mut e = Engine::open(Some(dir.clone())).unwrap();
         let wb = e
@@ -1882,22 +1884,49 @@ mod tests {
         assert_eq!(trae_only.last().unwrap().total, 500.0);
         assert_eq!(trae_only.last().unwrap().up, Some(0.0));
 
-        // 月度：只应出现今天所在的一个月，总额取该月最后一天
-        let months = e.monthly_series(None, 3);
-        assert_eq!(months.len(), 1, "跨月没有数据时不该补空月");
-        let m = &months[0];
-        assert_eq!(m.days, 2, "昨天与今天都在本月，两天都有余额数据");
-        assert_eq!(m.total, 700.0);
+        // 年度视图：固定 12 条，有数据的月填数、没采样的月占位
+        let months = e.monthly_series_of_year(None, today.year());
+        assert_eq!(months.len(), 12, "年度视图必须固定 12 条，缺月用 days==0 占位");
+        let cur_key = format!("{:04}-{:02}", today.year(), today.month());
+        let m = months
+            .iter()
+            .find(|x| x.month == cur_key)
+            .expect("本月应在这 12 条里");
+        // 今天是 1 号时，昨天已经落在上个月，本月只有今天一天有数据。
+        let expect_days = if yesterday.month() == today.month() {
+            2
+        } else {
+            1
+        };
+        assert_eq!(m.days, expect_days, "有余额数据的天数");
+        assert_eq!(m.total, 700.0, "月度总额取该月最后一个有数据日");
         assert_eq!(m.up, 100.0);
         match m.down {
             // 昨天 600 → 今天 700，领了 100：没有消耗
             d => assert!(d.abs() < 1e-9, "消耗应为 0，实际 {d}"),
         }
+
+        // 其余月份（除今天/昨天所在月）必须是空占位
+        let prev_key = format!("{:04}-{:02}", yesterday.year(), yesterday.month());
+        for other in months.iter().filter(|x| x.month != cur_key && x.month != prev_key) {
+            assert_eq!(other.days, 0, "{} 没有采样，应占位为 0 天", other.month);
+            assert_eq!(other.total, 0.0, "{} 没有采样，总额应为 0", other.month);
+            assert_eq!(other.up, 0.0);
+            assert_eq!(other.down, 0.0);
+        }
+        if prev_key != cur_key {
+            let p = months
+                .iter()
+                .find(|x| x.month == prev_key)
+                .expect("昨天所在月应在这 12 条里");
+            assert_eq!(p.days, 1, "昨天是唯一有数据的一天");
+            assert_eq!(p.total, 600.0);
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn monthly_series_spans_month_boundary() {
+    fn monthly_series_of_year_keeps_months_apart_across_year() {
         use chrono::Datelike;
 
         let dir = tmpdir("trend-across-months");
@@ -1911,36 +1940,63 @@ mod tests {
             .unwrap();
 
         let today = chrono::Local::now().date_naive();
-        // 上个月的最后一天：跨月分组最容易被 MM-DD 标签搞混的位置
-        let last_month = today.with_day(1).unwrap() - chrono::Duration::days(1);
+        // 跨年最容易串月的位置：去年 12 月 31 日 → 今年 1 月 1 日
+        let prev_year = today.year() - 1;
+        let dec31 = chrono::NaiveDate::from_ymd_opt(prev_year, 12, 31).unwrap();
+        let jan1 = chrono::NaiveDate::from_ymd_opt(prev_year + 1, 1, 1).unwrap();
         let at = |d: chrono::NaiveDate, h: u32| local_epoch(d.and_hms_opt(h, 0, 0).unwrap());
 
-        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(last_month, 10));
+        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(dec31, 10));
         snap.balance = Some(500.0);
         e.store.append_snapshot(&snap).unwrap();
 
-        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(today, 10));
+        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(jan1, 10));
         snap.balance = Some(600.0);
         e.store.append_snapshot(&snap).unwrap();
         e.store
             .append_event(&ph_core::ActivityEvent::checkin(
                 &acc,
-                at(today, 9),
+                at(jan1, 9),
                 "已领取",
                 Some(100),
             ))
             .unwrap();
 
-        let months = e.monthly_series(None, 3);
-        assert_eq!(months.len(), 2, "只有两个月有数据，不该补空月");
-        let prev = format!("{:04}-{:02}", last_month.year(), last_month.month());
-        let cur = format!("{:04}-{:02}", today.year(), today.month());
-        assert_eq!(months[0].month, prev, "按时间升序");
-        assert_eq!(months[0].total, 500.0);
-        assert_eq!(months[0].up, 0.0, "上月没有领取流水");
-        assert_eq!(months[1].month, cur);
-        assert_eq!(months[1].total, 600.0, "月度总额取该月最后一天");
-        assert_eq!(months[1].up, 100.0);
+        // 去年：只有 12 月有数据，且不能把今年 1 月的数算进来
+        let last = e.monthly_series_of_year(None, prev_year);
+        assert_eq!(last.len(), 12, "固定 12 条");
+        let dec_key = format!("{prev_year:04}-12");
+        let dec = last.iter().find(|m| m.month == dec_key).expect("12 月应存在");
+        assert_eq!(dec.days, 1, "12 月只有 12-31 一天有数据");
+        assert_eq!(dec.total, 500.0, "去年 12 月不该混进 1 月的余额");
+        assert_eq!(dec.up, 0.0, "12 月没有领取流水");
+        assert_eq!(
+            last.iter().filter(|m| m.month != dec_key).count(),
+            11,
+            "其余 11 个月都占位"
+        );
+        assert!(
+            last.iter().all(|m| m.month == dec_key || m.days == 0),
+            "没有采样的月必须 days == 0"
+        );
+
+        // 今年：1 月的总额是 1-1 的 600，不是 500+600；消耗按去年 12-31 的基线算
+        let cur = e.monthly_series_of_year(None, prev_year + 1);
+        assert_eq!(cur.len(), 12);
+        let jan_key = format!("{:04}-01", prev_year + 1);
+        let jan = cur.iter().find(|m| m.month == jan_key).expect("1 月应存在");
+        assert_eq!(jan.days, 1, "1 月只有 1-1 一天有数据");
+        assert_eq!(jan.total, 600.0, "月度总额取该月最后一个有数据日");
+        assert_eq!(jan.up, 100.0);
+        match jan.down {
+            // 基线 500 + 领取 100 − 今天 600 = 0
+            d => assert!(d.abs() < 1e-9, "消耗应为 0，实际 {d}"),
+        }
+
+        // 整年都在未来：仍是 12 条空占位，前端不用为未来年份写特例
+        let future = e.monthly_series_of_year(None, today.year() + 1);
+        assert_eq!(future.len(), 12);
+        assert!(future.iter().all(|m| m.days == 0), "未来年份没有采样");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -140,13 +140,13 @@ export interface PlatformCap {
   verified: boolean;
 }
 
-/** 月度汇总（月度下钻的第一级） */
+/** 月度汇总（趋势页「本年度」里的一格；固定 12 条，没采样的月 days 为 0） */
 export interface MonthPoint {
   /** 形如 `2026-11` */
   month: string;
   /** 该月最后一个有数据日的余额合计 */
   total: number;
-  /** 该月有余额数据的天数 */
+  /** 该月有余额数据的天数；0 表示整月没采样（占位） */
   days: number;
   /** 该月签到领取之和 */
   up: number;

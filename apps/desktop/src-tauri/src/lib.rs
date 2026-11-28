@@ -125,7 +125,7 @@ pub fn run() {
             commands::remove_account,
             commands::rename_account,
             commands::credit_days,
-            commands::credit_months,
+            commands::credit_year_months,
             commands::set_account_enabled,
             commands::save_settings,
             commands::default_settings,

@@ -1,18 +1,19 @@
 /**
- * 积分变化折线图（总额 / 新增 / 消耗三条线）。
+ * 积分变化曲线（总额 / 新增 / 消耗三条线）。
  *
  * 两条量纲差 10~20 倍（总额两三千，日增减几十上百），塞进同一个 Y 轴会把
  * 增减压成贴着底边的直线。所以：总额用左轴，新增与消耗共用右轴，两边各自
  * 独立取值域；某条线被隐藏时，对应的轴也跟着消失，不留下没有意义的刻度。
  *
- * 不引图表库：三条折线 + 悬停竖线用 SVG 画足够，省下一个依赖的包体积。
+ * 不引图表库：三条曲线 + 悬停竖线用 SVG 画足够，省下一个依赖的包体积。
  */
 import { useEffect, useRef, useState } from "react";
 import { credits } from "./format";
+import type { DayPoint, MonthPoint } from "./types";
 
 export type TrendKey = "total" | "up" | "down";
 
-/** 一条折线上的一个点；没有当天数据时对应值为 null（断线，不补 0）。 */
+/** 一条曲线上的一个点；没有当天数据时对应值为 null（断线，不补 0）。 */
 export interface TrendPoint {
   /** 横轴标签（`11-28` 或 `11月`） */
   label: string;
@@ -26,6 +27,50 @@ export const TREND_LABEL: Record<TrendKey, string> = {
   up: "新增",
   down: "消耗",
 };
+
+/**
+ * 后端一行数据 → 一个曲线点。**全应用只有这里决定「哪一项该断线」**。
+ *
+ * 规则只有一条：这一格没有采样（`has === false`）时三项全部给 null。
+ * 不能只判 `total`——后端每天的 `up` 恒为 `Some(0.0)`，只判 total 会让
+ * 「新增」线从今天往后平拖到月末，画出一条根本没发生过的 0。
+ */
+export function toTrendPoints(
+  rows: { label: string; has: boolean; total: number; up: number | null; down: number | null }[],
+): TrendPoint[] {
+  return rows.map((r) => ({
+    label: r.label,
+    total: r.has ? r.total : null,
+    up: r.has ? r.up : null,
+    down: r.has ? r.down : null,
+  }));
+}
+
+/** 每日序列 → 曲线点（`known` 为 0 表示当天没有任何余额采样）。 */
+export function dayTrendPoints(rows: DayPoint[]): TrendPoint[] {
+  return toTrendPoints(
+    rows.map((d) => ({
+      label: d.date,
+      has: d.known > 0,
+      total: d.total,
+      up: d.up,
+      down: d.down,
+    })),
+  );
+}
+
+/** 月度序列 → 曲线点（`days` 为 0 表示整月没采样；标签 `1月`…`12月`）。 */
+export function monthTrendPoints(rows: MonthPoint[]): TrendPoint[] {
+  return toTrendPoints(
+    rows.map((m) => ({
+      label: `${Number(m.month.slice(5))}月`,
+      has: m.days > 0,
+      total: m.total,
+      up: m.up,
+      down: m.down,
+    })),
+  );
+}
 
 const TREND_COLOR: Record<TrendKey, string> = {
   total: "var(--chart-total)",
@@ -44,7 +89,108 @@ function axis(n: number): string {
   return Math.round(n).toLocaleString("zh-CN");
 }
 
-/// 三条线的显示/隐藏：卡片与弹窗共用，避免两处状态逻辑各写一遍。
+/**
+ * 把一串相邻点连成平滑曲线（单调三次插值，Fritsch–Carlson 限制切向量）。
+ *
+ * 为什么不用普通 Catmull-Rom：它会在陡升/陡降的相邻区间里过冲，「新增」「消耗」
+ * 这类以 0 为底的数据平滑后会被画到 0 以下（负积分是不存在的事实）。
+ *
+ * 免过冲靠两个条件，缺一不可（`smooth.test.mjs` 按采样点逐个验证）：
+ * 1. 区间两端切向量与区间斜率**不得异号**。异号说明这一段是「先涨后跌 / 先跌
+ *    后涨」的拐点，切线指回区间外边，任何取值都会把曲线顶出两端；这种区间
+ *    直接归零两端切线，退化成平滑的 S 形过渡。
+ * 2. 同号（含 0）时再满足 α² + β² ≤ 9（α、β 为两端切向量与区间斜率之比）。
+ *
+ * 两条都成立时该段三次 Hermite 是单调的，采样点必落在两端 y 之间，也就不会越过 0。
+ */
+export function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  // 只有一个点时画不出线段（比如历史只有一个月），给一小段横线，
+  // 否则图上只剩一个 2px 的点，看起来像「没数据」。
+  if (pts.length === 1) {
+    return `M${(pts[0].x - 9).toFixed(1)},${pts[0].y.toFixed(1)} L${(pts[0].x + 9).toFixed(1)},${pts[0].y.toFixed(1)}`;
+  }
+  // 两点之间没有「中间形状」可修，直线即可，也省一次贝塞尔求值。
+  if (pts.length === 2) {
+    return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`;
+  }
+
+  const n = pts.length;
+  const d: number[] = []; // 相邻点之间的斜率
+  for (let i = 0; i < n - 1; i++) {
+    d.push((pts[i + 1].y - pts[i].y) / (pts[i + 1].x - pts[i].x));
+  }
+  const m: number[] = new Array<number>(n).fill(0); // 每个点的切向量
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = (d[i - 1] + d[i]) / 2;
+
+  // Fritsch–Carlson：把每段两端的切向量收进「单调区」，曲线就不会冲出区间。
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) {
+      // 平台段：两端切线归零，避免曲线在水平段里鼓一个包
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    // 切向量与区间斜率异号（α<0 或 β<0）：切线指回区间外，必然过冲。
+    // 注意不能写成 `a * b <= 0`——它会把「a=0、b>0」这种正常情形也归零，
+    // 于是一路连坐把尖峰削成折线；α、β 恰好为 0 是允许的，交给下面的圆盘限幅。
+    if (a < 0 || b < 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const s = a * a + b * b;
+    if (s > 9) {
+      const t = 3 / Math.sqrt(s);
+      m[i] = t * a * d[i];
+      m[i + 1] = t * b * d[i];
+    }
+  }
+
+  let out = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = pts[i + 1].x - pts[i].x;
+    // 三次贝塞尔的两个控制点放在 1/3、2/3 处，切线长度按切向量取值
+    const c1x = pts[i].x + h / 3;
+    const c1y = pts[i].y + (m[i] * h) / 3;
+    const c2x = pts[i + 1].x - h / 3;
+    const c2y = pts[i + 1].y - (m[i + 1] * h) / 3;
+    out += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${pts[i + 1].x.toFixed(1)},${pts[i + 1].y.toFixed(1)}`;
+  }
+  return out;
+}
+
+/**
+ * 把带空值的取值序列切成若干连续段，返回每段的下标数组。
+ *
+ * 断线用：跨着空档去平滑，会把「那天没数据」画成一条凭空出现的斜线。
+ */
+export function segmentsOf(values: (number | null)[]): number[][] {
+  const out: number[][] = [];
+  let run: number[] = [];
+  values.forEach((v, i) => {
+    if (v === null) {
+      if (run.length > 0) {
+        out.push(run);
+        run = [];
+      }
+      return;
+    }
+    run.push(i);
+  });
+  if (run.length > 0) out.push(run);
+  return out;
+}
+
+/// 三条线的显示/隐藏。
+///
+/// 每次调用都是一份**独立** state：卡片、趋势页的两张图、平台弹窗各调一次，
+/// 关掉一张图的某条线不会影响另一张。不要为了「省一次调用」把它提到父组件
+/// 用 props 传下去——那正是之前两张图连动的成因。
 export function useTrendVisible() {
   const [visible, setVisible] = useState<TrendKey[]>(["total", "up", "down"]);
   const toggle = (k: TrendKey) =>
@@ -145,19 +291,13 @@ export function TrendChart({
   const yTotal = (v: number) => padT + (1 - (v - tLo) / (tHi - tLo)) * innerH;
   const yFlow = (v: number) => padT + (1 - Math.min(v, fHi) / fHi) * innerH;
 
+  // 一条曲线可能被 null（当天没采样）切成若干连续段，每段单独平滑：
+  // 跨着空档去平滑会把「没数据」画成一条凭空出现的斜线。
   const line = (key: TrendKey, yOf: (v: number) => number) => {
-    const drawn: string[] = [];
-    points.forEach((p, i) => {
-      const v = p[key];
-      if (v !== null) drawn.push(`${x(i).toFixed(1)},${yOf(v).toFixed(1)}`);
-    });
-    // 只有一个点时画不出线段（比如历史只有一个月），给一小段横线，
-    // 否则图上只剩一个 2px 的点，看起来像「没数据」。
-    if (drawn.length === 1) {
-      const [px, py] = drawn[0].split(",");
-      return `M${(Number(px) - 9).toFixed(1)},${py} L${(Number(px) + 9).toFixed(1)},${py}`;
-    }
-    return drawn.map((pt, i) => `${i === 0 ? "M" : "L"}${pt}`).join(" ");
+    const values = points.map((p) => p[key]);
+    return segmentsOf(values)
+      .map((idx) => smoothPath(idx.map((i) => ({ x: x(i), y: yOf(values[i] as number) }))))
+      .join(" ");
   };
 
   // 点数多时（整月 30/31 天）只画 6 个横轴标签，否则会挤成一团。
@@ -169,7 +309,7 @@ export function TrendChart({
   return (
     <div className="tchart" ref={box} style={{ height }}>
       {width > 0 && (
-        <svg width={width} height={height} role="img" aria-label="积分变化折线图">
+        <svg width={width} height={height} role="img" aria-label="积分变化曲线图">
           {/* 横向参考线：上 / 中 / 下三档，够读数值又不喧宾夺主 */}
           {[0, 0.5, 1].map((r) => (
             <line

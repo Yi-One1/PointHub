@@ -137,3 +137,14 @@ export function IconBack() {
     </Icon>
   );
 }
+
+/// 趋势页图标：一条带拐点的上升折线 + 底部基线，与「总览 / 账号」同一套线条粗细。
+export function IconTrend() {
+  return (
+    <Icon>
+      <path d="M3 20h18" />
+      <path d="m4 15 5-5 4 3 6-7" />
+      <path d="M15 6h4v4" />
+    </Icon>
+  );
+}

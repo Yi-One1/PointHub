@@ -436,7 +436,7 @@ fn parse_vendor_filter(vendor: Option<String>) -> Result<Option<Vendor>, String>
 
 /// 指定平台（`None` 为全部）与日期区间的每日积分序列。
 ///
-/// 端点、按月下钻都走这一个命令：`from` 给该月 1 号、`days` 给该月天数即可。
+/// 趋势页的「本月每日」也走这一个命令：`from` 给该月 1 号、`days` 给该月天数即可。
 #[tauri::command]
 pub async fn credit_days(
     state: State<'_, SharedState>,
@@ -457,17 +457,23 @@ pub async fn credit_days(
     ))
 }
 
-/// 近 `months` 个月的三项汇总（两端一致的口径，见 `Engine::monthly_series`）。
+/// 某一年 1~12 月的三项汇总（口径见 `Engine::monthly_series_of_year`）。
+///
+/// 固定返回 12 条：没采样的月 `days == 0`，由前端决定断线还是空状态。
 #[tauri::command]
-pub async fn credit_months(
+pub async fn credit_year_months(
     state: State<'_, SharedState>,
     vendor: Option<String>,
-    months: i64,
+    year: i32,
 ) -> Result<Vec<ph_engine::MonthPoint>, String> {
     remote_guard(state.inner()).await?;
     let vendor = parse_vendor_filter(vendor)?;
+    // 越界年份不必查库：时间戳范围之外只会得到一堆空月份，直接说清楚更好。
+    if !(2000..=2100).contains(&year) {
+        return Err(format!("年份应落在 2000–2100 之间：{year}"));
+    }
     let engine = state.engine.lock().await;
-    Ok(engine.monthly_series(vendor, months))
+    Ok(engine.monthly_series_of_year(vendor, year))
 }
 
 // ------------------------------------------------------------------ 签到

@@ -1,14 +1,16 @@
 /**
- * 积分变化详情弹窗：近 7 日 → 近 12 个月 → 某个月的每日。
+ * 平台面板的「趋势」弹窗：只显示近 7 日。
  *
- * 数据都从后端按需取（`credit_days` / `credit_months`），不进 bootstrap：
- * 一年 365 个点跟着每次刷新一起下发，代价比打开弹窗时取一次大得多。
+ * 整月每日、本年度 12 个月已经搬到左侧「趋势」页（那是两个完整坐标系，
+ * 弹窗里塞不下），这里只保留一眼能读的 7 个点，并把用户带到趋势页。
+ *
+ * 数据按需从后端取（`credit_days`），不进 bootstrap：一年 365 个点跟着每次
+ * 刷新一起下发，代价比打开弹窗时取一次大得多。
  */
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { DayPoint, MonthPoint } from "./types";
-import { credits } from "./format";
-import { TrendChart, TrendLegend, useTrendVisible, type TrendPoint } from "./TrendChart";
+import type { DayPoint } from "./types";
+import { TrendChart, TrendLegend, dayTrendPoints, useTrendVisible } from "./TrendChart";
 
 /// 本地日期 → `YYYY-MM-DD`（后端只认这个格式）。
 function ymd(d: Date): string {
@@ -17,39 +19,21 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function dayPoints(rows: DayPoint[]): TrendPoint[] {
-  return rows.map((d) => ({
-    label: d.date,
-    // 当天没有采样时断线：补 0 会让曲线凭空掉到底。
-    total: d.known > 0 ? d.total : null,
-    up: d.up,
-    down: d.down,
-  }));
-}
-
-function monthPoints(rows: MonthPoint[]): TrendPoint[] {
-  return rows.map((m) => ({
-    label: `${Number(m.month.slice(5))}月`,
-    total: m.days > 0 ? m.total : null,
-    up: m.up,
-    down: m.down,
-  }));
-}
-
 export function TrendModal({
   vendor,
   display,
   onClose,
+  onOpenTrends,
 }: {
   /** null 表示全部平台 */
   vendor: string | null;
   display: string;
   onClose: () => void;
+  /** 跳到「趋势」页看本月与本年度（由 App 负责切页并关掉弹窗） */
+  onOpenTrends: () => void;
 }) {
   const [days, setDays] = useState<DayPoint[] | null>(null);
-  const [months, setMonths] = useState<MonthPoint[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
-  const [monthDays, setMonthDays] = useState<DayPoint[] | null>(null);
+  // 弹窗自己一份图例 state：与总览卡片、趋势页两张图互不影响。
   const [visible, toggle] = useTrendVisible();
   const [error, setError] = useState<string | null>(null);
 
@@ -59,12 +43,8 @@ export function TrendModal({
     from.setDate(from.getDate() - 6);
     void (async () => {
       try {
-        const [m, d] = await Promise.all([
-          api.creditMonths(vendor, 12),
-          api.creditDays(vendor, ymd(from), 7),
-        ]);
+        const d = await api.creditDays(vendor, ymd(from), 7);
         if (!alive) return;
-        setMonths(m);
         setDays(d);
       } catch (e) {
         if (alive) setError(String(e));
@@ -77,29 +57,13 @@ export function TrendModal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        // Esc 先退回月度，再关弹窗，避免一下退出两层
-        if (open) setOpen(null);
-        else onClose();
-      }
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [onClose]);
 
-  const openMonth = (month: string) => {
-    setOpen(month);
-    setMonthDays(null);
-    const [y, m] = month.split("-").map(Number);
-    const length = new Date(y, m, 0).getDate();
-    void api
-      .creditDays(vendor, `${month}-01`, length)
-      .then(setMonthDays)
-      .catch((e) => setError(String(e)));
-  };
-
-  const dPoints = days ? dayPoints(days) : [];
-  const mPoints = months ? monthPoints(months) : [];
+  const points = days ? dayTrendPoints(days) : [];
 
   return (
     <div
@@ -119,73 +83,25 @@ export function TrendModal({
         <div className="trend-body">
           {error && <p className="hint warn">{error}</p>}
 
-          {open === null ? (
-            <>
-              <section className="tsec">
-                <div className="tsec-head">
-                  <h4>近 7 日</h4>
-                  <TrendLegend visible={visible} onToggle={toggle} />
-                </div>
-                {days === null ? (
-                  <p className="panel-empty">正在读取…</p>
-                ) : dPoints.length === 0 ? (
-                  <p className="panel-empty">还没有采样数据</p>
-                ) : (
-                  <TrendChart points={dPoints} visible={visible} />
-                )}
-              </section>
+          <section className="tsec">
+            <div className="tsec-head">
+              <h4>近 7 日</h4>
+              <TrendLegend visible={visible} onToggle={toggle} />
+            </div>
+            {days === null ? (
+              <p className="panel-empty">正在读取…</p>
+            ) : points.length === 0 ? (
+              <p className="panel-empty">还没有采样数据</p>
+            ) : (
+              <TrendChart points={points} visible={visible} height={176} />
+            )}
+          </section>
+        </div>
 
-              <section className="tsec">
-                <div className="tsec-head">
-                  <h4>按月（近 12 个月）</h4>
-                  <TrendLegend visible={visible} onToggle={toggle} />
-                </div>
-                {months === null ? (
-                  <p className="panel-empty">正在读取…</p>
-                ) : mPoints.length === 0 ? (
-                  <p className="panel-empty">还没有足够的历史数据</p>
-                ) : (
-                  <>
-                    <TrendChart points={mPoints} visible={visible} height={132} />
-                    <ul className="mlist">
-                      {[...(months ?? [])].reverse().map((m) => (
-                        <li key={m.month}>
-                          <button onClick={() => openMonth(m.month)} title={`查看 ${m.month} 每日`}>
-                            <span className="mname">{m.month}</span>
-                            <span className="mnum">
-                              总额 {credits(m.total)}
-                            </span>
-                            <span className="mnum up">
-                              +{credits(m.up)}
-                            </span>
-                            <span className="mnum down">
-                              −{credits(m.down)}
-                            </span>
-                            <span className="mgo">每日 ›</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </section>
-            </>
-          ) : (
-            <section className="tsec">
-              <div className="tsec-head">
-                <button className="link-back" onClick={() => setOpen(null)}>
-                  ← 返回月度
-                </button>
-                <TrendLegend visible={visible} onToggle={toggle} />
-              </div>
-              <h4 className="tsec-title">{open} 每日</h4>
-              {monthDays === null ? (
-                <p className="panel-empty">正在读取…</p>
-              ) : (
-                <TrendChart points={dayPoints(monthDays)} visible={visible} height={176} />
-              )}
-            </section>
-          )}
+        <div className="modal-actions" style={{ marginTop: 14 }}>
+          <button className="btn" onClick={onOpenTrends}>
+            查看本月与本年度 →
+          </button>
         </div>
       </div>
     </div>

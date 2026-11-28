@@ -1,12 +1,12 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，当前版本 **v0.14.0**。
-> G1–G7 全部验收完成，版本号已按 MINOR 升级；产物与发布状态见「路径与命令」。
-> 关键提交：v0.14.0 收尾 `8314dd8`、G7 `663cc44`、G6 与清晰度修复 `b444672`；本文件为交接快照。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-29，当前版本 **v0.15.0**。
+> G1–G8 全部完成：0.15.0 新增「更新页展示 Release 更新内容」；测试基线 136 / 20 / 118。
+> 关键提交：G8 `3ca7f3c`、测试修复 `3967cf6`、v0.14.0 收尾 `8314dd8`；本文件为交接快照。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.14.0>
+最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.15.0>
 
 ---
 
@@ -48,6 +48,9 @@
   48 条流水并在窗内滚动；后端事件上限 12→48（手机远程视图同步）。关于页新增作者
   「毅One」、GitHub 仓库、Issues 反馈入口与 MIT 许可，删除「退出程序」；
   `open_project_link` 只放行仓库与 Issues 两个固定地址。
+- **G8 更新内容展示（0.15.0）**：设置 → 更新检测到新版本时，在卡片内显示该版本
+  Release 说明；标题 / 列表 / 引用轻量排版，长内容 240px 内滚动，说明为空不占位。
+  数据来自 Releases API 的 `body`，无需新增后端请求。
 - **多账号与调度**：独立凭据 / 排期 / 历史；逐账号签到 + 一键全部签到；
   时间规则见上条 G6，启动补签仍在。
 - **签到稳定性（0.13.1）**：执行端指向「已不存在的设备」时启动自动收回本机；
@@ -109,6 +112,8 @@
 
 ## 未完成的待办
 
+- [ ] **0.15.0 发版收尾**：推送 `master`、打 `v0.15.0` tag、发布 GitHub Release
+      并上传三端产物（进行中）。
 - [ ] **Windows 静默自替换**：需接 Tauri updater 签名链，暂不做（D08）；
       目前仍由安装向导确认。
 
@@ -118,12 +123,19 @@
 
 ### 当前 Git 与改动范围
 
-- v0.14.0 收尾提交 = `8314dd8`（版本号 + 文档 + 产物记录）；tag `v0.14.0` 指向该提交，
-  已推送 `master` 与 tag，GitHub Release 三资产上传完成。
-- G7 代码提交 = `663cc44`；G6 代码 `c81bcc0`、G6 验收修复 `b444672`。
-- 最近提交：`8314dd8`（v0.14.0 收尾）、`663cc44`（G7）、`1fad2dd`（G6 文档同步）、
-  `b444672`（清晰度修复）、`c8ec325`（G6 交接快照）。
-- 版本已升到 **0.14.0**（`Cargo.toml` 单点修改 + `scripts/sync-version.ps1` 同步四处）。
+- G8 提交 = `3ca7f3c`（更新内容展示）；测试修复 `3967cf6`（午夜边界）。
+- 版本已升到 **0.15.0**（`Cargo.toml` + `scripts/sync-version.ps1` 同步四处）。
+- v0.14.0 收尾 `8314dd8`，tag `v0.14.0` 已发布；本次 0.15.0 的 tag / Release 见交接时状态。
+
+### 2026-11-29 本机数据补录
+
+- 原因：11/27 三个账号、11/28 WorkBuddy / Trae 的签到只记了「今天已签」，没有 +100。
+- 处理：停程序 → 备份到 `%TEMP%\pointhub-data-backup-20261129-000610` → 只改
+  `events.jsonl` 5 行（`delta=100`、文案「已领取（补录）」）→ 校验 → 重启。
+- 校验：15 行 JSON 全通过；11/27 正积分签到 3 条、11/28 3 条；Qoder 11/28 未重复；
+  `history.jsonl` / `accounts.json` 哈希未变。
+- 遗留：`D:\APP\积分枢纽PointHub\PointHub\data-backup-20261129-000555` 是首次被拦截时
+  创建的空目录，需用户手动删除（工具无权访问该路径）。
 
 ### G6 复核记录与已知小瑕疵（避免新对话重复排查）
 
@@ -138,8 +150,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | 0.14.0：`dist/积分枢纽PointHub_v0.14.0.exe`（5.5 MB）与 `_Setup.exe`（2.3 MB）；历史版本均在 `dist/` |
-| Android 正式包 | 0.14.0：`dist/积分枢纽PointHub_v0.14.0.apk`（8.6 MB，arm64-v8a，versionCode 14000，debug 签名） |
+| Windows 正式包 | 0.15.0：`dist/积分枢纽PointHub_v0.15.0.exe`（5.5 MB）与 `_Setup.exe`（2.3 MB）；历史版本均在 `dist/` |
+| Android 正式包 | 0.15.0：`dist/积分枢纽PointHub_v0.15.0.apk`（8.6 MB，arm64-v8a，versionCode 15000，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；预览 `dist\data`；旧版首次启动自动迁移（D20） |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -147,7 +159,7 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（构建缓存 `E:\Cache\Android_Build`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（**117 项**；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"`；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（**118 项**；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"`；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
 | Rust 测试 | `cargo test --workspace`（**136 项**）；桌面端 20 项：`cargo test -p pointhub --manifest-path apps\desktop\src-tauri\Cargo.toml` |
 | 前端构建 | `cd apps\desktop\ui; npm run build`（内含 `tsc --noEmit`） |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
@@ -156,10 +168,9 @@
 
 ### 验证过的证据
 
-- 当前基线：`cargo test --workspace` **136 项全绿**；桌面端 **20 项**；前端 **117/117**；
+- 当前基线：`cargo test --workspace` **136 项全绿**；桌面端 **20 项**；前端 **118/118**；
   `tsc --noEmit` 与 `vite build` 通过。
-- G7 验收：用户按步骤验收通过（最近活动弹窗、关于页作者 / 仓库 / Issues / 许可、
-  不再有「退出程序」）。
+- 0.15.0 修复测试午夜边界：趋势用例改用当天中午做锚点，凌晨跑测不再偶发失败。
 - G5：QA 用 29,839 组随机样本验证曲线零越界；5 组变异（all 分支失效 / 去 `labelAll` /
   加回按钮 / 放大写成全局 / 菜单改回「趋势」）均能变红。
 - G6：QA 独立仿真 1000 天 × n=2..5 × 窗口 5/30 碰撞率 0%；`cell_bounds` 192 组性质扫描通过；
@@ -169,6 +180,8 @@
 - 0.13.1 产物：Windows exe FileVersion 0.13.1（5.4 MB / 安装包 2.2 MB）；安卓包沿用 0.13.0。
 - 0.14.0 产物：exe FileVersion 0.14.0（5.5 MB / 安装包 2.3 MB / APK 8.6 MB）；
   APK 核验 `versionCode=14000`、`arm64-v8a`、`Android Debug` 签名。
+- 0.15.0 产物：exe FileVersion 0.15.0（5.5 MB / 安装包 2.3 MB / APK 8.6 MB）；
+  APK 核验 `versionCode=15000`、`arm64-v8a`、`Android Debug` 签名。
 - 0.13.0 产物：Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；
   APK `versionName=0.13.0`、`versionCode=13000`、targetSdk 36、仅 arm64-v8a、8.5 MB，
   `apksigner verify` 通过（debug 证书）。

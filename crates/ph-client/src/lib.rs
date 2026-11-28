@@ -926,7 +926,6 @@ mod tests {
     fn remote_view_trend_takes_new_from_claims_and_derives_spend() {
         // 与电脑端同口径：昨日 100，今日领 300，余额剩 50 → 新增 300、消耗 350。
         // 时间锚定在今天中午：若直接用 now-1h，凌晨 0~1 点跑测试会落到昨天。
-        use chrono::TimeZone;
         let now = chrono::Local::now()
             .date_naive()
             .and_hms_opt(12, 0, 0)

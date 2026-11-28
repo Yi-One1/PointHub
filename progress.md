@@ -1,9 +1,9 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-29，当前版本 **v0.15.0**。
-> G1–G8 全部完成：0.15.0 新增「更新页展示 Release 更新内容」；测试基线 136 / 20 / 118。
-> 关键提交：0.15.0 收尾 `878082e`、G8 `3ca7f3c`、测试修复 `3967cf6`；本文件为交接快照。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-29，当前版本 **v0.16.0**。
+> 0.16.0 修复签到金额漏记，并清理「今天已签」噪音、补平台标签；测试基线 138 / 20 / 119。
+> 关键提交：签到兜底 `d81a0f2`、活动清理 `c42fa6f`、0.15.0 收尾 `878082e`；本文件为交接快照。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
 最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.15.0>
@@ -51,6 +51,10 @@
 - **G8 更新内容展示（0.15.0）**：设置 → 更新检测到新版本时，在卡片内显示该版本
   Release 说明；标题 / 列表 / 引用轻量排版，长内容 240px 内滚动，说明为空不占位。
   数据来自 Releases API 的 `body`，无需新增后端请求。
+- **0.16.0 签到金额兜底**：平台返回 `Claimed` 但没有积分数字时（Trae CN），
+  用签到后快照的 `daily_credit` 补记；平台已回金额不覆盖。
+- **0.16.0 最近活动清理**：每条显示平台标签（WorkBuddy / Trae / Qoder）；
+  「今天已签」不再写入流水，历史记录在展示层过滤，失败 / 凭据失效仍保留。
 - **多账号与调度**：独立凭据 / 排期 / 历史；逐账号签到 + 一键全部签到；
   时间规则见上条 G6，启动补签仍在。
 - **签到稳定性（0.13.1）**：执行端指向「已不存在的设备」时启动自动收回本机；
@@ -112,6 +116,8 @@
 
 ## 未完成的待办
 
+- [ ] **0.16.0 发版收尾**：推送 `master`、打 `v0.16.0` tag、发布 GitHub Release
+      并上传三端产物（进行中）。
 - [ ] **Windows 静默自替换**：需接 Tauri updater 签名链，暂不做（D08）；
       目前仍由安装向导确认。
 
@@ -123,8 +129,8 @@
 
 - G8 提交 = `3ca7f3c`（更新内容展示）；测试修复 `3967cf6`（午夜边界）。
 - 版本已升到 **0.15.0**（`Cargo.toml` + `scripts/sync-version.ps1` 同步四处）。
-- v0.14.0 收尾 `8314dd8`；0.15.0 收尾 = `878082e`，tag `v0.15.0` 指向该提交；
-  已推送 `master` 与 tag，Release 三资产上传完成。
+- v0.14.0 收尾 `8314dd8`；0.15.0 收尾 = `878082e`；0.16.0 修复提交
+  `d81a0f2`（金额兜底）、`c42fa6f`（活动清理），tag / Release 见交接时状态。
 
 ### 2026-11-29 本机数据补录
 
@@ -133,6 +139,8 @@
   `events.jsonl` 5 行（`delta=100`、文案「已领取（补录）」）→ 校验 → 重启。
 - 校验：15 行 JSON 全通过；11/27 正积分签到 3 条、11/28 3 条；Qoder 11/28 未重复；
   `history.jsonl` / `accounts.json` 哈希未变。
+- **同日第二次补录**：今天 00:14 Trae 的领取事件 `delta` 空 → 100、文案「（补录）」；
+  备份 `%TEMP%\pointhub-data-backup-20261129-003059`；校验今天正积分签到 2 条、合计 200。
 - 遗留：`D:\APP\积分枢纽PointHub\PointHub\data-backup-20261129-000555` 是首次被拦截时
   创建的空目录，需用户手动删除（工具无权访问该路径）。
 
@@ -149,8 +157,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | 0.15.0：`dist/积分枢纽PointHub_v0.15.0.exe`（5.5 MB）与 `_Setup.exe`（2.3 MB）；历史版本均在 `dist/` |
-| Android 正式包 | 0.15.0：`dist/积分枢纽PointHub_v0.15.0.apk`（8.6 MB，arm64-v8a，versionCode 15000，debug 签名） |
+| Windows 正式包 | 0.16.0：`dist/积分枢纽PointHub_v0.16.0.exe`（5.5 MB）与 `_Setup.exe`（2.3 MB）；历史版本均在 `dist/` |
+| Android 正式包 | 0.16.0：`dist/积分枢纽PointHub_v0.16.0.apk`（8.6 MB，arm64-v8a，versionCode 16000，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；预览 `dist\data`；旧版首次启动自动迁移（D20） |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -158,7 +166,7 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（构建缓存 `E:\Cache\Android_Build`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（**118 项**；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"`；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
+| 前端测试 | `cd apps\desktop\ui`；PowerShell 下用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"; $f = Get-ChildItem test\*.test.mjs \| % FullName; node --test $f`（**119 项**；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH" node --test test/*.test.mjs`） |
 | Rust 测试 | `cargo test --workspace`（**136 项**）；桌面端 20 项：`cargo test -p pointhub --manifest-path apps\desktop\src-tauri\Cargo.toml` |
 | 前端构建 | `cd apps\desktop\ui; npm run build`（内含 `tsc --noEmit`） |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
@@ -167,9 +175,9 @@
 
 ### 验证过的证据
 
-- 当前基线：`cargo test --workspace` **136 项全绿**；桌面端 **20 项**；前端 **118/118**；
+- 当前基线：`cargo test --workspace` **138 项全绿**；桌面端 **20 项**；前端 **119/119**；
   `tsc --noEmit` 与 `vite build` 通过。
-- 0.15.0 修复测试午夜边界：趋势用例改用当天中午做锚点，凌晨跑测不再偶发失败。
+- 0.16.0 新增：签到金额兜底、平台标签、已签噪音过滤；引擎 36 项、前端 119 项。
 - G5：QA 用 29,839 组随机样本验证曲线零越界；5 组变异（all 分支失效 / 去 `labelAll` /
   加回按钮 / 放大写成全局 / 菜单改回「趋势」）均能变红。
 - G6：QA 独立仿真 1000 天 × n=2..5 × 窗口 5/30 碰撞率 0%；`cell_bounds` 192 组性质扫描通过；
@@ -181,6 +189,8 @@
   APK 核验 `versionCode=14000`、`arm64-v8a`、`Android Debug` 签名。
 - 0.15.0 产物：exe FileVersion 0.15.0（5.5 MB / 安装包 2.3 MB / APK 8.6 MB）；
   APK 核验 `versionCode=15000`、`arm64-v8a`、`Android Debug` 签名。
+- 0.16.0 产物：exe FileVersion 0.16.0（5.5 MB / 安装包 2.3 MB / APK 8.6 MB）；
+  APK 核验 `versionCode=16000`、`arm64-v8a`、`Android Debug` 签名。
 - 0.13.0 产物：Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；
   APK `versionName=0.13.0`、`versionCode=13000`、targetSdk 36、仅 arm64-v8a、8.5 MB，
   `apksigner verify` 通过（debug 证书）。

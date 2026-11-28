@@ -1,12 +1,12 @@
 # 项目进展交接（progress）
 
 > 给新对话看的**当前快照**：只写结论与可验证事实，过程细节见 `CHANGELOG.md`、
-> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，仓库版本 **v0.13.1**。
-> 0.14.0 的 G1–G6 已验收，但按约定**尚未升版本号**，等 G1–G7 全部完成后统一升。
-> G6 代码提交 `c81bcc0`，验收修复 `b444672`；本文件为交接快照，提交后工作树干净。
+> `docs/SPEC.md`、`DECISIONS.md`。最后更新：2026-11-28，当前版本 **v0.14.0**。
+> G1–G7 全部验收完成，版本号已按 MINOR 升级；产物与发布状态见「路径与命令」。
+> 关键提交：G7 `663cc44`、G6 与清晰度修复 `b444672`；本文件为交接快照。
 
 仓库：`https://github.com/Yi-One1/PointHub`（`master`）
-最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.13.1>
+最新发布：<https://github.com/Yi-One1/PointHub/releases/tag/v0.14.0>
 
 ---
 
@@ -44,6 +44,10 @@
   引擎在启动 / 改设置 / 增删账号 / 跨设备合并后重算。客户端模式下该区只显示说明、不给控件。
 - **G6 验收修复**：时间控件的时钟图标改内联 SVG（非整数缩放下不再发糊）；
   账号名下方副标题不再单独用等宽字体，与页面其他小字一致，时间数字仍等宽对齐。
+- **G7 活动与关于页（已验收）**：「最近活动」超过 4 条时出现「更多」，弹窗展示最多
+  48 条流水并在窗内滚动；后端事件上限 12→48（手机远程视图同步）。关于页新增作者
+  「毅One」、GitHub 仓库、Issues 反馈入口与 MIT 许可，删除「退出程序」；
+  `open_project_link` 只放行仓库与 Issues 两个固定地址。
 - **多账号与调度**：独立凭据 / 排期 / 历史；逐账号签到 + 一键全部签到；
   时间规则见上条 G6，启动补签仍在。
 - **签到稳定性（0.13.1）**：执行端指向「已不存在的设备」时启动自动收回本机；
@@ -97,18 +101,14 @@
 14. **G6 时间模型（已验收）**：平台基准 + 窗口按同平台账号数切成左闭右开的段，
     段内按「账号 id + 日期」确定性浮动（同一天恒定）。单账号时整段窗口都归它；
     末段保留右端点以铺满窗口；窗口 < 账号数 + 1 时界面告警"部分账号会落在同一分钟"。
-    不开放单账号改时间；客户端模式不摆无效控件。`DECISIONS.md` D06 仍写旧规则，待文档同步时修订。
+    不开放单账号改时间；客户端模式不摆无效控件。规则已同步到 `DECISIONS.md` D06。
 
-详见 `DECISIONS.md` D01–D27。
+详见 `DECISIONS.md` D01–D29。
 
 ---
 
 ## 未完成的待办
 
-- [ ] **G7 活动与关于页（下一组）**：「最近活动」点开可看更多操作记录；设置页「关于」
-      新增作者信息（不涉及隐私）、删除「退出程序」按钮。
-- [ ] **全部需求完成后**：跑全量测试并让用户验收，按 SemVer 升 **0.14.0（MINOR）**，
-      用 `scripts/sync-version.ps1` 同步四处版本号。
 - [ ] **Windows 静默自替换**：需接 Tauri updater 签名链，暂不做（D08）；
       目前仍由安装向导确认。
 
@@ -118,10 +118,10 @@
 
 ### 当前 Git 与改动范围
 
-- G6 代码提交 = `c81bcc0`，界面清晰度修复 = `b444672`；G6 文档同步单独提交；
-  工作树保持干净；未升版本号。
-- 最近提交：`b444672`（时钟图标与账号副标题清晰度）、`c8ec325`（G6 交接快照）、
-  `c81bcc0`（G6）、`c518626`（G5 文档同步）、`805029b`（G5 命名 / 横轴 / 字号返工）。
+- G7 代码提交 = `663cc44`；G6 代码 `c81bcc0`、G6 验收修复 `b444672`。
+- 最近提交：`663cc44`（G7）、`1fad2dd`（G6 文档同步）、`b444672`（清晰度修复）、
+  `c8ec325`（G6 交接快照）、`c81bcc0`（G6）。
+- 版本已升到 **0.14.0**（`Cargo.toml` 单点修改 + `scripts/sync-version.ps1` 同步四处）。
 
 ### G6 复核记录与已知小瑕疵（避免新对话重复排查）
 
@@ -136,8 +136,8 @@
 
 | 项 | 值 |
 |---|---|
-| Windows 正式包 | `dist/积分枢纽PointHub_v0.13.1.exe`（5.4 MB）与 `_Setup.exe`（2.2 MB）；历史版本均在 `dist/` |
-| Android 正式包 | `dist/积分枢纽PointHub_v0.13.0.apk`（8.5 MB，arm64，debug 签名；0.13.1 未重打） |
+| Windows 正式包 | 0.14.0：`dist/积分枢纽PointHub_v0.14.0.exe`（5.5 MB）与 `_Setup.exe`（2.3 MB）；历史版本均在 `dist/` |
+| Android 正式包 | 0.14.0：`dist/积分枢纽PointHub_v0.14.0.apk`（8.6 MB，arm64-v8a，versionCode 14000，debug 签名） |
 | 数据目录 | 发行版 `<exe 所在目录>\data`；预览 `dist\data`；旧版首次启动自动迁移（D20） |
 | 用户真机安装 | `D:\APP\积分枢纽PointHub\PointHub`，数据在 `D:\...\PointHub\data`——**不要动** |
 | 局域网地址 | `http://<PC 内网 IP>:47821`，配对码见设置页 |
@@ -145,7 +145,7 @@
 | Windows 打包 | `scripts\build-windows.ps1`；`-Installer` 同时出安装包；`-InstallerOnly` 只补安装包 |
 | Android 打包 | `scripts\build-android.bat release --target aarch64`（构建缓存 `E:\Cache\Android_Build`） |
 | 图标生成/校验 | `python scripts/gen-app-icons.py [--check]` |
-| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（**115 项**；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"`；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
+| 前端测试 | `cd apps\desktop\ui; node --test "test/*.test.mjs"`（**117 项**；需 Python 带 Pillow。Git Bash 下用 `PATH="/d/APP/Python 3.14.6:$PATH"`；PowerShell 用 `$env:PATH = "D:\APP\Python 3.14.6;$env:PATH"`） |
 | Rust 测试 | `cargo test --workspace`（**136 项**）；桌面端 20 项：`cargo test -p pointhub --manifest-path apps\desktop\src-tauri\Cargo.toml` |
 | 前端构建 | `cd apps\desktop\ui; npm run build`（内含 `tsc --noEmit`） |
 | 防火墙手动修复 | `netsh advfirewall firewall add rule name="PointHub LAN" dir=in action=allow program="<exe 完整路径>" profile=domain,private,public remoteip=localsubnet`（需管理员） |
@@ -154,10 +154,10 @@
 
 ### 验证过的证据
 
-- 当前基线：`cargo test --workspace` **136 项全绿**；桌面端 **20 项**；前端 **115/115**；
+- 当前基线：`cargo test --workspace` **136 项全绿**；桌面端 **20 项**；前端 **117/117**；
   `tsc --noEmit` 与 `vite build` 通过。
-- G6 验收：用户按 7 条清单验收通过；期间发现的两处清晰度问题（时钟图标、账号副标题字体）
-  已修复并复验通过（`b444672`，新增 2 条样式断言）。
+- G7 验收：用户按步骤验收通过（最近活动弹窗、关于页作者 / 仓库 / Issues / 许可、
+  不再有「退出程序」）。
 - G5：QA 用 29,839 组随机样本验证曲线零越界；5 组变异（all 分支失效 / 去 `labelAll` /
   加回按钮 / 放大写成全局 / 菜单改回「趋势」）均能变红。
 - G6：QA 独立仿真 1000 天 × n=2..5 × 窗口 5/30 碰撞率 0%；`cell_bounds` 192 组性质扫描通过；
@@ -165,6 +165,8 @@
 - 0.13.1 修复用真实数据副本实测：三个账号 `executor` 从幽灵 id 收回本机、
   日志有记录、`phctl status` 恢复「已签」；预览版总览异常提示条出现并在补签后自动消失。
 - 0.13.1 产物：Windows exe FileVersion 0.13.1（5.4 MB / 安装包 2.2 MB）；安卓包沿用 0.13.0。
+- 0.14.0 产物：exe FileVersion 0.14.0（5.5 MB / 安装包 2.3 MB / APK 8.6 MB）；
+  APK 核验 `versionCode=14000`、`arm64-v8a`、`Android Debug` 签名。
 - 0.13.0 产物：Windows exe FileVersion 0.13.0（5.4 MB / 安装包 2.2 MB）；
   APK `versionName=0.13.0`、`versionCode=13000`、targetSdk 36、仅 arm64-v8a、8.5 MB，
   `apksigner verify` 通过（debug 证书）。
@@ -187,5 +189,5 @@
 
 ### 接手时的第一件事
 
-1. 直接开 **G7**（G6 已验收，文档已同步）。
-2. 跑 `phctl doctor` 与 `cargo test --workspace` 确认环境；改代码前先按 SemVer 判定是否升版本。
+1. 当前功能已全部完成并发布；先看「未完成的待办」，没有新需求时保持现状即可。
+2. 改代码前跑 `phctl doctor` 与 `cargo test --workspace` 确认环境；按 SemVer 判定版本。

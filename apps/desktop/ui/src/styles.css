@@ -811,28 +811,13 @@ html[data-theme="dark"] .go.solid {
   padding: 14px 16px 16px;
 }
 
-/* 账号按平台分组：组头与总览页的平台面板同构，只是更轻 */
-.acct-group + .acct-group {
-  margin-top: 4px;
-}
-
-.acct-group-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 16px 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.acct-group-name {
-  font-weight: 600;
-  color: var(--text);
-}
-
-.acct-group-count {
-  font-size: 11px;
+/* 页面标题右侧的账号数量：跟标题同一行，比标题轻一档 */
+.head-count {
+  margin-left: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 账号名平时就是一行文本，悬停才暗示「可以点」 */

@@ -537,8 +537,10 @@ function Overview({
                         {!a.enabled && <span className="tag tag-muted">已停用</span>}
                         {!a.has_credential && <span className="tag tag-warn">缺凭据</span>}
                       </div>
-                      <div className="rhint" title={a.schedule_text}>
-                        {a.hint}
+                      <div className="rhint" title={accountMetaTitle(a)}>
+                        {[importSourceText(a.source), a.schedule_text]
+                          .filter(Boolean)
+                          .join(" · ")}
                         {a.streak_days !== null && a.streak_days > 0 ? ` · 连签 ${a.streak_days} 天` : ""}
                       </div>
                     </div>
@@ -685,6 +687,17 @@ function ActivityCard({ events }: { events: StateView["events"] }) {
       )}
     </div>
   );
+}
+
+/// 账号副标题的悬停提示：指纹只在提示里出现，不摆在行内。
+///
+/// 两页共用一份文案——令牌指纹本身不是身份标识（续期后会变），
+/// 所以必须说明它「只用于区分凭据」，否则又会被当成账号 id。
+function accountMetaTitle(a: AccountView): string {
+  return [
+    `令牌指纹 ${a.hint}｜仅用于区分同一平台的多份凭据，重新导入后会变`,
+    `签到时间：${a.schedule_text}`,
+  ].join("\n");
 }
 
 /// 导入来源的界面用词；老数据没有来源时返回空串（界面只显示签到时间）。
@@ -899,27 +912,27 @@ function AccountsPage({
     <>
       <div className="head">
         <div>
-          <h1>账号</h1>
+          <h1>
+            账号
+            <span className="head-count">{view.accounts.length} 个</span>
+          </h1>
           <p className="sub">同一平台下可以有多个账号，各自独立定时、独立凭据</p>
         </div>
       </div>
 
       <div className="split">
-        <section className="panel">
-          <div className="phead">
-            <span className="pname">已纳管</span>
-            <span className="psub">{view.accounts.length} 个</span>
-          </div>
-
+        <div className="panels">
           {view.accounts.length === 0 ? (
-            <p className="panel-empty">还没有账号。右侧导入第一个。</p>
+            <section className="panel">
+              <p className="panel-empty">还没有账号。右侧导入第一个。</p>
+            </section>
           ) : (
             groups.map((g) => (
-              <div className="acct-group" key={g.vendor}>
-                <div className="acct-group-head">
-                  <VendorIcon vendor={g.vendor} size={18} />
-                  <span className="acct-group-name">{g.display}</span>
-                  <span className="acct-group-count">{g.accounts.length}</span>
+              <section className="panel" key={g.vendor}>
+                <div className="phead">
+                  <VendorIcon vendor={g.vendor} size={20} />
+                  <span className="pname">{g.display}</span>
+                  <span className="psub">{g.accounts.length} 账号</span>
                 </div>
                 <ul className="acct-list">
                   {g.accounts.map((a) => (
@@ -962,7 +975,7 @@ function AccountsPage({
                         </div>
                         <div
                           className="acct-sub"
-                          title={`令牌指纹 ${a.hint}｜用于区分同一平台的多份凭据；重新导入后会变`}
+                          title={accountMetaTitle(a)}
                         >
                           {[importSourceText(a.source), a.schedule_text]
                             .filter(Boolean)
@@ -985,10 +998,10 @@ function AccountsPage({
                     </li>
                   ))}
                 </ul>
-              </div>
+              </section>
             ))
           )}
-        </section>
+        </div>
 
         <section className="panel">
           <div className="phead">

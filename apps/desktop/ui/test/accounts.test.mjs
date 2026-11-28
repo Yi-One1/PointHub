@@ -19,11 +19,21 @@ const TYPES = readFileSync(path.join(UI_DIR, "src", "types.ts"), "utf8");
 const API = readFileSync(path.join(UI_DIR, "src", "api.ts"), "utf8");
 const CSS = readFileSync(path.join(UI_DIR, "src", "styles.css"), "utf8");
 
-test("账号页按平台分组，顺序跟能力表", () => {
-  assert.ok(APP.includes('className="acct-group"'), "缺少分组容器");
-  assert.ok(APP.includes('className="acct-group-head"'), "缺少分组标题");
-  assert.ok(APP.includes('className="acct-group-name"'));
+test("账号页每个平台一张卡，与总览页同构", () => {
+  assert.match(
+    APP,
+    /groups\.map\(\(g\) => \(\s*<section className="panel" key=\{g\.vendor\}>/,
+    "每个平台应各自是一张卡",
+  );
+  assert.ok(!APP.includes('className="acct-group"'), "平台不该再挤在同一张卡里分组");
+  assert.ok(APP.includes('{g.accounts.length} 账号'), "平台卡头应显示该平台账号数");
   assert.match(APP, /const order = view\.platforms\.map\(\(p\) => p\.vendor\);/);
+});
+
+test("「已纳管」标题与数量下移到页面标题右侧", () => {
+  assert.ok(!APP.includes("已纳管"), "「已纳管」已按反馈删除");
+  assert.ok(APP.includes('<span className="head-count">{view.accounts.length} 个</span>'));
+  assert.match(CSS, /\.head-count \{[^}]*font-variant-numeric: tabular-nums;/);
 });
 
 test("账号名可点开就地改名，Enter 提交、Esc 取消", () => {
@@ -35,13 +45,17 @@ test("账号名可点开就地改名，Enter 提交、Esc 取消", () => {
   assert.match(CSS, /\.acct-name-input \{/);
 });
 
-test("账号名下方只显示导入来源与签到时间，指纹移到悬停", () => {
-  assert.ok(APP.includes("importSourceText(a.source)"));
-  assert.ok(
-    !APP.includes("{a.hint} · {a.schedule_text}"),
-    "副标题还在直接显示令牌指纹",
-  );
+test("账号页与总览页的副标题都只显示来源与签到时间", () => {
+  // 两处（账号行、总览平台行）必须同一口径，否则会出现「一边改了另一边没改」。
+  const subs = APP.match(/\[importSourceText\(a\.source\), a\.schedule_text\]/g) ?? [];
+  assert.equal(subs.length, 2, `副标题口径只落地了 ${subs.length} 处，应为 2 处`);
+  assert.ok(!/^\s*\{a\.hint\}\s*$/m.test(APP), "仍有地方把令牌指纹当成正文渲染");
   assert.ok(APP.includes("令牌指纹 ${a.hint}"), "悬停提示应说明指纹是什么、干什么用");
+  assert.equal(
+    (APP.match(/title=\{accountMetaTitle\(a\)\}/g) ?? []).length,
+    2,
+    "两页应共用同一份悬停文案",
+  );
 });
 
 test("导入来源有中文文案", () => {

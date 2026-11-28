@@ -439,7 +439,7 @@ function Overview({
               </>
             )}
           </div>
-          <div className="kfoot">较昨日余额</div>
+          <div className="kfoot">签到实际到账</div>
         </div>
         <div className="kpi">
           <div className="klabel">今日消耗</div>
@@ -453,7 +453,7 @@ function Overview({
               </>
             )}
           </div>
-          <div className="kfoot">较昨日余额</div>
+          <div className="kfoot">含当天已用掉的</div>
         </div>
         <div className="kpi">
           <div className="klabel">本月领取总积分</div>

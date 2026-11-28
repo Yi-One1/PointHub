@@ -55,12 +55,16 @@ pub struct DayPoint {
     pub known: usize,
     /// 相对前一天的新增（余额差）。前一天没有数据时为 None，**不要填 0**。
     pub gain: Option<f64>,
-    /// 当天各账号余额的正增长之和；无法与前一天比较时为 None。
+    /// 当天签到实际领取的积分之和（口径：`checkin` 且 `delta > 0` 的流水）。
     ///
-    /// 与 `down` 一起把 `gain` 拆开：只比较两天都有余额的账号，
-    /// 新加入的账号不被当成「涨了一大截」。
+    /// 这是「今日新增」的唯一来源——不看余额差，不然签到 +100 但当天有消耗时，
+    /// 新增会被抵小。
     pub up: Option<f64>,
-    /// 当天各账号余额的下降之和（正数，表示消耗了多少）；无法比较时为 None。
+    /// 当天消耗的总积分（正数）。
+    ///
+    /// 按「昨日余额 + 今日领取 − 今日余额」反推：签到 +300、余额从 100 掉到 50 时，
+    /// 消耗是 350 而不是 50——消耗掉的 300 也要算进去。
+    /// 无法与前一天比较时为 None；反推成负数时取 0（说明还有别的加分来源）。
     pub down: Option<f64>,
 }
 
@@ -1056,53 +1060,61 @@ impl Engine {
             }
         }
 
+        // 每天签到实际领取之和：只认 checkin 且 delta>0，重复签到记的是 None，不进这里。
+        let mut claimed: BTreeMap<chrono::NaiveDate, f64> = BTreeMap::new();
+        if let Ok(events) = self.store.load_all_events() {
+            for e in events {
+                if e.kind != "checkin" {
+                    continue;
+                }
+                let Some(delta) = e.delta.filter(|d| *d > 0) else {
+                    continue;
+                };
+                let Some(dt) = ph_core::schedule::local_from_epoch(e.at) else {
+                    continue;
+                };
+                let d = dt.date();
+                if d < from || d > today {
+                    continue;
+                }
+                *claimed.entry(d).or_default() += delta as f64;
+            }
+        }
+
         let mut out = Vec::with_capacity(days.max(1) as usize);
-        // 上一个有数据的天：总额、覆盖账号数、各账号余额（拆分新增/消耗要用后者）。
-        let mut prev: Option<(f64, usize, BTreeMap<String, f64>)> = None;
+        // 上一个有数据的天：总额与覆盖账号数（判断能不能算净值）。
+        let mut prev: Option<(f64, usize)> = None;
         for i in (0..days.max(1)).rev() {
             let d = today - chrono::Duration::days(i);
             let mut total = 0f64;
             let mut known = 0usize;
-            let mut today_map: BTreeMap<String, f64> = BTreeMap::new();
             if let Some(m) = per_day.get(&d) {
                 for a in &self.accounts {
                     if let Some(b) = m.get(&a.id) {
                         total += *b;
                         known += 1;
-                        today_map.insert(a.id.clone(), *b);
                     }
                 }
             }
-            // 只有两天都有数据才算得出「新增」，否则宁可空着。
-            let (gain, up, down) = match &prev {
-                Some((pt, pk, prev_map)) if known > 0 && *pk > 0 => {
-                    let mut up = 0f64;
-                    let mut down = 0f64;
-                    // 只比较两天都有余额的账号：昨天没采到的账号今天出现，
-                    // 把它整份额度算成「增长」会让新增虚高。
-                    for (id, cur) in &today_map {
-                        if let Some(before) = prev_map.get(id) {
-                            let diff = cur - before;
-                            if diff > 0.0 {
-                                up += diff;
-                            } else {
-                                down -= diff;
-                            }
-                        }
-                    }
-                    (Some(total - *pt), Some(up), Some(down))
+            // 「新增」直接取当天领取流水，与余额差无关。
+            let claimed_today = claimed.get(&d).copied().unwrap_or(0.0);
+            // 「消耗」用 昨日余额 + 今日领取 − 今日余额 反推；没有前一天数据就算不出来。
+            let (gain, down) = match prev {
+                Some((pt, pk)) if known > 0 && pk > 0 => {
+                    let net = total - pt;
+                    (Some(net), Some((claimed_today - net).max(0.0)))
                 }
-                _ => (None, None, None),
+                _ => (None, None),
             };
             if known > 0 {
-                prev = Some((total, known, today_map));
+                prev = Some((total, known));
             }
             out.push(DayPoint {
                 date: format!("{:02}-{:02}", d.month(), d.day()),
                 total,
                 known,
                 gain,
-                up,
+                up: Some(claimed_today),
                 down,
             });
         }
@@ -1559,21 +1571,16 @@ mod tests {
     }
 
     #[test]
-    fn daily_series_splits_up_and_down() {
-        let dir = tmpdir("trend-split");
+    fn daily_series_takes_new_from_claims_and_derives_spend() {
+        // 用户例子：昨日 100，今日签到领 300，用掉一部分后余额剩 50。
+        // 新增应为 300（领取），消耗应为 100 + 300 − 50 = 350，净值 −50。
+        let dir = tmpdir("trend-claim");
         let mut e = Engine::open(Some(dir.clone())).unwrap();
-        let up = e
+        let acc = e
             .add_account(
                 Vendor::WorkBuddy,
-                "涨",
-                Credential::from_refresh_token("tok-up-123456"),
-            )
-            .unwrap();
-        let down = e
-            .add_account(
-                Vendor::TraeCn,
-                "跌",
-                Credential::from_refresh_token("tok-down-123456"),
+                "主号",
+                Credential::from_refresh_token("tok-claim-123456"),
             )
             .unwrap();
 
@@ -1581,25 +1588,36 @@ mod tests {
         let yesterday = today - chrono::Duration::days(1);
         let at = |d: chrono::NaiveDate, h: u32| local_epoch(d.and_hms_opt(h, 0, 0).unwrap());
 
-        let mut snap = ph_core::VendorSnapshot::empty(&up, at(yesterday, 10));
+        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(yesterday, 20));
         snap.balance = Some(100.0);
         e.store.append_snapshot(&snap).unwrap();
-        let mut snap = ph_core::VendorSnapshot::empty(&down, at(yesterday, 10));
-        snap.balance = Some(100.0);
+        let mut snap = ph_core::VendorSnapshot::empty(&acc, at(today, 18));
+        snap.balance = Some(50.0);
         e.store.append_snapshot(&snap).unwrap();
 
-        let mut snap = ph_core::VendorSnapshot::empty(&up, at(today, 10));
-        snap.balance = Some(130.0);
-        e.store.append_snapshot(&snap).unwrap();
-        let mut snap = ph_core::VendorSnapshot::empty(&down, at(today, 10));
-        snap.balance = Some(80.0);
-        e.store.append_snapshot(&snap).unwrap();
+        e.store
+            .append_event(&ph_core::ActivityEvent::checkin(
+                &acc,
+                at(today, 10),
+                "已领取",
+                Some(300),
+            ))
+            .unwrap();
+        // 重复签到记的是 None，不该被算成领取
+        e.store
+            .append_event(&ph_core::ActivityEvent::checkin(
+                &acc,
+                at(today, 11),
+                "今天已签",
+                None,
+            ))
+            .unwrap();
 
         let series = e.daily_series(2);
         let last = series.last().unwrap();
-        assert_eq!(last.up, Some(30.0), "涨的账号计入新增");
-        assert_eq!(last.down, Some(20.0), "跌的账号计入消耗，且取正值");
-        assert_eq!(last.gain, Some(10.0), "净值仍是总额差");
+        assert_eq!(last.up, Some(300.0), "新增只看签到领取流水");
+        assert_eq!(last.down, Some(350.0), "消耗 = 昨日余额 + 今日领取 − 今日余额");
+        assert_eq!(last.gain, Some(-50.0), "净值仍是余额差");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

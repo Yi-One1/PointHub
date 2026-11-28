@@ -65,6 +65,21 @@ test("图标不再用滤镜把绿色染灰", () => {
   assert.ok(!CSS.includes(".kval.down .pts"), "仍在使用灰度滤镜方案");
 });
 
+test("两张卡的小字说明与新口径一致：新增看签到流水，消耗含当天已用掉的", () => {
+  assert.ok(
+    APP.includes('<div className="kfoot">签到实际到账</div>'),
+    "今日新增的小字应说明来自签到到账",
+  );
+  assert.ok(
+    APP.includes('<div className="kfoot">含当天已用掉的</div>'),
+    "今日消耗的小字应说明包含当天已用掉的部分",
+  );
+  assert.ok(
+    !APP.includes('<div className="kfoot">较昨日余额</div>'),
+    "旧的「较昨日余额」口径说明应已移除",
+  );
+});
+
 test("红色积分图标已登记且资源存在", () => {
   assert.ok(ASSETS.includes('import pointsRuby from "./assets/points/points-ruby.png";'));
   assert.ok(ASSETS.includes("ruby: pointsRuby,"), "POINTS_ICON 缺少 ruby 映射");

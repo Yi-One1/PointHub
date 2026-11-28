@@ -1,9 +1,9 @@
 /**
- * 趋势页：上半「本月每日」、下半「本年度 12 个月」两张曲线图。
+ * 统计页：上半「本月每日」、下半「本年度 12 个月」两张曲线图。
  *
  * 为什么单独一页而不塞进总览：整月 31 天 + 整年 12 个月是两个完整坐标系，
- * 挤在卡片里只能缩成装饰。总览卡片继续承担「近 7 日一眼看趋势」，要看细的
- * 走这里。
+ * 挤在卡片里只能缩成装饰。总览卡片继续承担「近 7 日一眼看变化」，要看细的
+ * 走这里。这一页是专门读数的，字号与图高整体比卡片大一档（见 `.trends-page`）。
  *
  * 三条约束：
  * - 平台作用域受控（`scope` 由 App 持有）：从总览「月度 ›」跳进来是「全部平台」，
@@ -44,14 +44,11 @@ export function TrendsScreen({
   view,
   scope,
   onScope,
-  onBack,
 }: {
   view: StateView;
   /** null = 全部平台 */
   scope: string | null;
   onScope: (v: string | null) => void;
-  /** 可选的「返回总览」；不传就不显示按钮 */
-  onBack?: () => void;
 }) {
   // 每次渲染重算「今天」：跨零点后切换器的禁用态与上界会自动跟着变。
   const today = new Date();
@@ -144,19 +141,12 @@ export function TrendsScreen({
       : (view.platforms.find((p) => p.vendor === scope)?.display ?? scope);
 
   return (
-    <>
+    <div className="trends-page">
       <div className="head">
         <div>
-          <h1>趋势</h1>
-          <p className="sub">积分变化的每日与每月走势；切换平台只看该平台。</p>
+          <h1>统计</h1>
+          <p className="sub">本月每日与本年度每月的积分变化；切换平台只看该平台。</p>
         </div>
-        {onBack && (
-          <div className="acts">
-            <button className="btn" onClick={onBack}>
-              返回总览
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="field">
@@ -216,7 +206,7 @@ export function TrendsScreen({
           ) : !dHasAny ? (
             <p className="panel-empty">这个月还没有采样数据</p>
           ) : (
-            <TrendChart points={dPoints} visible={monthVisible} height={196} />
+            <TrendChart points={dPoints} visible={monthVisible} height={250} />
           )}
         </div>
       </section>
@@ -254,10 +244,11 @@ export function TrendsScreen({
           ) : !mHasAny ? (
             <p className="panel-empty">这一年还没有采样数据</p>
           ) : (
-            <TrendChart points={mPoints} visible={yearVisible} height={180} />
+            // labelAll：12 个月必须逐点标注，横轴缺哪个月都得看得见
+            <TrendChart points={mPoints} visible={yearVisible} height={230} labelAll />
           )}
         </div>
       </section>
-    </>
+    </div>
   );
 }

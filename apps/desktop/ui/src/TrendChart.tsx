@@ -165,6 +165,17 @@ export function smoothPath(pts: { x: number; y: number }[]): string {
 }
 
 /**
+ * 横轴标签的抽稀步长：每 `step` 个点标一次。
+ *
+ * 整月 30/31 个点挤在一起会糊成一团，所以默认最多标 6 个；本年度只有 12 个
+ * 点、每个点就是一个月份，缺一个月就看不懂横轴，那一张图必须逐点都标。
+ */
+export function labelStep(count: number, all = false): number {
+  if (all) return 1;
+  return Math.max(1, Math.ceil(count / 6));
+}
+
+/**
  * 把带空值的取值序列切成若干连续段，返回每段的下标数组。
  *
  * 断线用：跨着空档去平滑，会把「那天没数据」画成一条凭空出现的斜线。
@@ -188,7 +199,7 @@ export function segmentsOf(values: (number | null)[]): number[][] {
 
 /// 三条线的显示/隐藏。
 ///
-/// 每次调用都是一份**独立** state：卡片、趋势页的两张图、平台弹窗各调一次，
+/// 每次调用都是一份**独立** state：卡片、统计页的两张图、平台弹窗各调一次，
 /// 关掉一张图的某条线不会影响另一张。不要为了「省一次调用」把它提到父组件
 /// 用 props 传下去——那正是之前两张图连动的成因。
 export function useTrendVisible() {
@@ -236,10 +247,13 @@ export function TrendChart({
   points,
   visible,
   height = 148,
+  labelAll = false,
 }: {
   points: TrendPoint[];
   visible: TrendKey[];
   height?: number;
+  /** 横轴逐点都标（本年度 12 个月用）；默认按 6 档抽稀 */
+  labelAll?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -260,7 +274,8 @@ export function TrendChart({
   const padL = showTotal ? 44 : 9;
   const padR = showFlow ? 40 : 9;
   const padT = 10;
-  const padB = 18;
+  // 11.5px 的横轴标签要比原来 9.5px 多留 2px，否则月份字的底边会贴到画布外
+  const padB = 20;
   const innerW = Math.max(8, width - padL - padR);
   const innerH = Math.max(8, height - padT - padB);
 
@@ -300,8 +315,9 @@ export function TrendChart({
       .join(" ");
   };
 
-  // 点数多时（整月 30/31 天）只画 6 个横轴标签，否则会挤成一团。
-  const step = Math.max(1, Math.ceil(points.length / 6));
+  // 点数多时（整月 30/31 天）只画 6 个横轴标签，否则会挤成一团；
+  // 本年度 12 个月要求逐点都标（缺哪个月一眼就能看出来）。
+  const step = labelStep(points.length, labelAll);
   const cur = hover !== null ? points[hover] : null;
   const tooltipLeft =
     hover === null ? 0 : Math.min(Math.max(x(hover) + 12, padL), Math.max(padL, width - 128));
@@ -379,7 +395,7 @@ export function TrendChart({
 
           {points.map((p, i) =>
             i % step === 0 || i === points.length - 1 ? (
-              <text key={`x-${i}`} className="taxis" x={x(i)} y={height - 4} textAnchor="middle">
+              <text key={`x-${i}`} className="taxis" x={x(i)} y={height - 5} textAnchor="middle">
                 {p.label}
               </text>
             ) : null,

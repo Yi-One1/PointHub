@@ -1,12 +1,14 @@
 /**
- * 趋势返工：左侧新增「趋势」页（本月每日 + 本年度 12 个月）+ 平滑曲线。
+ * 统计页（上一版叫「趋势」）：本月每日 + 本年度 12 个月两张曲线图 + 平滑曲线。
  *
- * 用户验收的五条问题逐条落成断言：
+ * 用户验收的问题逐条落成断言：
  * 1. 曲线要平滑（单调三次插值，不过冲）；
- * 2. 「月度 ›」不再开弹窗，改为切到左侧「趋势」页，页内可切月份与年份；
+ * 2. 「月度 ›」不再开弹窗，改为切到左侧「统计」页，页内可切月份与年份；
  * 3. 平台弹窗只留近 7 日；
  * 4. 总览「近 7 日积分变化」卡片保留，按钮改成跳转；
- * 5. 图例按图独立，不能共用一份 state。
+ * 5. 图例按图独立，不能共用一份 state；
+ * 6. 菜单与平台按钮不再叫「趋势」，本年度 12 个月全部标注，页面字号放大，
+ *    右上角「返回总览」删除。
  *
  * 这些都是「源码里看得见的结构约束」，跑不了组件就守源码：一次改动把某条
  * 约束抹掉时，这里必须红。
@@ -32,13 +34,28 @@ const ENGINE = readFileSync(
   "utf8"
 );
 
-test("左侧菜单新增「趋势」一栏，且在远程模式下不出现", () => {
+test("左侧菜单新增「统计」一栏，且在远程模式下不出现", () => {
   assert.match(APP, /type Tab = "overview" \| "accounts" \| "trends";/, "Tab 要含 trends");
   assert.ok(ICONS.includes("export function IconTrend"), "需要一枚趋势图标");
   assert.ok(APP.includes("<IconTrend />"), "菜单项要用趋势图标");
-  assert.ok(APP.includes('label="趋势"'));
+  assert.ok(APP.includes('label="统计"'));
   // 远程模式下 credit_* 命令会被后端拒绝，入口直接隐藏而不是点了报错
-  assert.match(APP, /view\.mode !== "remote" && \(\s*<NavItem[\s\S]{0,200}label="趋势"/);
+  assert.match(APP, /view\.mode !== "remote" && \(\s*<NavItem[\s\S]{0,200}label="统计"/);
+});
+
+test("「趋势」这个说法在两处用户可见位置都换掉（菜单 / 平台按钮）", () => {
+  // 菜单与页面标题一致，都叫「统计」——页面装的是按月、按年的汇总，不是预测
+  assert.ok(APP.includes('label="统计"'));
+  assert.ok(TRENDS.includes("<h1>统计</h1>"));
+  assert.ok(!APP.includes('label="趋势"'), "菜单不该再出现「趋势」");
+  assert.ok(!TRENDS.includes("<h1>趋势</h1>"));
+  // 平台卡片右上角的按钮直接说明弹窗内容（近 7 日），与菜单名刻意不同
+  assert.match(
+    APP,
+    /title=\{`查看 \$\{g\.display\} 的近 7 日积分变化`\}\s*>\s*近 7 日\s*<\/button>/,
+    "平台按钮文案应为「近 7 日」"
+  );
+  assert.ok(!/>\s*趋势\s*</.test(APP), "总览里不该再有「趋势」按钮字样");
 });
 
 test("趋势页有「本月」与「本年度」两个区块，各取各的数据", () => {
@@ -179,4 +196,50 @@ test("后端按年取 12 个月：固定 12 条、空月占位、删掉旧口径
   assert.ok(COMMANDS.includes("年份应落在 2000–2100 之间"));
   assert.match(API, /creditYearMonths: \(vendor: string \| null, year: number\)/);
   assert.ok(!API.includes("creditMonths"));
+});
+
+// ---------------------------------------------------------------- 第二轮验收
+
+/// 取出 `labelStep` 的函数体并编译成可执行函数（结构变了就报错，不静默跳过）。
+function compileLabelStep(src) {
+  const m = src.match(/export function labelStep\([^)]*\)[^{]*\{([\s\S]*?)\n\}/);
+  assert.ok(m, "取不到 labelStep：函数被改名或不再是单层花括号的简单函数");
+  return new Function("count", "all", m[1]);
+}
+
+test("本年度横轴显示全部 12 个月（本月每日仍按 6 档抽稀）", () => {
+  const step = compileLabelStep(CHART);
+  assert.equal(step(12, true), 1, "12 个月必须逐点标注，缺哪个月一眼看得出");
+  assert.equal(step(31), 6, "31 天仍要抽稀，否则标签糊成一团");
+  assert.equal(step(12, false), 2, "不传 labelAll 时保持原来的 6 档");
+  assert.equal(step(7), 2);
+  assert.equal(step(1), 1, "只有一个点时不能除出 0 步长");
+
+  // 本年度那张图要真的把 labelAll 打开，本月那张不能打开
+  assert.match(TRENDS, /points=\{mPoints\}[\s\S]{0,120}labelAll/);
+  assert.ok(!/points=\{dPoints\}[^\n]*labelAll/.test(TRENDS), "本月每日不该逐日标注");
+  // 组件侧确实用 labelStep 决定抽稀，而不是另写一份取整
+  assert.match(CHART, /const step = labelStep\(points\.length, labelAll\);/);
+});
+
+test("统计页右上角不再有「返回总览」按钮", () => {
+  assert.ok(!TRENDS.includes("返回总览"), "按钮文案应已删除");
+  assert.ok(!TRENDS.includes("onBack"), "TrendsScreen 不该再收 onBack");
+  assert.ok(!APP.includes("onBack="), "App 也不该再传 onBack");
+  // 顶部只剩标题与说明，不再有独立的按钮容器
+  const head = TRENDS.slice(TRENDS.indexOf('<div className="head">'), TRENDS.indexOf('<div className="field">'));
+  assert.ok(!head.includes('className="acts"'), "head 里不该再有按钮区");
+});
+
+test("统计页字号与图高放大，且不波及总览卡片与平台弹窗", () => {
+  // 放大挂在页面容器下
+  assert.match(CSS, /\.trends-page \.tsec-head h4\s*\{\s*font-size: 15px/);
+  assert.match(CSS, /\.trends-page \.taxis\s*\{\s*font-size: 11\.5px/);
+  assert.match(CSS, /\.trends-page \.tlegend-item\s*\{[^}]*font-size: 12\.5px/);
+  assert.match(TRENDS, /height=\{250\}/, "本月图要加高");
+  assert.match(TRENDS, /height=\{230\}/, "本年度图要加高");
+  // 全局仍是原来的紧凑尺寸——否则总览卡片、弹窗会被一起顶大
+  assert.match(CSS, /\.tsec-head h4 \{\s*margin: 0 auto 0 0;\s*font-size: 12px/, "全局小节标题保持 12px");
+  assert.match(CSS, /^\.taxis \{\s*font-size: 9\.5px/m, "全局坐标轴保持 9.5px");
+  assert.match(CSS, /\.tlegend-item \{\s*display: inline-flex;[\s\S]{0,200}?font-size: 11px/, "全局图例保持 11px");
 });

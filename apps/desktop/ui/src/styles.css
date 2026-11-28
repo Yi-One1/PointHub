@@ -1454,6 +1454,64 @@ textarea {
   color: var(--text);
 }
 
+/* 统计页是专门用来看细的一页，字号与图高整体抬一档。
+   只挂在 `.trends-page` 下面：总览卡片和平台弹窗保持原来的紧凑尺寸，
+   否则一页的放大需求会把总览的版式一起顶乱。 */
+.trends-page .sub {
+  font-size: 13.5px;
+}
+
+.trends-page .bcard {
+  padding: 18px 20px 16px;
+}
+
+.trends-page .tsec-head {
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.trends-page .tsec-head h4 {
+  font-size: 15px;
+}
+
+/* 坐标轴：9.5px 在 1180 宽的窗口里要凑近才认得出，11.5px 才是一眼可读 */
+.trends-page .taxis {
+  font-size: 11.5px;
+}
+
+.trends-page .tlegend {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.trends-page .tlegend-item {
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 12.5px;
+}
+
+.trends-page .tlegend-item i {
+  width: 8px;
+  height: 8px;
+}
+
+.trends-page .ttip,
+.trends-page .ttip b {
+  font-size: 12px;
+}
+
+/* 月份/年份切换器跟着放大；平台选择器不在此列——那是等宽网格，
+   字变大反而会把 WorkBuddy 这类长名字挤成省略号。 */
+.trends-page .tsec-head .seg-item {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.trends-page .panel-empty {
+  padding: 24px 16px;
+  font-size: 14px;
+}
+
 .toast-stack {
   position: fixed;
   right: 18px;

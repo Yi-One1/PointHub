@@ -27,7 +27,7 @@ type Tab = "overview" | "accounts" | "trends";
 export default function App() {
   const [view, setView] = useState<StateView | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
-  // 趋势页看哪个平台；null = 全部平台。受控在这一层，总览与弹窗都能把用户送过去。
+  // 统计页看哪个平台；null = 全部平台。受控在这一层，总览与弹窗都能把用户送过去。
   const [trendScope, setTrendScope] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | null>(null);
@@ -144,13 +144,13 @@ export default function App() {
     }
   };
 
-  /// 跳到趋势页并指定平台（null = 全部平台）。总览卡片与平台弹窗共用这一条路径。
+  /// 跳到统计页并指定平台（null = 全部平台）。总览卡片与平台弹窗共用这一条路径。
   const openTrends = useCallback((vendor: string | null) => {
     setTrendScope(vendor);
     setTab("trends");
   }, []);
 
-  // 趋势页在远程模式下没有入口也取不到数：配对成功时把还停在该页的用户送回
+  // 统计页在远程模式下没有入口也取不到数：配对成功时把还停在该页的用户送回
   // 总览，否则主区会只剩一片空白。
   useEffect(() => {
     if (view?.mode === "remote" && tab === "trends") setTab("overview");
@@ -252,12 +252,12 @@ export default function App() {
             badge={view.accounts.length}
             icon={<IconAccounts />}
           />
-          {/* 远程模式下趋势命令在电脑端，本机会直接拒绝，入口干脆不出现 */}
+          {/* 远程模式下统计命令在电脑端，本机会直接拒绝，入口干脆不出现 */}
           {view.mode !== "remote" && (
             <NavItem
               active={tab === "trends"}
               onClick={() => setTab("trends")}
-              label="趋势"
+              label="统计"
               icon={<IconTrend />}
             />
           )}
@@ -315,12 +315,7 @@ export default function App() {
         )}
 
         {tab === "trends" && view.mode !== "remote" && (
-          <TrendsScreen
-            view={view}
-            scope={trendScope}
-            onScope={setTrendScope}
-            onBack={() => setTab("overview")}
-          />
+          <TrendsScreen view={view} scope={trendScope} onScope={setTrendScope} />
         )}
       </main>
 
@@ -376,7 +371,7 @@ function Overview({
   onTravel: (a: AccountView) => void;
   onToggle: (a: AccountView, enabled: boolean) => void;
   onAdd: () => void;
-  /** 跳到趋势页；参数是该图要看的平台（null = 全部平台） */
+  /** 跳到统计页；参数是该图要看的平台（null = 全部平台） */
   onOpenTrends: (vendor: string | null) => void;
   /** 发现的新版本号；null 表示没有可更新的版本 */
   updateVersion: string | null;
@@ -385,7 +380,7 @@ function Overview({
   const enabled = view.accounts.filter((a) => a.enabled);
   const done = enabled.filter((a) => a.checked_in_today === true).length;
   const pending = Math.max(enabled.length - done, 0);
-  // 「今日新增 / 今日消耗」直接取趋势最后一天，两处口径天然一致。
+  // 「今日新增 / 今日消耗」直接取走势的最后一天，两处口径天然一致。
   const todayPoint = view.trend.length > 0 ? view.trend[view.trend.length - 1] : null;
   const todayUp = todayPoint?.up ?? null;
   const todayDown = todayPoint?.down ?? null;
@@ -419,7 +414,7 @@ function Overview({
 
   const lastSample = view.aggregate.last_sampled_at ? clock(view.aggregate.last_sampled_at) : null;
   // null 表示没开弹窗；vendor 为 null 时看全部平台。弹窗只放近 7 日，
-  // 本月/本年度在左侧「趋势」页（`onOpenTrends`）。
+  // 本月/本年度在左侧「统计」页（`onOpenTrends`）。
   const [modalScope, setModalScope] = useState<{ vendor: string | null; display: string } | null>(null);
 
   return (
@@ -573,7 +568,7 @@ function Overview({
                     onClick={() => setModalScope({ vendor: g.vendor, display: g.display })}
                     title={`查看 ${g.display} 的近 7 日积分变化`}
                   >
-                    趋势
+                    近 7 日
                   </button>
                 )}
               </div>
@@ -675,7 +670,7 @@ function Overview({
 }
 
 function TrendCard({ trend, onOpenMonths }: { trend: DayPoint[]; onOpenMonths?: () => void }) {
-  // 这一张图自己一份图例 state，与趋势页的两张图互不影响。
+  // 这一张图自己一份图例 state，与统计页的两张图互不影响。
   const [visible, toggle] = useTrendVisible();
   // 总额、新增、消耗都画成曲线；当天没有采样就断线，不补 0（口径见 dayTrendPoints）。
   const points: TrendPoint[] = dayTrendPoints(trend);
@@ -686,7 +681,7 @@ function TrendCard({ trend, onOpenMonths }: { trend: DayPoint[]; onOpenMonths?: 
       <div className="btitle">
         <span>近 7 日积分变化</span>
         {onOpenMonths && (
-          <button className="btitle-btn" onClick={onOpenMonths} title="去趋势页看本月每日与本年度 12 个月">
+          <button className="btitle-btn" onClick={onOpenMonths} title="去统计页看本月每日与本年度 12 个月">
             月度 ›
           </button>
         )}
